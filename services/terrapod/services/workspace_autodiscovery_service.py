@@ -58,6 +58,12 @@ logger = get_logger(__name__)
 # Atlantis's default `when_modified: ["*.tf*"]` semantics.
 _TF_EXTENSIONS = (".tf", ".tfvars", ".tf.json", ".tfvars.json", ".hcl")
 
+#: A Pulumi project is declared by this file; the stacks beside it are
+#: `Pulumi.<stack>.yaml` (#1570). Both spellings, because Pulumi accepts
+#: either and a repository may use whichever.
+_PULUMI_PROJECT_FILES = ("Pulumi.yaml", "Pulumi.yml")
+_PULUMI_STACK_RE = re.compile(r"^Pulumi\.(?P<stack>[^.]+)\.ya?ml$")
+
 
 @lru_cache(maxsize=512)
 def _glob_to_regex(pattern: str) -> re.Pattern[str]:
@@ -129,6 +135,45 @@ def _is_terraform_file(path: str) -> bool:
     return any(path.endswith(ext) for ext in _TF_EXTENSIONS)
 
 
+def pulumi_stack_of(path: str) -> str | None:
+    """The stack a `Pulumi.<stack>.yaml` path names, or None.
+
+    `Pulumi.yaml` itself declares the PROJECT and names no stack, so it
+    returns None -- a project with no stack file has nothing to create a
+    workspace for, since a Terrapod workspace is one unit of state and a
+    Pulumi stack is that unit.
+    """
+    name = PurePosixPath(path).name
+    if name in _PULUMI_PROJECT_FILES:
+        return None
+    m = _PULUMI_STACK_RE.match(name)
+    return m.group("stack") if m else None
+
+
+def _is_pulumi_file(path: str) -> bool:
+    """True if the path is a Pulumi stack file this rule could act on."""
+    return pulumi_stack_of(path) is not None
+
+
+def _claims_file(engine: str, path: str) -> bool:
+    """Whether a rule for `engine` looks at this file at all (#1570).
+
+    A rule is pinned to one engine and **ignores every other engine's files**,
+    which is what removes the tie-break: a directory holding both a
+    `Pulumi.yaml` and `.tf` files is claimed by whichever rule is looking for
+    it, and a rule never has to decide what it is looking at.
+
+    An unrecognised engine claims nothing, rather than falling back to
+    Terraform. Silently discovering the wrong engine's files would create
+    workspaces that cannot run.
+    """
+    if engine == "pulumi":
+        return _is_pulumi_file(path)
+    if engine in ("terraform", "tofu", "opentofu", ""):
+        return _is_terraform_file(path)
+    return False
+
+
 def _is_ignored(path: str, ignore_patterns: list[str]) -> bool:
     """True if any ignore pattern matches the path."""
     return any(_match_glob(path, p) for p in ignore_patterns)
@@ -137,10 +182,10 @@ def _is_ignored(path: str, ignore_patterns: list[str]) -> bool:
 def rule_claims_path(rule: AutodiscoveryRule, path: str) -> bool:
     """Decide whether `rule` would auto-create a workspace for `path`.
 
-    Pure-logic; no I/O. Three checks: terraform file, matches the
-    rule's pattern, not ignored.
+    Pure-logic; no I/O. Three checks: the file belongs to the rule's
+    engine (#1570), matches the rule's pattern, and is not ignored.
     """
-    if not _is_terraform_file(path):
+    if not _claims_file(getattr(rule, "engine", "") or "terraform", path):
         return False
     if _is_ignored(path, rule.ignore_patterns or []):
         return False
@@ -168,6 +213,50 @@ def derive_root_directory(file_path: str) -> str:
 # Workspaces are 1..90 chars; legal set is letters/digits/`-`/`_`.
 # We map disallowed chars to `-` and trim to fit.
 _NAME_SANITISE_RE = re.compile(r"[^A-Za-z0-9_-]+")
+
+
+def candidate_of(rule: AutodiscoveryRule, path: str) -> tuple[str, str | None]:
+    """The (directory, stack) unit this path belongs to, for `rule` (#1570).
+
+    One place, because the preview and the create loop MUST agree: a preview
+    that groups by directory while creation groups by (directory, stack) would
+    show one workspace and make several.
+
+    `stack` is None for Terraform, where the directory is the whole unit.
+    """
+    root = derive_root_directory(path)
+    if (getattr(rule, "engine", "") or "terraform") == "pulumi":
+        return root, pulumi_stack_of(path)
+    return root, None
+
+
+def derive_pulumi_workspace_name(root_directory: str, stack: str) -> str:
+    """`project::stack` for a discovered Pulumi stack (#1570).
+
+    **The project is the directory name, not the `name:` inside `Pulumi.yaml`.**
+    That is a deliberate constraint, not an oversight: everything in this module
+    is pure path logic with no I/O (`rule_claims_path` is called for every path
+    in a PR diff), and reading the project name would mean fetching and parsing
+    a file from the VCS inside the matching loop. The directory is also what
+    `derive_root_directory` already uses as the unit of work, so the two agree.
+
+    The consequence to know: a `Pulumi.yaml` whose `name:` differs from its
+    directory produces a workspace named after the directory. The stack half is
+    always exact -- it comes from the filename.
+
+    The `::` separator is the form the rest of Terrapod already uses for a
+    Pulumi workspace (`_run_pulumi_phase` splits it back into project and stack
+    with `ws.name.partition("::")`), so a discovered workspace is indistinguishable
+    from a hand-created one.
+    """
+    project = PurePosixPath(root_directory).name if root_directory else ""
+    project = _NAME_SANITISE_RE.sub("-", project).strip("-")
+    stack = _NAME_SANITISE_RE.sub("-", stack).strip("-")
+    if not project:
+        # A stack file at the repository root has no directory to name the
+        # project after. The stack alone is still a valid unit of state.
+        return stack[:90]
+    return f"{project}::{stack}"[:90]
 
 
 def derive_workspace_name(rule: AutodiscoveryRule, root_directory: str) -> str:
@@ -203,6 +292,7 @@ async def find_or_autocreate_workspace(
     root_directory: str,
     baseline_sha: str | None = None,
     pr_number: int | None = None,
+    stack: str | None = None,
 ) -> tuple[Workspace, bool]:
     """Look up the workspace this rule + directory should map to, or
     create it if it doesn't exist.
@@ -230,18 +320,30 @@ async def find_or_autocreate_workspace(
     # working_directory) tuple? If so we reuse it regardless of how it
     # was created (rule, manual, etc.) — autodiscovery never replaces
     # an explicit workspace.
+    #
+    # The stack is part of that tuple, not an afterthought (#1570). A Pulumi
+    # directory normally holds several stacks, so filtering on the directory
+    # alone would match every sibling stack at once and `scalar_one_or_none`
+    # would RAISE rather than reuse. `stack IS NULL` is the Terraform case and
+    # every workspace that predates the column.
+    stack_filter = Workspace.stack.is_(None) if stack is None else Workspace.stack == stack
     existing = await db.execute(
         select(Workspace).where(
             Workspace.vcs_connection_id == rule.vcs_connection_id,
             Workspace.vcs_repo_url == rule.repo_url,
             Workspace.working_directory == root_directory,
+            stack_filter,
         )
     )
     ws = existing.scalar_one_or_none()
     if ws is not None:
         return ws, False
 
-    name = derive_workspace_name(rule, root_directory)
+    name = (
+        derive_pulumi_workspace_name(root_directory, stack)
+        if stack is not None
+        else derive_workspace_name(rule, root_directory)
+    )
 
     # Lookup #2: the derived name might collide with an unrelated
     # workspace (different repo or working_directory) — refuse and let
@@ -276,6 +378,16 @@ async def find_or_autocreate_workspace(
     ws = Workspace(
         id=uuid.uuid4(),  # generate_uuid7 default also fine; explicit for log clarity
         name=name,
+        # The engine the rule discovers is the engine the workspace runs. A
+        # rule that finds `Pulumi.<stack>.yaml` and then created a Terraform
+        # workspace would produce something that cannot run what was found.
+        engine=getattr(rule, "engine", "") or "terraform",
+        # NULL for Terraform, so the (connection, repo, directory, stack)
+        # lookup above keeps matching exactly one workspace per directory.
+        stack=stack,
+        # Pulumi's own setting (#1813). A Terraform rule cannot set it -- the
+        # API refuses -- so the default carries through untouched there.
+        pulumi_bind_plan=getattr(rule, "pulumi_bind_plan", False),
         execution_mode=rule.execution_mode,
         execution_backend=rule.execution_backend,
         engine_version=rule.engine_version,
@@ -445,16 +557,23 @@ async def preview_for_paths(
     in the same directory only appear once, matching the materialise path.
     """
     # Same grouping rule as autodiscover_for_paths.
-    roots: dict[str, str] = {}  # root_directory -> workspace_name
+    # Keyed by (root, stack), not root: a Pulumi directory holding
+    # `Pulumi.dev.yaml` and `Pulumi.prod.yaml` is TWO workspaces, and keying by
+    # directory alone would preview one and create two (#1570).
+    roots: dict[tuple[str, str | None], str] = {}
     for path in file_paths:
         if not rule.enabled:
             break
         if not rule_claims_path(rule, path):
             continue
-        root = derive_root_directory(path)
-        if root in roots:
+        root, stack = candidate_of(rule, path)
+        if (root, stack) in roots:
             continue
-        roots[root] = derive_workspace_name(rule, root)
+        roots[(root, stack)] = (
+            derive_pulumi_workspace_name(root, stack)
+            if stack is not None
+            else derive_workspace_name(rule, root)
+        )
 
     if not roots:
         return []
@@ -467,7 +586,7 @@ async def preview_for_paths(
         select(Workspace.working_directory, Workspace.autodiscovery_rule_id).where(
             Workspace.vcs_connection_id == rule.vcs_connection_id,
             Workspace.vcs_repo_url == rule.repo_url,
-            Workspace.working_directory.in_(list(roots.keys())),
+            Workspace.working_directory.in_([r for r, _ in roots]),
         )
     )
     dir_bound: dict[str, uuid.UUID | None] = {row[0]: row[1] for row in dir_bound_result.all()}
@@ -478,7 +597,7 @@ async def preview_for_paths(
     name_taken: set[str] = {row[0] for row in name_taken_result.all()}
 
     preview: list[dict[str, Any]] = []
-    for root, name in roots.items():
+    for (root, _stack), name in roots.items():
         if root in dir_bound:
             # Reuse-by-directory: scan no-ops, no workspace created.
             collision = True
@@ -535,28 +654,28 @@ async def autodiscover_for_paths(
     skip_roots = skip_roots or set()
     # Group `(rule, root_directory)` so multiple files in the same
     # directory only fire once.
-    matches: dict[tuple[uuid.UUID, str], AutodiscoveryRule] = {}
+    matches: dict[tuple[uuid.UUID, str, str | None], AutodiscoveryRule] = {}
     for path in changed_files:
         for rule in rules:
             if not rule.enabled:
                 continue
             if not rule_claims_path(rule, path):
                 continue
-            root = derive_root_directory(path)
+            root, stack = candidate_of(rule, path)
             if root in skip_roots:
                 # Rename target — handled by the merge-time in-place
                 # move, not by speculative creation (#314).
                 break
-            matches[(rule.id, root)] = rule
+            matches[(rule.id, root, stack)] = rule
             # First matching rule wins — don't fan out to multiple
             # rules for the same file.
             break
 
     created: list[Workspace] = []
-    for (_rule_id, root), rule in matches.items():
+    for (_rule_id, root, stack), rule in matches.items():
         try:
             ws, was_created = await find_or_autocreate_workspace(
-                db, rule, root, baseline_sha=baseline_sha, pr_number=pr_number
+                db, rule, root, baseline_sha=baseline_sha, pr_number=pr_number, stack=stack
             )
             if was_created:
                 created.append(ws)
