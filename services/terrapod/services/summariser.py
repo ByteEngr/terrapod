@@ -627,7 +627,9 @@ async def _load_cost_estimate(run: Run) -> str:
         return ""
 
 
-async def _gather_inputs(db: AsyncSession, run: Run, kind: str) -> tuple[str, str, str, str, str]:
+async def _gather_inputs(
+    db: AsyncSession, run: Run, kind: str, ws: Workspace | None = None
+) -> tuple[str, str, str, str, str]:
     """Return ``(primary_input, primary_label, primary_lang, code_context, code_diff)``.
 
     primary_input is the (cleaned) plan JSON for ``plan_summary`` or
@@ -649,7 +651,16 @@ async def _gather_inputs(db: AsyncSession, run: Run, kind: str) -> tuple[str, st
 
     if kind == "plan_summary":
         key = plan_json_output_key(str(run.workspace_id), str(run.id))
-        primary_label = "PLAN_JSON"
+        # A Pulumi preview uploads its digest to the same key, so this path is
+        # already reached for Pulumi runs — it just called the document a
+        # Terraform plan (#1569). The label is what the prompt shows the model,
+        # so getting it wrong asks for a reading of a format the document is
+        # not in, and invites Terraform vocabulary for Pulumi work.
+        # The workspace comes from the caller, which already has it — a second
+        # `db.get` here would be a round-trip for a field the caller is holding.
+        engine = getattr(ws, "engine", "") or ""
+        is_pulumi = isinstance(engine, str) and engine.strip().lower() == "pulumi"
+        primary_label = "PULUMI_PREVIEW" if is_pulumi else "PLAN_JSON"
         primary_lang = "json"
         try:
             raw = await storage.get(key)
@@ -658,19 +669,39 @@ async def _gather_inputs(db: AsyncSession, run: Run, kind: str) -> tuple[str, st
                 "plan JSON not available for summariser", run_id=str(run.id), error=str(e)
             )
             return "", primary_label, primary_lang, "", ""
-        # Clean BEFORE truncation so the head-truncate budget is spent
-        # on actual changes, not no-op snapshot noise.
-        cleaned = await asyncio.to_thread(_clean_plan_json_bytes, raw)
-        # Collect the marked values BEFORE redacting them, or every one comes
-        # back as the placeholder and the derived-value pass below matches
-        # nothing. Ordering, not an optimisation.
-        plan_secrets = await asyncio.to_thread(marked_values, cleaned)
-        # Redact BEFORE truncating, so the budget is not spent carrying
-        # secrets that are about to be replaced anyway -- and so a secret
-        # can never survive by sitting past the truncation point in a
-        # payload that is later re-fitted.
-        cleaned = await asyncio.to_thread(redact_plan_json, cleaned)
-        primary = await asyncio.to_thread(_fit_plan_json, cleaned, cfg.plan_json_max_bytes)
+        if is_pulumi:
+            # None of the Terraform passes below apply. `_clean_plan_json_bytes`
+            # strips `prior_state` and no-op changes, `marked_values` reads
+            # `sensitive_values`, and `redact_plan_json` walks change blocks —
+            # a preview digest has none of those keys, so each would be a
+            # no-op searching for a shape that is not there.
+            #
+            # Secrets are already gone: Pulumi's engine replaces a marked
+            # property with the literal `[secret]` before it writes the event
+            # log this digest is built from, unless `--show-secrets` is passed,
+            # which a preview never gets. That is the engine's redaction rather
+            # than Terrapod's, and `docs/pulumi.md` records the consequence.
+            #
+            # Set and fall through, never an early return: the tail of this
+            # function gathers the code context and diff and then redacts all
+            # five against the workspace's own sensitive variable values
+            # (GHSA-5mpc-79pv-6mq7). Returning here would skip that for a
+            # Pulumi run — the one thing this function exists to guarantee.
+            primary = await asyncio.to_thread(_fit_plan_json, raw, cfg.plan_json_max_bytes)
+        else:
+            # Clean BEFORE truncation so the head-truncate budget is spent
+            # on actual changes, not no-op snapshot noise.
+            cleaned = await asyncio.to_thread(_clean_plan_json_bytes, raw)
+            # Collect the marked values BEFORE redacting them, or every one
+            # comes back as the placeholder and the derived-value pass below
+            # matches nothing. Ordering, not an optimisation.
+            plan_secrets = await asyncio.to_thread(marked_values, cleaned)
+            # Redact BEFORE truncating, so the budget is not spent carrying
+            # secrets that are about to be replaced anyway -- and so a secret
+            # can never survive by sitting past the truncation point in a
+            # payload that is later re-fitted.
+            cleaned = await asyncio.to_thread(redact_plan_json, cleaned)
+            primary = await asyncio.to_thread(_fit_plan_json, cleaned, cfg.plan_json_max_bytes)
     else:
         # failure_analysis. Choose log key by phase: apply-phase errors
         # carry their detail in the apply log (#419). Plan-phase errors
@@ -1632,7 +1663,7 @@ async def _summarise_one(payload: dict, _slack: dict) -> None:
             await _settle_ai_policy_gate(db, run, ws, kind=kind, error=BUDGET_EXHAUSTED_ERROR)
             return
 
-        primary, label, lang, code_context, code_diff = await _gather_inputs(db, run, kind)
+        primary, label, lang, code_context, code_diff = await _gather_inputs(db, run, kind, ws)
         if not primary:
             await _upsert_summary(
                 db,
@@ -2089,7 +2120,9 @@ async def post_followup(
 
     # Build the cacheable prefix — SAME inputs the initial summary
     # used, so the provider's prompt cache serves the prefix hit.
-    primary, label, lang, code_context, code_diff = await _gather_inputs(db, run, plan_summary.kind)
+    primary, label, lang, code_context, code_diff = await _gather_inputs(
+        db, run, plan_summary.kind, workspace
+    )
     if not primary:
         # The CV/log was GC'd or never existed. Record an errored
         # assistant row so the transcript is uniform, commit, surface.
