@@ -74,7 +74,9 @@ async def generate_run_compliance_report(db: AsyncSession, run: Run) -> dict[str
             "enforcement_level": e.enforcement_level,
             "outcome": e.outcome,
             "overridden_by": str(e.overridden_by) if e.overridden_by else None,
-            "overridden_at": e.overridden_at.strftime("%Y-%m-%dT%H:%M:%SZ") if e.overridden_at else None,
+            "overridden_at": e.overridden_at.strftime("%Y-%m-%dT%H:%M:%SZ")
+            if e.overridden_at
+            else None,
         }
         for e in policy_evals
     ]
@@ -92,7 +94,9 @@ async def generate_run_compliance_report(db: AsyncSession, run: Run) -> dict[str
             "low_count": scan.low_count,
         }
 
-    created_at_str = run.created_at.strftime("%Y-%m-%dT%H:%M:%SZ") if getattr(run, "created_at", None) else None
+    created_at_str = (
+        run.created_at.strftime("%Y-%m-%dT%H:%M:%SZ") if getattr(run, "created_at", None) else None
+    )
 
     return {
         "id": f"cmpl-{run.id}",
@@ -114,12 +118,7 @@ async def generate_workspace_compliance_report(
     db: AsyncSession, workspace_id: uuid.UUID, limit: int = 50
 ) -> dict[str, Any]:
     """Generate an aggregate compliance report across recent runs for a workspace."""
-    stmt = (
-        select(Run)
-        .where(Run.workspace_id == workspace_id)
-        .order_by(Run.id.desc())
-        .limit(limit)
-    )
+    stmt = select(Run).where(Run.workspace_id == workspace_id).order_by(Run.id.desc()).limit(limit)
     res = await db.execute(stmt)
     runs = list(res.scalars().all())
 

@@ -668,7 +668,7 @@ func registerObserve(s *mcp.Server, c *terrapod.Client) {
 
 	// ── terrapod_run_compliance_report ──────────────────────────────
 	type runComplianceReportIn struct {
-		RunID string `json:"run_id" jsonschema:"description=Run ID (run-... or bare UUID)"`
+		RunID string `json:"run_id" jsonschema:"the run id (run-... or a bare uuid) whose compliance report to fetch"`
 	}
 	type runComplianceReportOut struct {
 		Report *terrapod.RunComplianceReport `json:"compliance_report"`
