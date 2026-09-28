@@ -4,9 +4,6 @@ import uuid
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-from fastapi import HTTPException
-
 from terrapod.api.dependencies import AuthenticatedUser
 from terrapod.api.routers import runs as runs_router
 from terrapod.auth import capabilities as cap
@@ -74,7 +71,10 @@ class TestRunComplianceReportAPI:
         }
 
         with (
-            patch.object(runs_router, "resolve_workspace_capabilities_for", AsyncMock(return_value=READ_CAPS)),
+            patch.object(runs_router, "_get_run", AsyncMock(return_value=run)),
+            patch.object(
+                runs_router, "resolve_workspace_capabilities_for", AsyncMock(return_value=READ_CAPS)
+            ),
             patch.object(
                 compliance_report_service,
                 "generate_run_compliance_report",
@@ -108,8 +108,10 @@ class TestRunComplianceReportAPI:
         }
 
         with (
-            patch.object(runs_router, "_parse_workspace_id", AsyncMock(return_value=ws)),
-            patch.object(runs_router, "resolve_workspace_capabilities_for", AsyncMock(return_value=READ_CAPS)),
+            patch.object(runs_router, "_get_workspace", AsyncMock(return_value=ws)),
+            patch.object(
+                runs_router, "resolve_workspace_capabilities_for", AsyncMock(return_value=READ_CAPS)
+            ),
             patch.object(
                 compliance_report_service,
                 "generate_workspace_compliance_report",
@@ -133,7 +135,13 @@ class TestRunComplianceReportAPI:
         mock_workspace_report = {
             "workspace_id": str(ws.id),
             "total_runs_evaluated": 1,
-            "summary": {"compliant": 1, "non_compliant": 0, "overridden": 0, "pending_review": 0, "compliance_rate_percent": 100.0},
+            "summary": {
+                "compliant": 1,
+                "non_compliant": 0,
+                "overridden": 0,
+                "pending_review": 0,
+                "compliance_rate_percent": 100.0,
+            },
             "runs": [
                 {
                     "run_id": str(run.id),
@@ -149,8 +157,10 @@ class TestRunComplianceReportAPI:
         }
 
         with (
-            patch.object(runs_router, "_parse_workspace_id", AsyncMock(return_value=ws)),
-            patch.object(runs_router, "resolve_workspace_capabilities_for", AsyncMock(return_value=READ_CAPS)),
+            patch.object(runs_router, "_get_workspace", AsyncMock(return_value=ws)),
+            patch.object(
+                runs_router, "resolve_workspace_capabilities_for", AsyncMock(return_value=READ_CAPS)
+            ),
             patch.object(
                 compliance_report_service,
                 "generate_workspace_compliance_report",

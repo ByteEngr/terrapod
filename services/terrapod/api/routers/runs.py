@@ -2074,7 +2074,7 @@ async def show_workspace_compliance_report(
     """Show aggregate compliance report or CSV export across recent runs for a workspace."""
     from terrapod.services import compliance_report_service
 
-    ws = await _parse_workspace_id(workspace_id, db)
+    ws = await _get_workspace(workspace_id, db)
     caps = await resolve_workspace_capabilities_for(db, user, ws)
     if not has_capability(caps, cap.RUN_READ):
         raise HTTPException(
