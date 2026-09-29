@@ -41,9 +41,14 @@ rather than a Terrapod defect, and `docs/pulumi.md` says so plainly.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
+import pathlib
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+import httpx
 import structlog
 
 logger = structlog.get_logger("runner.pulumi_exec")
@@ -57,25 +62,154 @@ logger = structlog.get_logger("runner.pulumi_exec")
 _API_PREFIX = "/api/terrapod/v1"
 
 
+#: How much of a failed setup command's output to carry into the error. Enough
+#: for Pulumi's message and the line it points at, not enough to bury it.
+_SETUP_ERROR_LINES = 12
+
+
 class StackError(RuntimeError):
     """The run's stack could not be reached or set up, so the run must stop."""
 
 
-def plugin_override_env(api_url: str, token: str) -> dict[str, str]:
-    """Point plugin downloads at Terrapod rather than get.pulumi.com.
+def plugin_override_env(api_url: str, token: str, proxy_port: int) -> dict[str, str]:
+    """Point plugin downloads at the loopback shim rather than get.pulumi.com.
 
     The `.*` is load-bearing. An anchored pattern that fails to match does not
     error — the CLI simply uses its default host, so a deployment with egress
     keeps working and an air-gapped one hangs on a download nobody can see. The
     only safe pattern is the one that cannot miss.
+
+    **Through `CacheProxy`, not straight at the API (#1906).** The cache requires
+    a credential and Pulumi's plugin downloader sends none — `PULUMI_ACCESS_TOKEN`
+    belongs to the service backend and is not carried to a plugin host — so
+    pointing the CLI at the API directly answered 401 on every provider download
+    and no program using any provider could run. The shim holds the token.
+
+    `proxy_port` is required rather than defaulted, because a default would make
+    the broken direct URL the thing a caller gets by forgetting.
     """
     if not api_url:
         return {}
-    base = api_url.rstrip("/")
-    env = {"PULUMI_PLUGIN_DOWNLOAD_URL_OVERRIDES": f".*={base}{_API_PREFIX}/package-cache/pulumi"}
+    env = {"PULUMI_PLUGIN_DOWNLOAD_URL_OVERRIDES": f".*=http://127.0.0.1:{proxy_port}"}
     if token:
         env["PULUMI_ACCESS_TOKEN"] = token
     return env
+
+
+class CacheProxy(threading.Thread):
+    """A loopback shim that holds the run's token so a client need not carry it.
+
+    Two clients in a Pulumi run reach Terrapod's package cache and **cannot
+    authenticate to it**, for different reasons and with the same consequence:
+
+    - **the go command**, which will talk plain HTTP to a module proxy quite
+      happily but will never carry a credential over one. Not in the URL
+      ("refusing to pass credentials to insecure URL"), not from a netrc, and not
+      from a `GOAUTH` helper either, whose header it drops in silence. All three
+      were tried against a real proxy before this was written.
+    - **Pulumi's plugin downloader** (#1906), which sends no credential at all.
+      `PULUMI_ACCESS_TOKEN` is the service backend's and is not carried to a
+      plugin host, so every provider download answered 401 and no program using
+      any provider could run.
+
+    Every Terrapod package-cache route requires authentication, and the runner
+    reaches the API over an in-cluster HTTP URL in many deployments — so on that
+    path both clients can reach the cache and neither can use it.
+
+    This closes the gap without weakening anything. It listens on 127.0.0.1,
+    forwards to the API with the run's own token, and the client is pointed at it:
+    the client carries no credential, so it has nothing to refuse. The token
+    travels exactly the hop it already travels for this run's artifacts, its state
+    and its binaries.
+
+    **Not credentials in the URL**, which both clients would accept in some form.
+    Pulumi prints the URL it fetched from in its own download warnings, and the
+    runner streams its log to the API and the UI — the same reason pip's
+    credential goes in a `.netrc` and npm's in an `.npmrc` rather than an index
+    URL.
+
+    `segment` names the cache it fronts (`go`, `pulumi`), and serves GET alone.
+    """
+
+    def __init__(self, api_url: str, token: str, segment: str) -> None:
+        super().__init__(daemon=True)
+        self._upstream = f"{api_url.rstrip('/')}{_API_PREFIX}/package-cache/{segment}"
+        self._token = token
+        self._server = ThreadingHTTPServer(("127.0.0.1", 0), self._handler())
+        self.port = self._server.server_address[1]
+
+    def _handler(self):  # type: ignore[no-untyped-def]
+        upstream, token = self._upstream, self._token
+
+        class Handler(BaseHTTPRequestHandler):
+            # The runner's log is the run's log; the proxy's own chatter would
+            # bury the client's output in it.
+            def log_message(self, *args: object) -> None:  # noqa: A003
+                return
+
+            def do_GET(self) -> None:  # noqa: N802
+                headers = {"Authorization": f"Bearer {token}"}
+                try:
+                    # Redirects are followed HERE, not handed to the client.
+                    # The cache answers a download with a 302 to presigned
+                    # storage, and the go command does not follow one -- it
+                    # reports the 302 as the error. The target needs no
+                    # credential, so following it costs nothing and keeps the
+                    # client out of it.
+                    with httpx.stream(
+                        "GET",
+                        upstream + self.path,
+                        headers=headers,
+                        timeout=120.0,
+                        follow_redirects=True,
+                    ) as r:
+                        self.send_response(r.status_code)
+                        # Pulumi's downloader compares what it copied against
+                        # Content-Length and fails when they disagree — and an
+                        # absent header reads as -1, so it never matches:
+                        # "expected -1 bytes but copied 19525050". The go
+                        # command does not check, which is how this shim ran
+                        # without it. Same fix as the BFF's, for the same
+                        # reason.
+                        #
+                        # Only when the body was not content-encoded: httpx
+                        # decompresses transparently, so on an encoded response
+                        # the upstream's length describes bytes this shim no
+                        # longer has.
+                        if not r.headers.get("content-encoding"):
+                            length = r.headers.get("content-length")
+                            if length:
+                                self.send_header("Content-Length", length)
+                        ctype = r.headers.get("content-type")
+                        if ctype:
+                            self.send_header("Content-Type", ctype)
+                        self.end_headers()
+                        # Streamed, not buffered: a module zip or a provider
+                        # plugin runs to tens of megabytes and this is in the
+                        # runner's own process.
+                        for chunk in r.iter_bytes():
+                            self.wfile.write(chunk)
+                except Exception as exc:  # noqa: BLE001 - reported to the client
+                    self.send_response(502)
+                    self.end_headers()
+                    self.wfile.write(str(exc).encode())
+
+        return Handler
+
+    def run(self) -> None:
+        self._server.serve_forever(poll_interval=0.2)
+
+    def stop(self) -> None:
+        """Stop serving. Safe to call whether or not the thread ever started.
+
+        `shutdown()` waits for the serve loop to acknowledge it, so on a server
+        that never began serving it blocks for ever -- which, called from the
+        `finally` that guarantees cleanup, would hang the run instead of ending
+        it. The liveness check is what makes the guarantee safe to make.
+        """
+        if self.is_alive():
+            self._server.shutdown()
+        self._server.server_close()
 
 
 def service_backend_env(api_url: str, token: str) -> dict[str, str]:
@@ -116,19 +250,50 @@ def stack_ref() -> str:
 
 
 def _pulumi(binary: str, args: list[str], *, child_grace: float, what: str) -> None:
-    """Run a setup command, raising `StackError` if it fails.
+    """Run a setup command, raising `StackError` carrying what the CLI said.
 
-    No log file: `exec_subprocess.run` truncates the one it is given, and these
-    run beside the phase's own command. Teeing to stdout puts them in the combined
-    log all the same.
+    **The CLI's own message is read back and put in the error**, because teeing
+    to stdout does not deliver it where anyone will look. The phase log is
+    assembled from the runner's own log file, not from the pod's stdout, so a
+    failure here reached the run as a bare *"pulumi exited 255"* while the
+    sentence that explained it — `could not unmarshal '/workspace/Pulumi.yaml':
+    invalid YAML file` — stayed in a Job pod that is deleted shortly after. An
+    operator reading the run could not see it at all.
+
+    That defeats the point of the pre-flight, which exists to fail early *with
+    the CLI's own message*. Its own scratch file rather than the phase's:
+    `exec_subprocess.run` truncates the log it is given, so sharing one would
+    erase the phase log that is about to be uploaded.
     """
+    import tempfile
+
     from terrapod.runner import exec_subprocess
 
-    result = exec_subprocess.run(
-        [binary, *args], log_file=None, child_grace_seconds=child_grace, tee_to_stdout=True
-    )
-    if result.exit_code != 0:
-        raise StackError(f"could not {what} (pulumi exited {result.exit_code})")
+    with tempfile.NamedTemporaryFile(suffix=".log", delete=False) as fh:
+        scratch = fh.name
+    try:
+        result = exec_subprocess.run(
+            [binary, *args],
+            log_file=scratch,
+            child_grace_seconds=child_grace,
+            tee_to_stdout=True,
+        )
+        if result.exit_code == 0:
+            return
+        said = ""
+        try:
+            said = pathlib.Path(scratch).read_text(errors="replace").strip()
+        except OSError:  # pragma: no cover - the message is a bonus, not the error
+            pass
+    finally:
+        with contextlib.suppress(OSError):
+            os.unlink(scratch)
+
+    # The tail, not the whole thing: Pulumi puts the diagnosis last, and a setup
+    # command that printed pages of progress would bury it.
+    tail = "\n".join(said.splitlines()[-_SETUP_ERROR_LINES:])
+    detail = f": {tail}" if tail else ""
+    raise StackError(f"could not {what} (pulumi exited {result.exit_code}){detail}")
 
 
 def select_stack(binary: str, *, child_grace: float = 25.0) -> str:
