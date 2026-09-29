@@ -11,6 +11,7 @@ import { ErrorBanner } from '@/components/error-banner'
 import { EmptyState } from '@/components/empty-state'
 import { SortableHeader } from '@/components/sortable-header'
 import { LabelsEditor } from '@/components/labels-editor'
+import { categoryKey, nativeCategoryKey } from '@/lib/variable-category'
 import { HealthConditions } from '@/components/health-conditions'
 import { PlanSummaryBadges } from '@/components/plan-summary-badges'
 import { WorkspacePicker } from '@/components/workspace-picker'
@@ -146,13 +147,6 @@ interface Variable {
     description: string
     /** "static" or "vault" (#1439). */
     'value-source'?: string
-    /**
-     * False when this workspace's engine never reads this category — a
-     * pulumi_config variable on a Terraform workspace, or the reverse (#1565).
-     * Absent from an older API, which is why the check below is `=== false`
-     * rather than falsy: unknown must not read as "not used".
-     */
-    'applies-to-engine'?: boolean
   }
 }
 
@@ -393,7 +387,7 @@ function WorkspaceDetailContent() {
   const [showAddVar, setShowAddVar] = useState(false)
   const [varKey, setVarKey] = useState('')
   const [varValue, setVarValue] = useState('')
-  const [varCategory, setVarCategory] = useState('terraform')
+  const [varCategory, setVarCategory] = useState('native')
   const [varSensitive, setVarSensitive] = useState(false)
   const [varHcl, setVarHcl] = useState(false)
   // Git module-source auth builder (#1028): when the category is git_http_auth /
@@ -407,6 +401,11 @@ function WorkspaceDetailContent() {
   const [gitKnownHosts, setGitKnownHosts] = useState('')
   const [gitRewrite, setGitRewrite] = useState<'none' | 'to_https' | 'to_ssh'>('none')
   const isGitCat = varCategory === 'git_http_auth' || varCategory === 'git_ssh_auth'
+  /** The category as a person reads it, in this workspace's engine's words. */
+  const categoryLabel = (category: string, engine?: string) => {
+    const key = categoryKey(category, engine)
+    return key ? t(`variables.${key}`) : category
+  }
 
   // Vault value source (#1439): the variable holds a *reference*, resolved
   // server-side at run time. Discrete fields, never raw JSON.
@@ -481,7 +480,7 @@ function WorkspaceDetailContent() {
   const [editingVarId, setEditingVarId] = useState<string | null>(null)
   const [editVarKey, setEditVarKey] = useState('')
   const [editVarValue, setEditVarValue] = useState('')
-  const [editVarCategory, setEditVarCategory] = useState('terraform')
+  const [editVarCategory, setEditVarCategory] = useState('native')
   const [editVarSensitive, setEditVarSensitive] = useState(false)
   const [editVarHcl, setEditVarHcl] = useState(false)
   const [savingVar, setSavingVar] = useState(false)
@@ -735,7 +734,7 @@ function WorkspaceDetailContent() {
 
   async function loadVariables() {
     try {
-      setVariables(await fetchAllPages<Variable>(`/api/v2/workspaces/${workspaceId}/vars`))
+      setVariables(await fetchAllPages<Variable>(`/api/v1/workspaces/${workspaceId}/vars`))
     } catch (err) {
       setError(err instanceof Error ? err.message : t('errors.loadVariables'))
     } finally {
@@ -1552,7 +1551,7 @@ function WorkspaceDetailContent() {
     setAddingVar(true)
     setError('')
     try {
-      const res = await apiFetch(`/api/v2/workspaces/${workspaceId}/vars`, {
+      const res = await apiFetch(`/api/v1/workspaces/${workspaceId}/vars`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/vnd.api+json' },
         body: JSON.stringify({
@@ -1579,7 +1578,7 @@ function WorkspaceDetailContent() {
       }
       setVarKey('')
       setVarValue('')
-      setVarCategory('terraform')
+      setVarCategory('native')
       setVarSensitive(false)
       setVarHcl(false)
       setGitSource('vcs_connection')
@@ -1604,7 +1603,7 @@ function WorkspaceDetailContent() {
     // Irreversible delete → confirm in both modes.
     if (!confirmDelete(t('variables.deleteConfirm', { key: variables.find(v => v.id === varId)?.attributes.key ?? '' }))) return
     try {
-      const res = await apiFetch(`/api/v2/workspaces/${workspaceId}/vars/${varId}`, { method: 'DELETE' })
+      const res = await apiFetch(`/api/v1/workspaces/${workspaceId}/vars/${varId}`, { method: 'DELETE' })
       if (!res.ok) throw new Error(await parseApiError(res, t('errors.deleteVariable')))
       await loadVariables()
     } catch (err) {
@@ -1764,7 +1763,7 @@ function WorkspaceDetailContent() {
       } else if (editVarValue !== '') {
         attrs.value = editVarValue
       }
-      const res = await apiFetch(`/api/v2/workspaces/${workspaceId}/vars/${editingVarId}`, {
+      const res = await apiFetch(`/api/v1/workspaces/${workspaceId}/vars/${editingVarId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/vnd.api+json' },
         body: JSON.stringify({ data: { type: 'vars', attributes: attrs } }),
@@ -3366,12 +3365,14 @@ function WorkspaceDetailContent() {
                   <div>
                     <label htmlFor="var-cat" className="block text-sm font-medium text-slate-300 mb-1">{t('variables.category')}</label>
                     <select id="var-cat" value={varCategory} onChange={(e) => { setVarCategory(e.target.value); if (e.target.value === 'git_http_auth') ensureVcsConnections() }} className="w-full px-3 py-2 border border-slate-600 rounded-lg bg-slate-700 text-slate-100 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent">
-                      <option value="terraform">Terraform</option>
+                      {/* One category for the engine's own parameters,
+                          whatever the workspace runs (#1898): Terraform input
+                          variables, Pulumi stack config, Ansible extra vars are
+                          one role with three deliveries, and the runner
+                          dispatches on the engine. An engine-specific option
+                          here would be the mechanism showing through. */}
+                      <option value="native">{t(`variables.${nativeCategoryKey(attrs.engine)}`)}</option>
                       <option value="env">{t('variables.categoryEnv')}</option>
-                      {/* Pulumi stack config. Only offered on a Pulumi
-                          workspace: the API would accept it anywhere (#1407 §6)
-                          but nothing would ever read it. */}
-                      {isPulumi && <option value="pulumi_config">{t('variables.categoryPulumiConfig')}</option>}
                       <option value="git_http_auth">Git HTTPS credential</option>
                       <option value="git_ssh_auth">Git SSH credential</option>
                     </select>
@@ -3418,13 +3419,20 @@ function WorkspaceDetailContent() {
                         <input type="checkbox" checked={varSensitive} onChange={(e) => setVarSensitive(e.target.checked)} className="rounded border-slate-600 bg-slate-700 text-brand-600 focus:ring-brand-500" />
                         <span className="text-sm text-slate-300">{t('variables.sensitive')}</span>
                       </label>
-                      {/* Only terraform variables can be typed: an environment
-                          variable is a string by definition, so offering the flag
-                          there was always meaningless (#1435). */}
-                      {varCategory === 'terraform' && (
+                      {/* Only a native variable can be typed: an environment
+                          variable is a string by definition, so offering the
+                          flag there was always meaningless (#1435).
+
+                          Labelled "Structured", not "HCL": one flag, and what
+                          it means is the engine's (#1898). Terraform reads a
+                          raw HCL expression; Pulumi sets a nested config value
+                          rather than a literal dotted key. "HCL" named
+                          Terraform's mechanism on a control that is not
+                          Terraform's. */}
+                      {varCategory === 'native' && (
                         <label className="flex items-center gap-2 cursor-pointer">
                           <input type="checkbox" checked={varHcl} onChange={(e) => setVarHcl(e.target.checked)} className="rounded border-slate-600 bg-slate-700 text-brand-600 focus:ring-brand-500" />
-                          <span className="text-sm text-slate-300">HCL</span>
+                          <span className="text-sm text-slate-300">{t('variables.structured')}</span>
                         </label>
                       )}
                     </div>
@@ -3531,7 +3539,7 @@ function WorkspaceDetailContent() {
                             <VariableEditPanel
                               idPrefix={`edit-${v.id}`}
                               vaultCheckUrl={vaultCheckUrl}
-                              engine={attrs.engine || 'terraform'}
+                              engine={attrs.engine}
                               state={editPanelState}
                               onChange={patchEditPanel}
                               vaultAvailable={vaultOfferable}
@@ -3554,15 +3562,10 @@ function WorkspaceDetailContent() {
                           <td className="px-4 py-3 text-xs text-slate-400 hidden sm:table-cell">
                             <div className="flex flex-wrap items-center gap-1.5">
                               <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-                                v.attributes.category === 'terraform' ? 'bg-purple-900/50 text-purple-300' : 'bg-cyan-900/50 text-cyan-300'
+                                v.attributes.category === 'native' ? 'bg-purple-900/50 text-purple-300' : 'bg-cyan-900/50 text-cyan-300'
                               }`}>
-                                {v.attributes.category}
+                                {categoryLabel(v.attributes.category, attrs.engine)}
                               </span>
-                              {v.attributes['applies-to-engine'] === false && (
-                                <span data-testid="var-not-consumed" className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-900/40 text-amber-300">
-                                  {t('variables.notUsedByEngine')}
-                                </span>
-                              )}
                             </div>
                           </td>
                           {perms['can-update-variable'] && (
@@ -3590,8 +3593,8 @@ function WorkspaceDetailContent() {
                     {editingVarId === v.id ? (
                       <VariableEditPanel
                           idPrefix={`medit-${v.id}`}
+                          engine={attrs.engine}
                           vaultCheckUrl={vaultCheckUrl}
-                          engine={attrs.engine || 'terraform'}
                           state={editPanelState}
                           onChange={patchEditPanel}
                           vaultAvailable={vaultOfferable}
@@ -3606,21 +3609,11 @@ function WorkspaceDetailContent() {
                         <div className="flex items-start justify-between gap-2 mb-1.5">
                           <span className="text-sm font-mono font-medium text-slate-200 break-all">{v.attributes.key}</span>
                           <span className={`shrink-0 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-                            v.attributes.category === 'terraform' ? 'bg-purple-900/50 text-purple-300' : 'bg-cyan-900/50 text-cyan-300'
+                            v.attributes.category === 'native' ? 'bg-purple-900/50 text-purple-300' : 'bg-cyan-900/50 text-cyan-300'
                           }`}>
-                            {v.attributes.category}
+                            {categoryLabel(v.attributes.category, attrs.engine)}
                           </span>
                         </div>
-                        {/* On its own line rather than beside the category
-                            pill: at phone width a long key already crowds that
-                            row, and this is signal that must not be dropped. */}
-                        {v.attributes['applies-to-engine'] === false && (
-                          <div className="mb-1.5">
-                            <span data-testid="var-not-consumed" className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-900/40 text-amber-300">
-                              {t('variables.notUsedByEngine')}
-                            </span>
-                          </div>
-                        )}
                         <div className="mb-2 text-sm text-slate-400 font-mono break-all">
                           {v.attributes['value-source'] === 'vault'
                             ? <VaultValueDisplay value={v.attributes.value} varKey={v.attributes.key} />

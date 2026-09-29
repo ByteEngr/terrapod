@@ -447,8 +447,12 @@ func TestCreateVariable_PulumiConfigCategory(t *testing.T) {
 	// literal dotted key).
 	c, _, lastBody := newVarFixture(t)
 	_, err := c.CreateVariable(t.Context(), "ws-aaa", CreateVariableRequest{
-		Key:        "aws:region",
-		Value:      "eu-west-1",
+		Key:   "aws:region",
+		Value: "eu-west-1",
+		// Sent under an accepted alias (#1898). The SDK must transmit it
+		// unchanged: folding it here would mean the client and the server
+		// disagree about what was asked for, and only the server's fold is
+		// authoritative.
 		Category:   "pulumi_config",
 		Sensitive:  true,
 		Structured: true,
@@ -481,28 +485,18 @@ func TestCreateVariable_PulumiConfigCategory(t *testing.T) {
 	}
 }
 
-func TestVariable_AppliesToEngine(t *testing.T) {
-	// False is the meaningful value -- it is what says the variable does
-	// nothing on this workspace's engine -- so it must survive a decode rather
-	// than being indistinguishable from an absent field on a struct that
-	// defaults it to false anyway. Decoding both ways is what proves the tag is
-	// right; a single false case would pass with no tag at all.
-	for _, tc := range []struct {
-		name string
-		body string
-		want bool
-	}{
-		{"engine reads it", `{"data":[{"id":"var-a","type":"vars","attributes":{"key":"k","category":"pulumi_config","applies-to-engine":true}}]}`, true},
-		{"engine never reads it", `{"data":[{"id":"var-a","type":"vars","attributes":{"key":"k","category":"pulumi_config","applies-to-engine":false}}]}`, false},
-		// An older server does not send it at all. False is the safe decode:
-		// a consumer acting on it is told to read the workspace's engine too,
-		// so an absent field cannot be mistaken for an authoritative verdict.
-		{"older server omits it", `{"data":[{"id":"var-a","type":"vars","attributes":{"key":"k","category":"pulumi_config"}}]}`, false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
+func TestVariable_CategoryIsWhateverTheSurfaceSaid(t *testing.T) {
+	// The SDK does not translate the category, and must not: one row is
+	// `terraform` on the TFE-compatible surface and `native` on Terrapod's own
+	// (#1898), so a client translating either way would report a name the
+	// server it is talking to does not use -- and GetVariableByKey, which
+	// compares against exactly this field, would stop matching.
+	for _, want := range []string{"terraform", "native", "env", "git_http_auth"} {
+		t.Run(want, func(t *testing.T) {
+			body := `{"data":[{"id":"var-a","type":"vars","attributes":{"key":"k","category":"` + want + `"}}]}`
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/vnd.api+json")
-				_, _ = w.Write([]byte(tc.body))
+				_, _ = w.Write([]byte(body))
 			}))
 			t.Cleanup(srv.Close)
 			c, err := NewClient(Options{BaseURL: srv.URL, Token: "t"})
@@ -513,9 +507,111 @@ func TestVariable_AppliesToEngine(t *testing.T) {
 			if err != nil {
 				t.Fatalf("GetVariable: %v", err)
 			}
-			if v.AppliesToEngine != tc.want {
-				t.Errorf("AppliesToEngine = %v, want %v", v.AppliesToEngine, tc.want)
+			if v.Category != want {
+				t.Errorf("Category = %q, want %q", v.Category, want)
+			}
+			got, err := c.GetVariableByKey(t.Context(), "ws-aaa", want, "k")
+			if err != nil {
+				t.Fatalf("GetVariableByKey(%q): %v", want, err)
+			}
+			if got.ID != "var-a" {
+				t.Errorf("GetVariableByKey returned %q", got.ID)
 			}
 		})
+	}
+}
+
+func TestSameCategory(t *testing.T) {
+	// One category, several spellings (#1898). Which one a caller holds
+	// depends on the surface it came from and the server version that
+	// answered, so == is right until something reads from the other prefix
+	// and then silently wrong in the direction of "no such variable".
+	for _, tc := range []struct {
+		a, b string
+		want bool
+	}{
+		{"terraform", "native", true},
+		{"native", "terraform", true},
+		{"pulumi_config", "terraform", true},
+		{"pulumi_config", "native", true},
+		{"terraform", "terraform", true},
+		{"native", "native", true},
+		// The fold must not reach past its own aliases.
+		{"env", "native", false},
+		{"env", "terraform", false},
+		{"git_http_auth", "native", false},
+		{"git_ssh_auth", "git_http_auth", false},
+		{"env", "env", true},
+		{"nonsense", "native", false},
+		{"nonsense", "nonsense", true},
+	} {
+		if got := SameCategory(tc.a, tc.b); got != tc.want {
+			t.Errorf("SameCategory(%q, %q) = %v, want %v", tc.a, tc.b, got, tc.want)
+		}
+	}
+}
+
+func TestGetVariableByKey_AcceptsEitherSpelling(t *testing.T) {
+	// The server returns `terraform` on the compatibility surface this SDK
+	// reads and `native` on /api/v1. A caller that learned the name from
+	// either must find the row, or moving a tool between prefixes turns
+	// every lookup into a NotFoundError with nothing to explain it.
+	for _, served := range []string{"terraform", "native"} {
+		for _, asked := range []string{"terraform", "native", "pulumi_config"} {
+			t.Run(served+"/"+asked, func(t *testing.T) {
+				body := `{"data":[{"id":"var-a","type":"vars","attributes":{"key":"region","category":"` + served + `"}}]}`
+				srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					w.Header().Set("Content-Type", "application/vnd.api+json")
+					_, _ = w.Write([]byte(body))
+				}))
+				t.Cleanup(srv.Close)
+				c, err := NewClient(Options{BaseURL: srv.URL, Token: "t"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				got, err := c.GetVariableByKey(t.Context(), "ws-aaa", asked, "region")
+				if err != nil {
+					t.Fatalf("served %q, asked %q: %v", served, asked, err)
+				}
+				if got.ID != "var-a" {
+					t.Errorf("got %q", got.ID)
+				}
+			})
+		}
+	}
+}
+
+func TestGetVariableByKey_StillSeparatesRealCategories(t *testing.T) {
+	// Accepting the aliases must not collapse the identity the widened
+	// constraint exists to hold: `native:region` and `env:region` are two
+	// variables, and asking for one must not return the other.
+	body := `{"data":[
+		{"id":"var-env","type":"vars","attributes":{"key":"region","category":"env"}},
+		{"id":"var-tf","type":"vars","attributes":{"key":"region","category":"terraform"}}
+	]}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/vnd.api+json")
+		_, _ = w.Write([]byte(body))
+	}))
+	t.Cleanup(srv.Close)
+	c, err := NewClient(Options{BaseURL: srv.URL, Token: "t"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ asked, want string }{
+		{"env", "var-env"},
+		{"terraform", "var-tf"},
+		{"native", "var-tf"},
+	} {
+		got, err := c.GetVariableByKey(t.Context(), "ws-aaa", tc.asked, "region")
+		if err != nil {
+			t.Fatalf("asked %q: %v", tc.asked, err)
+		}
+		if got.ID != tc.want {
+			t.Errorf("asked %q: got %q, want %q", tc.asked, got.ID, tc.want)
+		}
+	}
+	if _, err := c.GetVariableByKey(t.Context(), "ws-aaa", "git_http_auth", "region"); err == nil {
+		t.Error("a category with no such row should be a NotFoundError")
 	}
 }

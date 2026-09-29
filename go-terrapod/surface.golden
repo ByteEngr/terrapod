@@ -1,6 +1,11 @@
 const AssignmentExplicit
 const AssignmentGlobal
 const AssignmentRuleBased
+const CategoryEnv
+const CategoryGitHTTP
+const CategoryGitSSH
+const CategoryNative
+const CategoryTerraform
 const DiscoveryPath
 const ModuleAutodiscoveryTargetNamespace
 const ModuleAutodiscoveryTargetPattern
@@ -1139,7 +1144,6 @@ field VCSLabelTotal.Key string `json:"key"`
 field VCSLabelTotal.Label string `json:"label"`
 field VCSLabelTotal.Value string `json:"value"`
 field ValidationError.Detail string
-field Variable.AppliesToEngine bool `json:"applies-to-engine"`
 field Variable.Category string `json:"category"`
 field Variable.CreatedAt string `json:"created-at,omitempty"`
 field Variable.Description string `json:"description,omitempty"`
@@ -1365,6 +1369,7 @@ func MarshalResourceWithIDAndRels(id, resourceType string, attributes, relations
 func NewClient(opts Options) (*Client, error)
 func ParseResource(body []byte) (*Resource, error)
 func ParseResourceList(body []byte) ([]Resource, error)
+func SameCategory(a, b string) bool
 func StripPrefix(id, prefix string) string
 method (*AIPolicyEvaluation) IsBlocking() bool
 method (*AIPolicyStatus) IsBlocking() bool
