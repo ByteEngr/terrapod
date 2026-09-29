@@ -15,6 +15,19 @@ _BASE = "http://test"
 _AUTH = {"Authorization": "Bearer dummy"}
 
 
+def _no_inert_vars():
+    """The engine-mismatch resolver's result (#1565): no workspace on this page
+    holds a variable its engine never reads.
+
+    The detail and list routes resolve this once per request, so a test that
+    scripts `db.execute` in order has to account for it. Empty is the answer for
+    every fixture here — none of them sets up a mismatched variable.
+    """
+    result = MagicMock()
+    result.scalars.return_value.all.return_value = []
+    return result
+
+
 def _user(email="test@example.com", roles=None, auth_method="session"):
     return AuthenticatedUser(
         email=email,
@@ -201,7 +214,7 @@ class TestShowWorkspace:
         ws_result.scalar_one_or_none.return_value = ws
         no_run_result = MagicMock()
         no_run_result.scalar_one_or_none.return_value = None
-        mock_db.execute.side_effect = [ws_result, no_run_result]
+        mock_db.execute.side_effect = [ws_result, no_run_result, _no_inert_vars()]
 
         async with AsyncClient(transport=ASGITransport(app=app), base_url=_BASE) as c:
             resp = await c.get(
@@ -264,7 +277,7 @@ class TestShowWorkspaceById:
         ws_result.scalar_one_or_none.return_value = ws
         no_run_result = MagicMock()
         no_run_result.scalar_one_or_none.return_value = None
-        mock_db.execute.side_effect = [ws_result, no_run_result]
+        mock_db.execute.side_effect = [ws_result, no_run_result, _no_inert_vars()]
 
         async with AsyncClient(transport=ASGITransport(app=app), base_url=_BASE) as c:
             resp = await c.get(
@@ -853,7 +866,7 @@ class TestPermissionsBlock:
         ws_result.scalar_one_or_none.return_value = ws
         no_run_result = MagicMock()
         no_run_result.scalar_one_or_none.return_value = None
-        mock_db.execute.side_effect = [ws_result, no_run_result]
+        mock_db.execute.side_effect = [ws_result, no_run_result, _no_inert_vars()]
 
         async with AsyncClient(transport=ASGITransport(app=app), base_url=_BASE) as c:
             resp = await c.get(f"/api/v2/workspaces/ws-{ws.id}", headers=_AUTH)
@@ -883,7 +896,7 @@ class TestPermissionsBlock:
         ws_result.scalar_one_or_none.return_value = ws
         no_run_result = MagicMock()
         no_run_result.scalar_one_or_none.return_value = None
-        mock_db.execute.side_effect = [ws_result, no_run_result]
+        mock_db.execute.side_effect = [ws_result, no_run_result, _no_inert_vars()]
 
         async with AsyncClient(transport=ASGITransport(app=app), base_url=_BASE) as c:
             resp = await c.get(f"/api/v2/workspaces/ws-{ws.id}", headers=_AUTH)
@@ -915,7 +928,7 @@ class TestPermissionsBlock:
         ws_result.scalar_one_or_none.return_value = ws
         no_run_result = MagicMock()
         no_run_result.scalar_one_or_none.return_value = None
-        mock_db.execute.side_effect = [ws_result, no_run_result]
+        mock_db.execute.side_effect = [ws_result, no_run_result, _no_inert_vars()]
 
         async with AsyncClient(transport=ASGITransport(app=app), base_url=_BASE) as c:
             resp = await c.get(f"/api/v2/workspaces/ws-{ws.id}", headers=_AUTH)
@@ -933,7 +946,7 @@ class TestPermissionsBlock:
         ws_result.scalar_one_or_none.return_value = ws
         no_run_result = MagicMock()
         no_run_result.scalar_one_or_none.return_value = None
-        mock_db.execute.side_effect = [ws_result, no_run_result]
+        mock_db.execute.side_effect = [ws_result, no_run_result, _no_inert_vars()]
 
         async with AsyncClient(transport=ASGITransport(app=app), base_url=_BASE) as c:
             resp = await c.get(f"/api/v2/workspaces/ws-{ws.id}", headers=_AUTH)
@@ -1252,7 +1265,7 @@ class TestVcsWorkflowAttributes:
         ws_result.scalar_one_or_none.return_value = ws
         no_run = MagicMock()
         no_run.scalar_one_or_none.return_value = None
-        mock_db.execute.side_effect = [ws_result, no_run]
+        mock_db.execute.side_effect = [ws_result, no_run, _no_inert_vars()]
 
         async with AsyncClient(transport=ASGITransport(app=app), base_url=_BASE) as c:
             resp = await c.get(f"/api/v2/workspaces/ws-{ws.id}", headers=_AUTH)
@@ -1432,7 +1445,7 @@ class TestVcsWorkflowAttributes:
         # No active PR runs.
         active_result = MagicMock()
         active_result.all.return_value = []
-        mock_db.execute.side_effect = [mock_result, active_result]
+        mock_db.execute.side_effect = [mock_result, active_result, _no_inert_vars()]
 
         async with AsyncClient(transport=ASGITransport(app=app), base_url=_BASE) as c:
             resp = await c.patch(
@@ -1468,7 +1481,7 @@ class TestVcsWorkflowAttributes:
         # Two PR runs in flight.
         active_result = MagicMock()
         active_result.all.return_value = [(uuid.uuid4(),), (uuid.uuid4(),)]
-        mock_db.execute.side_effect = [mock_result, active_result]
+        mock_db.execute.side_effect = [mock_result, active_result, _no_inert_vars()]
 
         async with AsyncClient(transport=ASGITransport(app=app), base_url=_BASE) as c:
             resp = await c.patch(
@@ -1536,19 +1549,21 @@ class TestVcsWorkflowAttributes:
 
 
 def _list_db(workspaces):
-    """A mock DB whose two execute() calls return workspaces then no runs."""
+    """A mock DB whose three execute() calls return workspaces, no runs, then no
+    engine-mismatched workspaces (#1565)."""
     ws_result = MagicMock()
     ws_result.scalars.return_value.all.return_value = workspaces
     runs_result = MagicMock()
     runs_result.scalars.return_value.all.return_value = []
     db = AsyncMock()
-    db.execute.side_effect = [ws_result, runs_result]
+    db.execute.side_effect = [ws_result, runs_result, _no_inert_vars()]
     return db
 
 
 def _list_db_seeall(total, page_ws):
-    """Mock DB for the admin/audit see-all fast path (#1056): the three calls are
-    COUNT (scalar) -> page rows (LIMIT/OFFSET) -> latest runs."""
+    """Mock DB for the admin/audit see-all fast path (#1056): the four calls are
+    COUNT (scalar) -> page rows (LIMIT/OFFSET) -> latest runs -> the
+    engine-mismatch resolver (#1565)."""
     count_result = MagicMock()
     count_result.scalar_one.return_value = total
     page_result = MagicMock()
@@ -1556,7 +1571,7 @@ def _list_db_seeall(total, page_ws):
     runs_result = MagicMock()
     runs_result.scalars.return_value.all.return_value = []
     db = AsyncMock()
-    db.execute.side_effect = [count_result, page_result, runs_result]
+    db.execute.side_effect = [count_result, page_result, runs_result, _no_inert_vars()]
     return db
 
 
