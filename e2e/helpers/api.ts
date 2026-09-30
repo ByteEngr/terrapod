@@ -262,7 +262,9 @@ export async function createWorkspace(
  * (#1705). The lock is held by the identity behind `token`.
  */
 export async function lockWorkspace(token: string, wsId: string, reason?: string): Promise<void> {
-  const res = await fetch(`${API_URL}/api/v2/workspaces/${wsId}/actions/lock`, {
+  // Natively, so it works for every engine. The TFE-compatible route serves
+  // Terraform alone, so it 404s a Pulumi workspace (#1911).
+  const res = await fetch(`${API_URL}/api/v1/workspaces/${wsId}/actions/lock`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/vnd.api+json',
@@ -360,9 +362,13 @@ export async function seedRun(
   token: string,
   workspaceId: string,
   planOnly = true,
+  // Which API surface to seed through. `/api/v2` is the TFE compatibility
+  // surface and serves Terraform alone (#1905), so a Pulumi workspace has to be
+  // seeded on the native surface — see `seedPulumiRun`.
+  prefix: '/api/v2' | '/api/v1' = '/api/v2',
 ): Promise<string> {
   const cvRes = await fetch(
-    `${API_URL}/api/v2/workspaces/${workspaceId}/configuration-versions`,
+    `${API_URL}${prefix}/workspaces/${workspaceId}/configuration-versions`,
     {
       method: 'POST',
       headers: {
@@ -396,7 +402,7 @@ export async function seedRun(
     throw new Error(`Config version upload failed: ${upRes.status}`);
   }
 
-  const runRes = await fetch(`${API_URL}/api/v2/runs`, {
+  const runRes = await fetch(`${API_URL}${prefix}/runs`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/vnd.api+json',
@@ -416,6 +422,21 @@ export async function seedRun(
     throw new Error(`Create run failed: ${runRes.status} ${await runRes.text()}`);
   }
   return (await runRes.json()).data.id as string;
+}
+
+/**
+ * Seed a run on a Pulumi workspace.
+ *
+ * Identical to `seedRun` but on the native surface: the TFE surface refuses a
+ * Pulumi workspace outright, so seeding through it 404s rather than producing a
+ * run (#1905).
+ */
+export async function seedPulumiRun(
+  token: string,
+  workspaceId: string,
+  planOnly = true,
+): Promise<string> {
+  return seedRun(token, workspaceId, planOnly, '/api/v1');
 }
 
 /** Seed a workspace Terraform variable. Returns the variable id. */

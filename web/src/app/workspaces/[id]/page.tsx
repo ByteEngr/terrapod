@@ -26,6 +26,7 @@ import { useIsTouch } from '@/lib/use-media-query'
 import { getAuthState, isAdmin } from '@/lib/auth'
 import { apiFetch, fetchAllPages, parseApiError } from '@/lib/api'
 import { versionToolFor } from '@/lib/engine-version'
+import { PHASE_STATUSES, engineWord, phaseKey } from '@/lib/phase-vocabulary'
 import { VaultValueDisplay } from '@/components/vault-value-display'
 import {
   VaultReferenceFields,
@@ -300,6 +301,13 @@ function WorkspaceDetailContent() {
   // Shared mode labels live in the top-level `common` namespace because
   // the run page renders the same four values.
   const tMode = useTranslations('common.autoApplyMode')
+  // Root namespace, for the per-engine phase vocabulary (#1911). The runs tab
+  // names a phase in a dozen places — the buttons, the options heading, the
+  // type pills, the status pills — and all of them read from here so this page
+  // and the run page it links to can never disagree about one run.
+  const tPhase = useTranslations()
+  // The platform's own run-status words, shared with the workspace list.
+  const tStatus = useTranslations('status')
   const router = useRouter()
   const params = useParams()
   const searchParams = useSearchParams()
@@ -324,6 +332,25 @@ function WorkspaceDetailContent() {
   // while loading, which reads as "not Pulumi" — harmless, because the page
   // renders a spinner until it resolves.
   const isPulumi = workspace?.attributes.engine === 'pulumi'
+  // The workspace's engine is authoritative for every run it holds, so one
+  // lookup serves the whole runs tab (#1911).
+  const phaseWord = (name: string) =>
+    engineWord(tPhase, workspace?.attributes.engine, name)
+  // The same lookup as a KEY, for the sites that need next-intl itself to do
+  // the work: rich text with tag chunks, and a string with an ICU placeholder.
+  // Both must go through `tPhase.rich`/`tPhase(key, values)` rather than
+  // post-processing `phaseWord`'s output, or the tags stop rendering and the
+  // placeholder stops being formatted in the reader's locale.
+  const phaseKeyFor = (name: string) =>
+    phaseKey(workspace?.attributes.engine, 'words', name)
+  // A run status that names a phase belongs to the engine; the rest (queued,
+  // errored, canceled…) are the platform's own.
+  const runStatusLabel = (status: string) =>
+    PHASE_STATUSES.has(status)
+      ? tPhase(phaseKey(workspace?.attributes.engine, 'runStatus', status))
+      : tStatus.has(status)
+        ? tStatus(status)
+        : status
   // Resolved once here so the loaders, the SSE handler, the tab strip and the
   // render sites all agree on which tab is showing.
   const activeTab: Tab = isPulumi && TERRAFORM_ONLY_TABS.has(requestedTab) ? 'configuration' : requestedTab
@@ -748,7 +775,7 @@ function WorkspaceDetailContent() {
 
   async function loadStateVersions() {
     try {
-      setStateVersions(await fetchAllPages<StateVersionItem>(`/api/v2/workspaces/${workspaceId}/state-versions`))
+      setStateVersions(await fetchAllPages<StateVersionItem>(`/api/v1/workspaces/${workspaceId}/state-versions`))
     } catch (err) {
       setError(err instanceof Error ? err.message : t('errors.loadStateVersions'))
     } finally {
@@ -758,7 +785,7 @@ function WorkspaceDetailContent() {
 
   async function downloadStateVersion(sv: StateVersionItem) {
     try {
-      const resp = await apiFetch(`/api/v2/state-versions/${sv.id}/download`)
+      const resp = await apiFetch(`/api/v1/state-versions/${sv.id}/download`)
       const blob = await resp.blob()
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
@@ -1230,8 +1257,9 @@ function WorkspaceDetailContent() {
     const action = workspace.attributes.locked ? 'unlock' : 'lock'
     if (!confirmTouchMutation(action === 'unlock' ? t('lock.unlockConfirm') : t('lock.lockConfirm'))) return
     try {
-      // lock/unlock are TFE V2 CLI-contract endpoints — only at /api/v2/.
-      const res = await apiFetch(`/api/v2/workspaces/${workspaceId}/actions/${action}`, {
+      // Natively, so the padlock works on every engine (#1911). The same
+      // paths are still served on /api/tfe/v2 for the CLI — they did not move.
+      const res = await apiFetch(`/api/v1/workspaces/${workspaceId}/actions/${action}`, {
         method: 'POST',
       })
       if (!res.ok) {
@@ -1628,8 +1656,8 @@ function WorkspaceDetailContent() {
     // immediately.
     if (isTouch) {
       const msg = planOnly
-        ? t('runs.queuePlanConfirm')
-        : t('runs.queueApplyConfirm')
+        ? phaseWord('queuePlanConfirm')
+        : phaseWord('queueApplyConfirm')
       if (!window.confirm(msg)) return
     }
     setQueueingPlan(true)
@@ -1645,7 +1673,10 @@ function WorkspaceDetailContent() {
       if (replaces.length) attrs['replace-addrs'] = replaces
       if (planRefreshOnly) attrs['refresh-only'] = true
       if (!planRefresh) attrs['refresh'] = false
-      if (planAllowEmpty) attrs['allow-empty-apply'] = true
+      // Never sent on a Pulumi workspace: the option has no Pulumi equivalent
+      // and the server stores it without ever reading it (#1911). The control
+      // is absent there, so this only guards a stale tick from an engine change.
+      if (planAllowEmpty && !isPulumi) attrs['allow-empty-apply'] = true
       if (vcsRef) attrs['vcs-ref'] = vcsRef
 
       const res = await apiFetch(`/api/v1/runs`, {
@@ -1663,7 +1694,9 @@ function WorkspaceDetailContent() {
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
-        throw new Error(data.detail || t('errors.queuePlanStatus', { status: res.status }))
+        throw new Error(data.detail || tPhase(phaseKeyFor('errorsQueuePlanStatus'), {
+          status: res.status,
+        }))
       }
       const runData = await res.json().catch(() => null)
       const newRunId = runData?.data?.id as string | undefined
@@ -1680,7 +1713,7 @@ function WorkspaceDetailContent() {
       setVcsRef('')
       await loadRuns()
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('errors.queuePlan'))
+      setError(err instanceof Error ? err.message : phaseWord('errorsQueuePlan'))
     } finally {
       setQueueingPlan(false)
     }
@@ -2508,10 +2541,14 @@ function WorkspaceDetailContent() {
                   <div className="sm:col-span-2 rounded border border-amber-700 bg-amber-900/30 p-3 text-xs text-amber-100">
                     <p className="font-medium">{t('vcsWorkflowWarning.title')}</p>
                     <p className="mt-1">
-                      {t.rich('vcsWorkflowWarning.rbac', { em: (chunks) => <em> {chunks}</em> })}
+                      {tPhase.rich(phaseKeyFor('vcsWorkflowWarningRbac'), {
+                        em: (chunks) => <em> {chunks}</em>,
+                      })}
                     </p>
                     <p className="mt-1">
-                      {t.rich('vcsWorkflowWarning.recommended', { strong: (chunks) => <strong>{chunks}</strong> })}
+                      {tPhase.rich(phaseKeyFor('vcsWorkflowWarningRecommended'), {
+                        strong: (chunks) => <strong>{chunks}</strong>,
+                      })}
                     </p>
                     <p className="mt-1">
                       {t.rich('vcsWorkflowWarning.credit', {
@@ -2523,7 +2560,7 @@ function WorkspaceDetailContent() {
                   </div>
                 )}
                 <div>
-                  <dt className="text-xs text-slate-500">{t('fields.autoMerge')}</dt>
+                  <dt className="text-xs text-slate-500">{phaseWord('fieldsAutoMerge')}</dt>
                   {editing ? (
                     <label className="mt-1 flex items-center gap-2">
                       <input
@@ -2823,7 +2860,7 @@ function WorkspaceDetailContent() {
                 <div className="min-w-0">
                   <h3 className="text-sm font-medium text-slate-300">{t('lock.title')}</h3>
                   <p className="text-sm text-slate-400 mt-1">
-                    {attrs.locked ? t('lock.lockedDesc') : t('lock.unlockedDesc')}
+                    {attrs.locked ? phaseWord('lockLockedDesc') : t('lock.unlockedDesc')}
                   </p>
                   {attrs.locked && attrs['locked-by'] && (
                     <p className="text-sm text-slate-400 mt-1 break-words" data-testid="lock-holder">
@@ -2921,7 +2958,7 @@ function WorkspaceDetailContent() {
                       onClick={handleCheckDriftNow}
                       disabled={checkingDrift || attrs.locked || !attrs['drift-detection-enabled']}
                       className="px-3 py-1.5 rounded-lg text-sm font-medium bg-brand-600 hover:bg-brand-500 disabled:bg-brand-800 disabled:text-brand-400 text-white transition-colors"
-                      title={!attrs['drift-detection-enabled'] ? t('drift.checkNowTitleDisabled') : attrs.locked ? t('common.workspaceLocked') : t('drift.checkNowTitle')}
+                      title={!attrs['drift-detection-enabled'] ? t('drift.checkNowTitleDisabled') : attrs.locked ? t('common.workspaceLocked') : phaseWord('driftCheckNowTitle')}
                     >
                       {checkingDrift ? t('actions.queuing') : t('drift.checkNow')}
                     </button>
@@ -2933,9 +2970,9 @@ function WorkspaceDetailContent() {
             {/* Plan Expiry (#646) */}
             <div className="bg-slate-800/50 rounded-lg border border-slate-700/50 p-6">
               <div className="mb-4">
-                <h3 className="text-sm font-medium text-slate-300">{t('planExpiry.title')}</h3>
+                <h3 className="text-sm font-medium text-slate-300">{phaseWord('planExpiryTitle')}</h3>
                 <p className="text-xs text-slate-500 mt-1">
-                  {t('planExpiry.description')}
+                  {phaseWord('planExpiryDescription')}
                 </p>
               </div>
               <dl>
@@ -2961,9 +2998,9 @@ function WorkspaceDetailContent() {
             <div className="bg-slate-800/50 rounded-lg border border-slate-700/50 p-6">
               <div className="flex items-center justify-between mb-4">
                 <div>
-                  <h3 className="text-sm font-medium text-slate-300">{t('aiSummary.title')}</h3>
+                  <h3 className="text-sm font-medium text-slate-300">{phaseWord('aiSummaryTitle')}</h3>
                   <p className="text-xs text-slate-500 mt-1">
-                    {t('aiSummary.description')}
+                    {phaseWord('aiSummaryDescription')}
                   </p>
                 </div>
               </div>
@@ -3075,7 +3112,14 @@ function WorkspaceDetailContent() {
               </dl>
             </div>
 
-            {/* Security scanning (#1036) — exposed here by #1763 */}
+            {/* Security scanning (#1036) — exposed here by #1763.
+                Absent on a Pulumi workspace (#1911): Checkov and Trivy read a
+                Terraform-shaped plan document, which a Pulumi run does not
+                produce, so the API refuses anything but `off` (#1567). Rendering the
+                block anyway offered three settings whose only accepted value
+                was the one already shown — dead controls that 422 on use. Same
+                treatment as the Cost and Architecture tabs. */}
+            {!isPulumi && (
             <div className="bg-slate-800/50 rounded-lg border border-slate-700/50 p-6">
               <div className="flex items-center justify-between mb-4">
                 <div>
@@ -3212,6 +3256,7 @@ function WorkspaceDetailContent() {
                 </div>
               </dl>
             </div>
+            )}
 
             {/* Runner debug mode (#1764) */}
             <div className="bg-slate-800/50 rounded-lg border border-slate-700/50 p-6">
@@ -3267,7 +3312,7 @@ function WorkspaceDetailContent() {
             <div className="bg-slate-800/50 rounded-lg border border-slate-700 p-6">
               <h3 className="text-sm font-medium text-slate-200">{t('slack.title')}</h3>
               <p className="text-sm text-slate-400 mt-1">
-                {t('slack.description')}
+                {phaseWord('slackDescription')}
               </p>
               <dl className="mt-4">
                 <div>
@@ -3664,7 +3709,7 @@ function WorkspaceDetailContent() {
                       onClick={() => setShowDestroyConfirm(true)}
                       disabled={queueingDestroy || attrs.locked}
                       className="px-4 py-2 rounded-lg text-sm font-medium bg-red-600/20 hover:bg-red-600/40 text-red-400 transition-colors"
-                      title={attrs.locked ? t('common.workspaceLocked') : t('runs.queueDestroyTitle')}
+                      title={attrs.locked ? t('common.workspaceLocked') : phaseWord('queueDestroyTitle')}
                     >
                       {t('runs.queueDestroy')}
                     </button>
@@ -3697,7 +3742,7 @@ function WorkspaceDetailContent() {
                     className="px-4 py-2 rounded-lg text-sm font-medium bg-brand-600 hover:bg-brand-500 disabled:bg-brand-800 disabled:text-brand-400 text-white transition-colors"
                     title={attrs.locked ? t('common.workspaceLocked') : undefined}
                   >
-                    {queueingPlan ? t('actions.queuing') : t('runs.queuePlan')}
+                    {queueingPlan ? t('actions.queuing') : phaseWord('queuePlan')}
                   </button>
                   {perms['can-queue-apply'] && (
                     <button
@@ -3711,17 +3756,17 @@ function WorkspaceDetailContent() {
                         attrs.locked
                           ? t('common.workspaceLocked')
                           : vcsRef
-                            ? t('runs.queueApplyRefBlocked')
-                            : t('runs.queueApplyTitle')
+                            ? phaseWord('queueApplyRefBlocked')
+                            : phaseWord('queueApplyTitle')
                       }
                     >
-                      {queueingPlan ? t('actions.queuing') : t('runs.queueRun')}
+                      {queueingPlan ? t('actions.queuing') : phaseWord('queueRun')}
                     </button>
                   )}
                 </div>
                 {showPlanOptions && (
                   <div className="mt-3 p-4 bg-slate-800/50 rounded-lg border border-slate-700/50">
-                    <h4 className="text-sm font-medium text-slate-300 mb-3">{t('runs.planOptions')}</h4>
+                    <h4 className="text-sm font-medium text-slate-300 mb-3">{phaseWord('planOptions')}</h4>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
                         <label className="block text-xs text-slate-400 mb-1">{t('runs.targetResources')} <span className="text-slate-500">{t('runs.commaSeparated')}</span></label>
@@ -3729,7 +3774,7 @@ function WorkspaceDetailContent() {
                           type="text"
                           value={planTargets}
                           onChange={e => setPlanTargets(e.target.value)}
-                          placeholder="e.g. aws_instance.web, aws_s3_bucket.data"
+                          placeholder={phaseWord('targetPlaceholder')}
                           className="w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded-lg text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500 font-mono"
                         />
                       </div>
@@ -3739,7 +3784,7 @@ function WorkspaceDetailContent() {
                           type="text"
                           value={planReplaces}
                           onChange={e => setPlanReplaces(e.target.value)}
-                          placeholder="e.g. aws_instance.web"
+                          placeholder={phaseWord('replacePlaceholder')}
                           className="w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded-lg text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500 font-mono"
                         />
                       </div>
@@ -3771,7 +3816,14 @@ function WorkspaceDetailContent() {
                         />
                         {t('runs.skipRefresh')}
                       </label>
-                      {!vcsRef && (
+                      {/* Terraform-only (#1911). `-allow-empty-apply` has no
+                          Pulumi equivalent: `PulumiRunOptions` carries no such
+                          field and the engine emits no env var for it, so a
+                          ticked box on a Pulumi workspace was stored on the run
+                          and then silently dropped. Target, replace and the two
+                          refresh flags DO reach Pulumi (as `--target`/
+                          `--replace` URNs and `--refresh`), so they stay. */}
+                      {!vcsRef && !isPulumi && (
                         <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
                           <input
                             type="checkbox"
@@ -3818,7 +3870,7 @@ function WorkspaceDetailContent() {
                         </div>
                         {vcsRef && (
                           <p className="mt-2 text-xs text-amber-400">
-                            {t('runs.nonDefaultRefNote')}
+                            {phaseWord('nonDefaultRefNote')}
                           </p>
                         )}
                       </div>
@@ -3869,7 +3921,7 @@ function WorkspaceDetailContent() {
                               </span>
                             ) : (
                               <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${statusColor(run.attributes.status)}`}>
-                                {run.attributes.status}
+                                {runStatusLabel(run.attributes.status)}
                               </span>
                             )
                           )}
@@ -3882,10 +3934,10 @@ function WorkspaceDetailContent() {
                               </span>
                             ) : run.attributes['plan-only'] ? (
                               <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-cyan-900/50 text-cyan-300">
-                                {t('runs.typePlanOnly')}
+                                {phaseWord('badgePlanOnly')}
                               </span>
                             ) : (
-                              <span className="text-xs text-slate-500">{t('runs.typePlanApply')}</span>
+                              <span className="text-xs text-slate-500">{phaseWord('typePlanApply')}</span>
                             )}
                             {/* Additive, not another branch: a saved plan can also
                                 be a destroy, and "deferred" is the fact that
@@ -3903,7 +3955,11 @@ function WorkspaceDetailContent() {
                         </td>
                         <td className="px-4 py-3 hidden md:table-cell">
                           {run.attributes['plan-summary'] ? (
-                            <PlanSummaryBadges summary={run.attributes['plan-summary']} size="sm" />
+                            <PlanSummaryBadges
+                              summary={run.attributes['plan-summary']}
+                              size="sm"
+                              engine={workspace?.attributes.engine}
+                            />
                           ) : (
                             <span className="text-slate-600">&mdash;</span>
                           )}
@@ -3951,7 +4007,7 @@ function WorkspaceDetailContent() {
                             </span>
                           ) : (
                             <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${statusColor(run.attributes.status)}`}>
-                              {run.attributes.status}
+                              {runStatusLabel(run.attributes.status)}
                             </span>
                           )
                         )
@@ -3967,10 +4023,10 @@ function WorkspaceDetailContent() {
                                 </span>
                               ) : run.attributes['plan-only'] ? (
                                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-cyan-900/50 text-cyan-300">
-                                  {t('runs.typePlanOnly')}
+                                  {phaseWord('badgePlanOnly')}
                                 </span>
                               ) : (
-                                <span className="text-slate-400">{t('runs.typePlanApply')}</span>
+                                <span className="text-slate-400">{phaseWord('typePlanApply')}</span>
                               )}
                               {run.attributes['save-plan'] && (
                                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-violet-900/50 text-violet-300">
@@ -3983,7 +4039,13 @@ function WorkspaceDetailContent() {
                         ...(run.attributes['plan-summary']
                           ? [{
                               label: t('runs.changes'),
-                              value: <PlanSummaryBadges summary={run.attributes['plan-summary']} size="sm" />,
+                              value: (
+                                <PlanSummaryBadges
+                                  summary={run.attributes['plan-summary']}
+                                  size="sm"
+                                  engine={workspace?.attributes.engine}
+                                />
+                              ),
                             }]
                           : []),
                         {
@@ -4316,7 +4378,7 @@ function WorkspaceDetailContent() {
             {cvLoading ? (
               <LoadingSpinner />
             ) : cvs.length === 0 ? (
-              <EmptyState message={t('configurations.empty')} />
+              <EmptyState message={phaseWord('configurationsEmpty')} />
             ) : (
               <>
                 {/* Desktop (md+): the table with per-row compare checkboxes. */}
@@ -4797,7 +4859,7 @@ function WorkspaceDetailContent() {
               {trgLoading && <span className="text-xs text-slate-500">{t('actions.loadingLower')}</span>}
             </div>
             <p className="text-xs text-slate-500 mb-6">
-              {t('runTriggers.description')}
+              {phaseWord('runTriggersDescription')}
             </p>
 
             {/* Inbound — source workspaces that trigger runs HERE */}

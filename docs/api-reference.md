@@ -530,9 +530,12 @@ old id needs repointing — it is a salvage operation, not an undo.
 
 ```
 POST /api/tfe/v2/workspaces/{id}/actions/lock
+POST /api/v1/workspaces/{id}/actions/lock
 ```
 
 **Required permission:** `plan` on the workspace.
+
+> **Also on the native surface.** `POST /api/v1/workspaces/{id}/actions/lock`, `/actions/unlock` and `/actions/force-unlock` do the same thing for **any** engine. The `/api/tfe/v2` paths are unchanged and still Terraform-only — a workspace on another engine 404s there, as it does everywhere on that surface.
 
 A manual lock is the CLI/UI state lock **and** an operator gate on applies: while a workspace is locked, apply-capable (plan+apply) runs **will not start** and a confirm (`POST /api/tfe/v2/runs/{id}/actions/apply`) returns **409 Conflict**. Auto-apply runs settle in `planned` and wait for an unlock rather than applying. **Plan-only runs (speculative plans, drift checks) are not blocked** — they never mutate state. Returns 409 if the workspace is already locked; the existing lock, its reason and its holder are left untouched.
 
@@ -563,6 +566,7 @@ Both attributes appear on every workspace response, and are `null` whenever `loc
 
 ```
 POST /api/tfe/v2/workspaces/{id}/actions/unlock
+POST /api/v1/workspaces/{id}/actions/unlock
 ```
 
 **Required permission:** `plan` on the workspace (own locks only).
@@ -740,14 +744,20 @@ Returns 422 if the workspace is not VCS-connected or the VCS connection is inact
 
 ```
 GET /api/tfe/v2/workspaces/{id}/state-versions
+GET /api/v1/workspaces/{id}/state-versions
 ```
 
 **Required permission:** `read` on the workspace.
+
+> **State reads answer on both surfaces.** Every engine Terrapod runs has state, so `GET /api/v1/workspaces/{id}/state-versions`, `/current-state-version`, `GET /api/v1/state-versions/{id}` and `/download` serve a workspace on any engine. The `/api/tfe/v2` paths stay Terraform-only.
+>
+> The state *write* pair (`POST .../state-versions` then `PUT /state-versions/{id}/content`) is the `go-tfe` upload protocol and remains TFE-only. A Pulumi stack's state is published by its own update-complete path, or uploaded by hand with `POST /api/v1/workspaces/{id}/state-versions/actions/upload`, which takes `pulumi stack export` output.
 
 ### Current State Version
 
 ```
 GET /api/tfe/v2/workspaces/{id}/current-state-version
+GET /api/v1/workspaces/{id}/current-state-version
 ```
 
 **Required permission:** `read` on the workspace.
@@ -780,12 +790,14 @@ POST /api/tfe/v2/workspaces/{id}/state-versions
 
 ```
 GET /api/tfe/v2/state-versions/{id}
+GET /api/v1/state-versions/{id}
 ```
 
 ### Download State
 
 ```
 GET /api/tfe/v2/state-versions/{id}/download
+GET /api/v1/state-versions/{id}/download
 ```
 
 Returns a redirect to a presigned URL for the raw state file.
@@ -976,7 +988,7 @@ The CLI plan/apply flow always supplies a CV (it uploads one first), so it's una
 | `replace-addrs` | array of strings | `[]` | Resource addresses to force replacement (equivalent to `-replace` CLI flag, plan phase only) |
 | `refresh-only` | boolean | `false` | Refresh-only plan — reconcile state without planning changes (equivalent to `-refresh-only`) |
 | `refresh` | boolean | `true` | Whether to refresh state before planning. Set to `false` to skip refresh (equivalent to `-refresh=false`) |
-| `allow-empty-apply` | boolean | `false` | Allow apply even when the plan has no changes (equivalent to `-allow-empty-apply`) |
+| `allow-empty-apply` | boolean | `false` | Allow apply even when the plan has no changes (equivalent to `-allow-empty-apply`). **Terraform/OpenTofu only** — `pulumi up` carries out whatever the preview produced, empty or not, so setting it `true` on a Pulumi workspace is refused with 422 rather than stored and ignored. The other run options are not engine-specific: Pulumi reads `target-addrs`/`replace-addrs` as `--target`/`--replace` URNs and `refresh-only`/`refresh` as `pulumi refresh` / `--refresh=false`. |
 | `vcs-ref` | string | `""` | Branch, tag, or SHA to fetch code from instead of the workspace's tracked branch. Only valid on VCS-connected workspaces. **Runs with a non-default ref are always plan-only** — the server enforces this regardless of the `plan-only` attribute value |
 | `save-plan` | boolean | `false` | A saved-plan run — `terraform plan -out=FILE`. See below |
 
@@ -1300,7 +1312,7 @@ GET  /api/v1/workspaces/{workspace_id}/architecture-critique
 POST /api/v1/workspaces/{workspace_id}/architecture-critique/regenerate
 ```
 
-`GET` returns the critique for the workspace's current state version: `{"data": {"type": "architecture-critiques", "attributes": {"status": "ready|pending|skipped|errored", "risk-level": "low|medium|high|critical", "architecture": {...}, "findings": [{"severity", "category", "title", "detail", "resource-address"|"resource_address", "recommendation", "grounded_in"}], "deferred": [...], "state-serial": N, ...}}}`. Returns **404** when the feature is disabled, the workspace has no state, or no critique has been generated for the current state yet. `POST .../regenerate` queues a fresh critique (202) and mutates no infrastructure.
+`GET` returns the critique for the workspace's current state version: `{"data": {"type": "architecture-critiques", "attributes": {"status": "ready|pending|skipped|errored", "risk-level": "low|medium|high|critical", "architecture": {...}, "findings": [{"severity", "category", "title", "detail", "resource-address"|"resource_address", "recommendation", "grounded_in"}], "deferred": [...], "state-serial": N, ...}}}`. Returns **404** when the feature is disabled, the workspace has no state, the workspace runs an engine the critic does not read (it reads Terraform state — see [AI Architecture Critique](architecture-critique.md)), or no critique has been generated for the current state yet. `POST .../regenerate` queues a fresh critique (202) and mutates no infrastructure.
 
 **Required permission:** `state:read` on the workspace (the critique reasons over the secret-bearing state, so it requires the same access as downloading raw state).
 

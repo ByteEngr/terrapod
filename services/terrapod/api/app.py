@@ -770,7 +770,18 @@ def create_application() -> FastAPI:
     """Create and configure the FastAPI application."""
     app = FastAPI(
         title="Terrapod API",
-        description="Terrapod - Open-source Terraform Enterprise replacement",
+        # The first orientation an agent or a tooling client reading
+        # /api/openapi.json gets, so it says what Terrapod runs rather than only
+        # what it replaces (#1911). An OpenTofu/Terraform orchestrator first, and
+        # a workspace's `engine` says which engine it belongs to — a client that
+        # assumes one engine is the failure this line exists to head off. Ansible
+        # is deliberately not claimed here: it is planned, not shipped.
+        description=(
+            "Terrapod - open-source Terraform Enterprise replacement. Orchestrates "
+            "OpenTofu/Terraform, and Pulumi where it is enabled; a workspace's "
+            "`engine` attribute says which. The /api/tfe/v2 compatibility surface "
+            "serves OpenTofu/Terraform workspaces only — /api/v1 serves every engine."
+        ),
         version="0.1.0",
         lifespan=lifespan,
         docs_url=None,
@@ -1176,6 +1187,9 @@ def create_application() -> FastAPI:
     # The one workspace-management path the CLI doesn't call (DELETE by
     # id) lives in extensions_router, mounted only under /api/terrapod/v1.
     from terrapod.api.routers.tfe_v2 import (
+        dual_router as tfe_v2_dual_router,
+    )
+    from terrapod.api.routers.tfe_v2 import (
         extensions_router as tfe_v2_extensions_router,
     )
     from terrapod.api.routers.tfe_v2 import (
@@ -1184,6 +1198,12 @@ def create_application() -> FastAPI:
 
     include_tfe(tfe_v2_router)
     include_terrapod(tfe_v2_extensions_router)
+    # Locking and state-version reads are not Terraform concepts, so they answer
+    # on both surfaces (#1911). The handlers scope themselves on the request's
+    # prefix — see the `dual_router` comment in routers/tfe_v2.py. Purely
+    # additive: no route moves, and the TFE mount behaves exactly as before.
+    include_tfe(tfe_v2_dual_router)
+    include_terrapod(tfe_v2_dual_router)
 
     # State management routes — Terrapod-specific (delete, rollback, upload).
     from terrapod.api.routers.state_management import router as state_management_router
