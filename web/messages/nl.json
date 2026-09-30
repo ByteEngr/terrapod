@@ -2093,6 +2093,10 @@
       "moduleOverridesFromPr": "uit PR #{number}",
       "moduleOverridesSuffix": "worden opgehaald uit de PR-branch in plaats van uit de gepubliceerde registryversie."
     },
+    "bindPlan": {
+      "bound": "Vastgelegd op dit preview: de update past precies het hier getoonde plan toe, en alles wat sindsdien is veranderd laat de update mislukken in plaats van te worden toegepast.",
+      "unbound": "Niet vastgelegd op dit preview: de update bepaalt zelf zijn wijzigingen wanneer die draait, zoals een gewone pulumi up doet, dus wat er wordt toegepast kan afwijken van wat hier wordt getoond."
+    },
     "cards": {
       "changes": "Wijzigingen",
       "cost": "Kosten",
@@ -3527,7 +3531,7 @@
         "timelineApplied": "Bijgewerkt",
         "timelineApplyingStarted": "Bijwerken gestart",
         "timelinePlanComplete": "Preview voltooid",
-        "timelinePlanningStarted": "Previewnen gestart",
+        "timelinePlanningStarted": "Previewen gestart",
         "typePlanApply": "preview + update",
         "vcsWorkflowWarningRbac": "Iedereen die de PR kan samenvoegen, kan bijwerken. Branch-beschermingsregels (vereiste beoordelingen, statuscontroles, goedkeuring van code-eigenaar) worden de poort. Terrapod-rol-/label-RBAC is in deze modus<em>niet</em> van toepassing op comment-gestuurde acties.",
         "vcsWorkflowWarningRecommended": "<strong>Aanbevolen:</strong> vereis lineaire geschiedenis (rebase/squash vóór samenvoegen) zodat de commit van waaruit u bijwerkt de commit is die landt.",
