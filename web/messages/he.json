@@ -70,7 +70,6 @@
       "agentPool": "מאגר סוכנים",
       "none": "ללא",
       "autoApply": "החלה אוטומטית",
-      "autoApplyModeHint": "never: תמיד להמתין לאדם. always: להחיל כל תוכנית מוצלחת. create / create/update: להחיל רק תוכניות המוגבלות לפעולות אלה — לעולם לא מחיקה או החלפה.",
       "enabled": "מופעל",
       "workingDirectory": "ספריית עבודה",
       "workingDirectoryPlaceholder": "למשל environments/dev",
@@ -1925,7 +1924,6 @@
   "planSummary": {
     "aiGenerated": "נוצר על ידי AI",
     "heading": {
-      "planSummary": "סיכום תכנון",
       "failureAnalysis": "ניתוח כשל"
     },
     "errors": {
@@ -1934,13 +1932,11 @@
     "regenerate": {
       "label": "צור מחדש",
       "queueing": "מכניס לתור…",
-      "tooltip": "הרץ מחדש את סיכום ה-AI על אותם קלטי תכנון",
       "ariaLabel": "צור מחדש סיכום AI",
       "confirm": "לייצר מחדש את ניתוח ה-AI? פעולה זו מריצה את המודל שוב.",
       "error": "לא ניתן לייצר מחדש: <mono>{detail}</mono>"
     },
     "pending": {
-      "summarisingPlan": "מסכם את התכנון…",
       "analysingFailure": "מנתח את הכשל…"
     },
     "skipped": {
@@ -1964,7 +1960,6 @@
     "badges": {
       "noChanges": "אין שינויים",
       "noChangesLower": "אין שינויים",
-      "noChangesTitle": "התכנון לא דיווח על שינויים במשאבים",
       "toAdd": "{count, plural, one {# להוספה} two {# להוספה} many {# להוספה} other {# להוספה}}",
       "toChange": "{count, plural, one {# לשינוי} two {# לשינוי} many {# לשינוי} other {# לשינוי}}",
       "toDestroy": "{count, plural, one {# להשמדה} two {# להשמדה} many {# להשמדה} other {# להשמדה}}",
@@ -1974,7 +1969,6 @@
     "chat": {
       "heading": "המשך שיחה",
       "sharedThreadNote": "שרשור משותף אחד, גלוי לכל מי שיש לו הרשאת קריאה לסביבת העבודה.",
-      "placeholder": "שאל שאלת המשך על התכנון הזה… (⌘/Ctrl + Enter לשליחה)",
       "send": "שלח",
       "thinking": "חושב…",
       "you": "אתה",
@@ -1998,7 +1992,6 @@
     "workspaceFallback": "סביבת עבודה",
     "backTo": "חזרה אל {name}",
     "errorHeading": "שגיאה",
-    "discardedHeading": "נדחתה — נדרש תכנון מחדש",
     "common": {
       "yes": "כן",
       "no": "לא"
@@ -2052,7 +2045,6 @@
     },
     "badge": {
       "destroy": "השמדה",
-      "planOnly": "תכנון בלבד",
       "savedPlan": "תוכנית שמורה",
       "savedPlanHint": "ההחלה נדחתה: ריצה זו אינה תופסת את סביבת העבודה עד שהתוכנית השמורה מוחלת."
     },
@@ -2060,8 +2052,6 @@
       "retryShort": "נסה שוב",
       "retryFull": "הרץ שוב",
       "retrying": "מנסה שוב…",
-      "confirmShort": "החל",
-      "confirmFull": "אשר והחל",
       "confirming": "מאשר…",
       "discard": "דחה",
       "discarding": "דוחה…",
@@ -2071,8 +2061,6 @@
       "queuing": "מוסיף לתור…"
     },
     "confirm": {
-      "apply": "להחיל את ההרצה הזו? פעולה זו מחילה את התכנון ומשנה את התשתית.",
-      "discard": "לדחות את התכנון הזה?",
       "cancel": "לבטל את ההרצה הזו?",
       "retry": "להריץ שוב את ההרצה הזו?"
     },
@@ -2095,17 +2083,12 @@
       "impactFull": "גרף השפעה",
       "cost": "עלות",
       "costFull": "אומדן עלות",
-      "planLabel": "תכנון<log>יומן</log>",
-      "applyLabel": "יישום<log>יומן</log>",
-      "planFull": "יומן תכנון",
-      "applyFull": "יומן יישום",
       "details": "פרטים",
       "security": "אבטחה",
       "securityFull": "סריקת אבטחה"
     },
     "banner": {
       "destroy": "זוהי הרצת <strong>השמדה</strong> — כל המשאבים המנוהלים יושמדו בעת ההחלה.",
-      "planOnlyCli": "זוהי הרצת <strong>תכנון בלבד</strong> שהופעלה מה-CLI על סביבת עבודה המחוברת ל-VCS. יישום אינו זמין עבור קוד שהועלה מה-CLI — ניתן להחיל רק קוד המנוהל ב-VCS.",
       "moduleOverridesPrefix": "הרצה זו משתמשת ב<strong>עקיפות מודול</strong>",
       "moduleOverridesFromPr": "מ-PR ‏#{number}",
       "moduleOverridesSuffix": "יימשך מענף ה-PR במקום מגרסת הרישום שפורסמה."
@@ -2120,7 +2103,6 @@
     },
     "changes": {
       "noChanges": "אין שינויים",
-      "planning": "מתכנן…",
       "toAdd": "להוספה",
       "toChange": "לשינוי",
       "toDestroy": "להשמדה",
@@ -2157,7 +2139,6 @@
       "executionBackend": "מנוע הרצה",
       "source": "מקור",
       "autoApply": "החלה אוטומטית",
-      "planOnly": "תכנון בלבד",
       "triggeredBy": "הופעל על ידי",
       "created": "נוצר",
       "commit": "קומיט",
@@ -2173,11 +2154,7 @@
     "timeline": {
       "heading": "ציר זמן",
       "queued": "בתור",
-      "planningStarted": "התכנון החל",
-      "planComplete": "התכנון הושלם",
       "confirmed": "אושר",
-      "applyingStarted": "היישום החל",
-      "applied": "יושם",
       "errored": "נכשל",
       "canceled": "בוטל",
       "discarded": "נדחה"
@@ -2201,12 +2178,8 @@
       "followOffTitle": "עקוב אחר הזרם החי",
       "end": "סוף",
       "endTitle": "דלג לסוף היומן",
-      "planEmpty": "אין עדיין פלט תכנון זמין.",
-      "applyEmpty": "אין עדיין פלט יישום זמין.",
       "index": {
         "label": "קפיצה אל",
-        "title": "קפיצה לשינוי משאב או לסיכום התוכנית",
-        "summary": "סיכום התוכנית",
         "action": {
           "create": "יצירה",
           "update": "עדכון",
@@ -2218,13 +2191,11 @@
           "error": "שגיאה",
           "warning": "אזהרה"
         }
-      },
-      "applySkippedNoChanges": "לא בוצעה החלה: בתוכנית לא היו שינויים, כך שלא היה מה להחיל."
+      }
     },
     "policyPanel": {
       "heading": "בדיקות מדיניות",
       "passedCount": "{passed}/{total} עברו",
-      "blockedMessage": "הרצה זו <strong>חסומה על ידי מערך מדיניות חובה</strong>. היא לא תיושם עד שהכשל ייפתר או שמנהל יעקוף אותו.",
       "overriding": "עוקף...",
       "overrideContinue": "עקוף והמשך",
       "overrideFailed": "העקיפה נכשלה",
@@ -2264,7 +2235,6 @@
       "unpricedHint": "שום דבר בנתוני התמחור לא תאם אותם — סוג לא ממופה, משאב ללא עלות ישירה, או ספק שעדיין אינו נתמך.",
       "indicative": "האומדנים הם להמחשה בלבד; העלות בפועל תלויה בשימוש, באזור, בהתחייבויות ובהנחות.",
       "asOfState": "נכון למצב v{serial}",
-      "noState": "עדיין אין עלות — מופיעה לאחר ההחלה הראשונה.",
       "usageBand": "{dimension}: {typical} {unit} טיפוסי (טווח {low}–{high})",
       "usageBandCost": "{dimension}: {costTypical}/חודש טיפוסי — {costLow}–{costHigh} על פני {low}–{high} {unit}"
     },
@@ -2351,7 +2321,6 @@
       "passed": "אף קריטריון מדיניות לא התאים.",
       "overriding": "עוקף...",
       "overrideContinue": "עקוף והמשך",
-      "overrideConfirm": "לעקוף את שער מדיניות ה-AI ולאפשר להרצה זו להיות מיושמת למרות הפסיקה?",
       "overrideFailed": "העקיפה נכשלה",
       "overrideFailedStatus": "העקיפה נכשלה ({status})",
       "overriddenBy": "נעקף על ידי {by}"
@@ -2410,9 +2379,6 @@
       "translatedNote": "תורגם מהמקור בעת הצפייה."
     },
     "drift": {
-      "remediate": "תכנון + החלה",
-      "remediateTitle": "הוספת הרצת תכנון + החלה לתור כדי ליישר מחדש את התשתית עם התצורה",
-      "remediateConfirm": "להוסיף הרצת תכנון + החלה לתור עבור סביבת עבודה זו?",
       "remediateMessage": "נוסף לתור מבדיקת סטייה",
       "remediateFailed": "לא ניתן היה להוסיף את הרצת התיקון לתור"
     }
@@ -2548,8 +2514,6 @@
     },
     "vcsWorkflowWarning": {
       "title": "ההרשאה הואצלה למאגר ה-VCS שלכם.",
-      "rbac": "כל מי שיכול למזג את ה-PR יכול להחיל. כללי הגנת ענף (סקירות נדרשות, בדיקות סטטוס, אישור בעל קוד) הופכים לשער. RBAC של תפקיד/תווית ב-Terrapod<em>אינו</em>חל על פעולות מונחות-תגובה במצב זה.",
-      "recommended": "<strong>מומלץ:</strong> לדרוש היסטוריה לינארית (שינוי בסיס/כיווץ לפני מיזוג) כך שהמסירה שאתם מיישמים היא המסירה שנוחתת.",
       "credit": "קרדיט: תהליך עבודה זה מבוסס על <atlantis>Atlantis</atlantis>. Atlantis נותר הכלי הנכון לצוותים שרוצים רק החלות מונחות-תגובת-PR וללא ממשק פלטפורמה."
     },
     "vcsPolling": {
@@ -2565,7 +2529,6 @@
     },
     "lock": {
       "title": "מצב נעילה",
-      "lockedDesc": "סביבת עבודה זו נעולה. לא ניתן להריץ תוכניות או החלות.",
       "unlockedDesc": "סביבת עבודה זו פתוחה ומוכנה להרצות.",
       "lock": "נעילה",
       "unlock": "שחרור נעילה",
@@ -2587,7 +2550,6 @@
       "dismissTitle": "נקו את מצב הסטייה המדווח. הבדיקה המתוזמנת הבאה תמלא אותו מחדש מהמציאות.",
       "lastChecked": "נבדק לאחרונה",
       "checkNow": "בדיקה עכשיו",
-      "checkNowTitle": "הוספת הרצת תוכנית-בלבד לתור לבדיקת סטייה",
       "checkNowTitleDisabled": "הפעילו תחילה את זיהוי הסטייה"
     },
     "intervals": {
@@ -2601,13 +2563,10 @@
       "7days": "7 ימים"
     },
     "planExpiry": {
-      "title": "פקיעת תוכנית",
-      "description": "מחיקה אוטומטית של תוכנית לא מאושרת כאשר היא ישנה מכך, כדי שתוכנית מיושנת לא תוחל על עולם שהשתנה. כבוי כברירת מחדל; אז יש להריץ את התוכנית מחדש. (חל על הרצות בעלות יכולת החלה בלבד.)",
       "expireAfter": "פקיעה לאחר"
     },
     "aiSummary": {
       "title": "סיכום תוכנית מבוסס AI",
-      "description": "סיכום שינויים אוטומטי שנוצר על ידי LLM, הערכת סיכונים וניתוח כשלים בכל תוצאת שלב-תוכנית לסביבת עבודה זו.",
       "mode": "מצב",
       "modeDefault": "לפי ברירת המחדל של הפריסה",
       "modeEnabled": "תמיד לסכם",
@@ -2622,7 +2581,6 @@
     },
     "slack": {
       "title": "התראות Slack",
-      "description": "צרפו סביבת עבודה זו להתראות הרצה ב-Slack — בקשות אישור, החלות, שגיאות וסטיות. השאירו את הערוץ ריק וסביבת עבודה זו תישאר שקטה (אין הפצה כלל-פריסתית). דורש שאפליקציית Slack תופעל על ידי מנהל.",
       "channel": "ערוץ",
       "channelPlaceholder": "#deploys או מזהה ערוץ (לדוגמה C0123ABCD)",
       "notSet": "לא הוגדר — שקט.",
@@ -2707,14 +2665,8 @@
       "options": "אפשרויות",
       "hideOptions": "הסתרת אפשרויות",
       "queueDestroy": "השמדה",
-      "queueDestroyTitle": "הוספת תוכנית השמדה לתור",
       "destroyAllConfirm": "להשמיד את כל המשאבים?",
       "confirmDestroy": "אישור השמדה",
-      "queuePlan": "תכנון",
-      "queueRun": "תכנון + החלה",
-      "queuePlanConfirm": "להוסיף תוכנית ספקולטיבית לתור עבור סביבת עבודה זו?",
-      "queueApplyConfirm": "להוסיף הרצת תכנון + יישום לתור? זה עשוי לשנות תשתית.",
-      "planOptions": "אפשרויות תוכנית",
       "targetResources": "משאבי יעד",
       "replaceResources": "החלפת משאבים",
       "commaSeparated": "(מופרד בפסיקים)",
@@ -2725,7 +2677,6 @@
       "branch": "ענף",
       "tag": "תג",
       "defaultBranch": "ברירת מחדל ({branch})",
-      "nonDefaultRefNote": "נבחר רפרנס שאינו ברירת מחדל — ההרצה תהיה תוכנית-בלבד",
       "empty": "אין עדיין הרצות לסביבת עבודה זו.",
       "runId": "מזהה הרצה",
       "status": "סטטוס",
@@ -2736,12 +2687,8 @@
       "created": "נוצר",
       "needsConfirm": "דורש אישור",
       "typeDestroy": "השמדה",
-      "typePlanOnly": "תוכנית בלבד",
-      "typePlanApply": "תכנון + יישום",
       "sourceModuleTest": "בדיקת מודול",
       "sourceModulePublish": "פרסום מודול",
-      "queueApplyTitle": "הוספת הרצת תכנון + החלה לתור",
-      "queueApplyRefBlocked": "החלה אינה זמינה כאשר נבחרו ענף, תגית או קומיט — הרצות אלה הן תמיד תכנון בלבד",
       "awaitingDecision": "ממתין להחלטה",
       "typeSavedPlan": "תוכנית שמורה",
       "typeSavedPlanHint": "ההחלה נדחתה: ריצה זו אינה תופסת את סביבת העבודה עד שהתוכנית השמורה מוחלת."
@@ -2773,7 +2720,6 @@
       "selectedCount": "{count}/2 נבחרו",
       "compare": "השוואה",
       "comparing": "משווה…",
-      "empty": "אין עדיין גרסאות תצורה. הן מופיעות כאן ברגע ש-`terraform plan` מעלה או שדחיפה ל-VCS מפעילה הרצה.",
       "id": "מזהה",
       "source": "מקור",
       "status": "סטטוס",
@@ -2835,7 +2781,6 @@
     },
     "runTriggers": {
       "title": "טריגרים להרצה",
-      "description": "כאשר סביבת עבודה מקור משלימה החלה, סביבות עבודה במורד הזרם מקבלות הרצה חדשה בתור אוטומטית. עד 20 סביבות עבודה מקור לכל יעד.",
       "inboundHeading": "סביבות עבודה מקור שמפעילות הרצות כאן",
       "inboundEmpty": "אין סביבות עבודה מקור שמפעילות הרצות בסביבת עבודה זו.",
       "pickerPlaceholder": "חפשו סביבות עבודה להוספה כמקור…",
@@ -2912,8 +2857,6 @@
       "addVariableStatus": "הוספת המשתנה נכשלה ({status})",
       "deleteVariable": "מחיקת המשתנה נכשלה",
       "updateVariable": "עדכון המשתנה נכשל",
-      "queuePlan": "הוספת התוכנית לתור נכשלה",
-      "queuePlanStatus": "הוספת התוכנית לתור נכשלה ({status})",
       "queueDestroy": "הוספת ההשמדה לתור נכשלה",
       "queueDestroyStatus": "הוספת ההשמדה לתור נכשלה ({status})",
       "createNotification": "יצירת ההתראה נכשלה",
@@ -3511,84 +3454,84 @@
         "applying": "מריץ pulumi up"
       },
       "runStatus": {
-        "planning": "מתכנן",
-        "planned": "תוכנן",
-        "applying": "מיישם",
-        "applied": "יושם"
+        "planning": "מבצע תצוגה מקדימה",
+        "planned": "בוצעה תצוגה מקדימה",
+        "applying": "מעדכן",
+        "applied": "עודכן"
       },
       "status": {
-        "planning": "מתכנן",
-        "applying": "מחיל",
-        "planned": "תוכנן",
-        "applied": "הוחל"
+        "planning": "מבצע תצוגה מקדימה",
+        "applying": "מעדכן",
+        "planned": "בוצעה תצוגה מקדימה",
+        "applied": "עודכן"
       },
       "words": {
-        "actionConfirmFull": "אשר והחל",
-        "actionConfirmShort": "החל",
-        "activityApplied": "היישום הושלם",
-        "activityConfirmed": "מתחיל יישום",
-        "activityDiscarded": "התכנון נדחה",
-        "activityPlannedComplete": "התכנון הושלם",
-        "activityPlannedConfirmable": "ממתין לאישור והחלה שלך",
-        "activityPlannedSpeculative": "תכנון ספקולטיבי הושלם",
-        "aiPolicyOverrideConfirm": "לעקוף את שער מדיניות ה-AI ולאפשר להרצה זו להיות מיושמת למרות הפסיקה?",
-        "aiSummaryDescription": "סיכום שינויים אוטומטי שנוצר על ידי LLM, הערכת סיכונים וניתוח כשלים בכל תוצאת שלב-תוכנית לסביבת עבודה זו.",
-        "aiSummaryTitle": "סיכום תוכנית מבוסס AI",
-        "badgePlanOnly": "תכנון בלבד",
-        "bannerPlanOnlyCli": "זוהי הרצת <strong>תכנון בלבד</strong> שהופעלה מה-CLI על סביבת עבודה המחוברת ל-VCS. יישום אינו זמין עבור קוד שהועלה מה-CLI — ניתן להחיל רק קוד המנוהל ב-VCS.",
-        "changesPlanning": "מתכנן…",
-        "configurationsEmpty": "אין עדיין גרסאות תצורה. הן מופיעות כאן ברגע ש-`terraform plan` מעלה או שדחיפה ל-VCS מפעילה הרצה.",
-        "confirmApply": "להחיל את ההרצה הזו? פעולה זו מחילה את התכנון ומשנה את התשתית.",
-        "confirmDiscard": "לדחות את התכנון הזה?",
-        "costNoState": "עדיין אין עלות — מופיעה לאחר ההחלה הראשונה.",
-        "detailsPlanOnly": "תכנון בלבד",
-        "discardedHeading": "נדחתה — נדרש תכנון מחדש",
-        "driftCheckNowTitle": "הוספת הרצת תוכנית-בלבד לתור לבדיקת סטייה",
-        "driftRemediate": "תכנון + החלה",
-        "driftRemediateConfirm": "להוסיף הרצת תכנון + החלה לתור עבור סביבת עבודה זו?",
-        "driftRemediateTitle": "הוספת הרצת תכנון + החלה לתור כדי ליישר מחדש את התשתית עם התצורה",
-        "errorsQueuePlan": "הוספת התוכנית לתור נכשלה",
-        "errorsQueuePlanStatus": "הוספת התוכנית לתור נכשלה ({status})",
-        "fieldsAutoMerge": "מיזוג אוטומטי לאחר החלה",
-        "formAutoApplyModeHint": "never: תמיד להמתין לאדם. always: להחיל כל תוכנית מוצלחת. create / create/update: להחיל רק תוכניות המוגבלות לפעולות אלה — לעולם לא מחיקה או החלפה.",
-        "lockLockedDesc": "סביבת עבודה זו נעולה. לא ניתן להריץ תוכניות או החלות.",
-        "logApplyEmpty": "אין עדיין פלט יישום זמין.",
-        "logApplySkipped": "לא בוצעה החלה: בתוכנית לא היו שינויים, כך שלא היה מה להחיל.",
-        "logIndexSummary": "סיכום התוכנית",
-        "logIndexTitle": "קפיצה לשינוי משאב או לסיכום התוכנית",
-        "logPlanEmpty": "אין עדיין פלט תכנון זמין.",
-        "nonDefaultRefNote": "נבחר רפרנס שאינו ברירת מחדל — ההרצה תהיה תוכנית-בלבד",
-        "planExpiryDescription": "מחיקה אוטומטית של תוכנית לא מאושרת כאשר היא ישנה מכך, כדי שתוכנית מיושנת לא תוחל על עולם שהשתנה. כבוי כברירת מחדל; אז יש להריץ את התוכנית מחדש. (חל על הרצות בעלות יכולת החלה בלבד.)",
-        "planExpiryTitle": "פקיעת תוכנית",
-        "planOptions": "אפשרויות תוכנית",
-        "planSummaryChatPlaceholder": "שאל שאלת המשך על התכנון הזה… (⌘/Ctrl + Enter לשליחה)",
-        "planSummaryHeading": "סיכום תכנון",
-        "planSummaryNoChangesTitle": "התכנון לא דיווח על שינויים במשאבים",
-        "planSummaryRegenerateTooltip": "הרץ מחדש את סיכום ה-AI על אותם קלטי תכנון",
-        "planSummarySummarising": "מסכם את התכנון…",
-        "policyBlockedMessage": "הרצה זו <strong>חסומה על ידי מערך מדיניות חובה</strong>. היא לא תיושם עד שהכשל ייפתר או שמנהל יעקוף אותו.",
-        "queueApplyConfirm": "להוסיף הרצת תכנון + יישום לתור? זה עשוי לשנות תשתית.",
-        "queueApplyRefBlocked": "החלה אינה זמינה כאשר נבחרו ענף, תגית או קומיט — הרצות אלה הן תמיד תכנון בלבד",
-        "queueApplyTitle": "הוספת הרצת תכנון + החלה לתור",
-        "queueDestroyTitle": "הוספת תוכנית השמדה לתור",
-        "queuePlan": "תכנון",
-        "queuePlanConfirm": "להוסיף תוכנית ספקולטיבית לתור עבור סביבת עבודה זו?",
-        "queueRun": "תכנון + החלה",
+        "actionConfirmFull": "אשר ועדכן",
+        "actionConfirmShort": "עדכן",
+        "activityApplied": "העדכון הושלם",
+        "activityConfirmed": "מתחיל עדכון",
+        "activityDiscarded": "התצוגה המקדימה נדחתה",
+        "activityPlannedComplete": "התצוגה המקדימה הושלמה",
+        "activityPlannedConfirmable": "ממתין לאישור ועדכון שלך",
+        "activityPlannedSpeculative": "תצוגה מקדימה ספקולטיבית הושלמה",
+        "aiPolicyOverrideConfirm": "לעקוף את שער מדיניות ה-AI ולאפשר להרצה זו לעדכן למרות הפסיקה?",
+        "aiSummaryDescription": "סיכום שינויים אוטומטי שנוצר על ידי LLM, הערכת סיכונים וניתוח כשלים בכל תוצאת שלב תצוגה מקדימה לסביבת עבודה זו.",
+        "aiSummaryTitle": "סיכום תצוגה מקדימה מבוסס AI",
+        "badgePlanOnly": "תצוגה מקדימה בלבד",
+        "bannerPlanOnlyCli": "זוהי הרצת <strong>תצוגה מקדימה בלבד</strong> שהופעלה מה-CLI על סביבת עבודה המחוברת ל-VCS. עדכון אינו זמין עבור קוד שהועלה מה-CLI — ניתן לעדכן רק קוד המנוהל ב-VCS.",
+        "changesPlanning": "מבצע תצוגה מקדימה…",
+        "configurationsEmpty": "אין עדיין גרסאות תצורה. הן מופיעות כאן ברגע שדחיפה ל-VCS מפעילה הרצה.",
+        "confirmApply": "לעדכן את ההרצה הזו? פעולה זו מבצעת את התצוגה המקדימה ומשנה את התשתית.",
+        "confirmDiscard": "לדחות את התצוגה המקדימה הזו?",
+        "costNoState": "עדיין אין עלות — מופיעה לאחר העדכון הראשון.",
+        "detailsPlanOnly": "תצוגה מקדימה בלבד",
+        "discardedHeading": "נדחתה — נדרשת תצוגה מקדימה מחדש",
+        "driftCheckNowTitle": "הוספת הרצת תצוגה-מקדימה-בלבד לתור לבדיקת סטייה",
+        "driftRemediate": "תצוגה מקדימה + עדכון",
+        "driftRemediateConfirm": "להוסיף הרצת תצוגה מקדימה + עדכון לתור עבור סביבת עבודה זו?",
+        "driftRemediateTitle": "הוספת הרצת תצוגה מקדימה + עדכון לתור כדי ליישר מחדש את התשתית עם התצורה",
+        "errorsQueuePlan": "הוספת התצוגה המקדימה לתור נכשלה",
+        "errorsQueuePlanStatus": "הוספת התצוגה המקדימה לתור נכשלה ({status})",
+        "fieldsAutoMerge": "מיזוג אוטומטי לאחר עדכון",
+        "formAutoApplyModeHint": "never: תמיד להמתין לאדם. always: לעדכן בכל תצוגה מקדימה מוצלחת. create / create/update: לעדכן רק מתוך תצוגות מקדימות המוגבלות לפעולות אלה — לעולם לא מחיקה או החלפה.",
+        "lockLockedDesc": "סביבת עבודה זו נעולה. לא ניתן להריץ תצוגות מקדימות או עדכונים.",
+        "logApplyEmpty": "אין עדיין פלט עדכון זמין.",
+        "logApplySkipped": "לא בוצע עדכון: בתצוגה המקדימה לא היו שינויים, כך שלא היה מה לעדכן.",
+        "logIndexSummary": "סיכום התצוגה המקדימה",
+        "logIndexTitle": "קפיצה לשינוי משאב או לסיכום התצוגה המקדימה",
+        "logPlanEmpty": "אין עדיין פלט תצוגה מקדימה זמין.",
+        "nonDefaultRefNote": "נבחר רפרנס שאינו ברירת מחדל — ההרצה תהיה תצוגה-מקדימה-בלבד",
+        "planExpiryDescription": "מחיקה אוטומטית של תצוגה מקדימה לא מאושרת כאשר היא ישנה מכך, כדי שתצוגה מקדימה מיושנת לא תבוצע על עולם שהשתנה. כבוי כברירת מחדל; אז יש להריץ את התצוגה המקדימה מחדש. (חל על הרצות בעלות יכולת עדכון בלבד.)",
+        "planExpiryTitle": "פקיעת תצוגה מקדימה",
+        "planOptions": "אפשרויות תצוגה מקדימה",
+        "planSummaryChatPlaceholder": "שאל שאלת המשך על התצוגה המקדימה הזו… (⌘/Ctrl + Enter לשליחה)",
+        "planSummaryHeading": "סיכום תצוגה מקדימה",
+        "planSummaryNoChangesTitle": "התצוגה המקדימה לא דיווחה על שינויים במשאבים",
+        "planSummaryRegenerateTooltip": "הרץ מחדש את סיכום ה-AI על אותם קלטי תצוגה מקדימה",
+        "planSummarySummarising": "מסכם את התצוגה המקדימה…",
+        "policyBlockedMessage": "הרצה זו <strong>חסומה על ידי מערך מדיניות חובה</strong>. היא לא תעדכן עד שהכשל ייפתר או שמנהל יעקוף אותו.",
+        "queueApplyConfirm": "להוסיף הרצת תצוגה מקדימה + עדכון לתור? זה עשוי לשנות תשתית.",
+        "queueApplyRefBlocked": "עדכון אינו זמין כאשר נבחרו ענף, תגית או קומיט — הרצות אלה הן תמיד תצוגה מקדימה בלבד",
+        "queueApplyTitle": "הוספת הרצת תצוגה מקדימה + עדכון לתור",
+        "queueDestroyTitle": "הוספת תצוגה מקדימה של השמדה לתור",
+        "queuePlan": "תצוגה מקדימה",
+        "queuePlanConfirm": "להוסיף תצוגה מקדימה ספקולטיבית לתור עבור סביבת עבודה זו?",
+        "queueRun": "תצוגה מקדימה + עדכון",
         "replacePlaceholder": "e.g. urn:pulumi:dev::shop::aws:ec2/instance:Instance::web",
-        "runTriggersDescription": "כאשר סביבת עבודה מקור משלימה החלה, סביבות עבודה במורד הזרם מקבלות הרצה חדשה בתור אוטומטית. עד 20 סביבות עבודה מקור לכל יעד.",
-        "tabApplyFull": "יומן יישום",
-        "tabApplyLabel": "יישום<log>יומן</log>",
-        "tabPlanFull": "יומן תכנון",
-        "tabPlanLabel": "תכנון<log>יומן</log>",
+        "runTriggersDescription": "כאשר סביבת עבודה מקור משלימה עדכון, סביבות עבודה במורד הזרם מקבלות הרצה חדשה בתור אוטומטית. עד 20 סביבות עבודה מקור לכל יעד.",
+        "tabApplyFull": "יומן עדכון",
+        "tabApplyLabel": "עדכון<log>יומן</log>",
+        "tabPlanFull": "יומן תצוגה מקדימה",
+        "tabPlanLabel": "תצוגה מקדימה<log>יומן</log>",
         "targetPlaceholder": "e.g. urn:pulumi:dev::shop::aws:s3/bucket:Bucket::assets",
-        "timelineApplied": "יושם",
-        "timelineApplyingStarted": "היישום החל",
-        "timelinePlanComplete": "התכנון הושלם",
-        "timelinePlanningStarted": "התכנון החל",
-        "typePlanApply": "תכנון + יישום",
-        "vcsWorkflowWarningRbac": "כל מי שיכול למזג את ה-PR יכול להחיל. כללי הגנת ענף (סקירות נדרשות, בדיקות סטטוס, אישור בעל קוד) הופכים לשער. RBAC של תפקיד/תווית ב-Terrapod<em>אינו</em>חל על פעולות מונחות-תגובה במצב זה.",
-        "vcsWorkflowWarningRecommended": "<strong>מומלץ:</strong> לדרוש היסטוריה לינארית (שינוי בסיס/כיווץ לפני מיזוג) כך שהמסירה שאתם מיישמים היא המסירה שנוחתת.",
-        "slackDescription": "צרפו סביבת עבודה זו להתראות הרצה ב-Slack — בקשות אישור, החלות, שגיאות וסטיות. השאירו את הערוץ ריק וסביבת עבודה זו תישאר שקטה (אין הפצה כלל-פריסתית). דורש שאפליקציית Slack תופעל על ידי מנהל."
+        "timelineApplied": "עודכן",
+        "timelineApplyingStarted": "העדכון החל",
+        "timelinePlanComplete": "התצוגה המקדימה הושלמה",
+        "timelinePlanningStarted": "התצוגה המקדימה החלה",
+        "typePlanApply": "תצוגה מקדימה + עדכון",
+        "vcsWorkflowWarningRbac": "כל מי שיכול למזג את ה-PR יכול לעדכן. כללי הגנת ענף (סקירות נדרשות, בדיקות סטטוס, אישור בעל קוד) הופכים לשער. RBAC של תפקיד/תווית ב-Terrapod<em>אינו</em>חל על פעולות מונחות-תגובה במצב זה.",
+        "vcsWorkflowWarningRecommended": "<strong>מומלץ:</strong> לדרוש היסטוריה לינארית (שינוי בסיס/כיווץ לפני מיזוג) כך שהמסירה שממנה אתם מעדכנים היא המסירה שנוחתת.",
+        "slackDescription": "צרפו סביבת עבודה זו להתראות הרצה ב-Slack — בקשות אישור, עדכונים, שגיאות וסטיות. השאירו את הערוץ ריק וסביבת עבודה זו תישאר שקטה (אין הפצה כלל-פריסתית). דורש שאפליקציית Slack תופעל על ידי מנהל."
       }
     }
   },
