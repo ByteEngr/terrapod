@@ -323,11 +323,15 @@ different things wrong and relaxing one should never cost you the others.
 | `want_assertions_signed` | The signature is on the assertion itself, not only on the enclosing message | Your IDP signs the message only |
 | `reject_deprecated_algorithm` | No SHA-1 signature or digest (`RSA-SHA1`, `DSA-SHA1`, `SHA1`) | Your IDP cannot yet be moved off SHA-1 |
 
-**The defaults differ by release line.** On the 2.x development line every one of
-them is `true`. On the 1.x release lines every one is `false`, preserving the
-behaviour an operator already has — a patch release must never lock someone out
-of their own deployment. The implementation is identical on both; only the
-default differs, so the setting you choose means the same thing on either.
+**The defaults differ by release line.** From 2.0 every one of them is `true`, so
+a provider that configures none of them is protected. On the 1.x release lines
+every one is `false`, preserving the behaviour an operator already has — a patch
+release must never lock someone out of their own deployment. The implementation is
+identical on both; only the default differs, so the setting you choose means the
+same thing on either.
+
+Relax one check rather than all five: each failure below is a different problem,
+and the four you keep still protect you.
 
 ```yaml
 api:
@@ -338,7 +342,8 @@ api:
           - name: azure-ad-saml
             metadata_url: "https://login.microsoftonline.com/{tenant-id}/federationmetadata/2007-06/federationmetadata.xml"
             entity_id: "https://terrapod.example.com"
-            # Explicit on a 1.x release, where the defaults are false:
+            # These five are the defaults from 2.0, spelled out. Set them
+            # explicitly on a 1.x release, where each one is false.
             validate_destination: true
             validate_in_response_to: true
             reject_replayed_assertions: true
@@ -611,6 +616,7 @@ A token created with an explicit `lifespan_hours` (e.g. via the API or the creat
 |---|---|
 | Storage | Redis (`tp:session:{token}`) |
 | TTL | 12 hours (sliding -- refreshed on activity, rate-limited to once per 5 minutes) |
+| Absolute lifetime | 24 hours from sign-in, whatever the activity |
 | Scope | Web UI only |
 
 ### Configuration
@@ -620,7 +626,37 @@ api:
   config:
     auth:
       session_ttl_hours: 12
+      # Hard ceiling measured from sign-in. The sliding window above is clamped
+      # to it, so a session cannot be kept alive indefinitely by activity.
+      # 0 removes the ceiling (not recommended).
+      session_absolute_ttl_hours: 24
 ```
+
+### A session's roles, and when they change under it
+
+**Roles are resolved once, at sign-in.** They are merged from three sources — your
+IdP groups, the `claims_to_roles` rules, and the stored role assignments — and then
+carried in the session record. Two of those three need the IdP's token, which is
+gone by the next request, so the session cannot simply re-resolve them.
+
+So a change to someone's roles is pushed to their sessions instead, and which way
+depends on the direction of the change:
+
+| What an admin does | What happens to that user's sessions |
+|---|---|
+| removes a role assignment, or replaces their roles with a set that drops one | **signed out immediately** — a session's role list *is* the access, so nothing less would take it away |
+| adds a role assignment | kept, with the new role added in place. Nobody is signed out for being promoted |
+| narrows a custom role's grant (removes a capability, turns `allow-all` off, edits its scope rules) | everyone holding that role is **signed out** |
+| adds a capability to a role, or edits only its description | nothing — no sign-out for a widening |
+| deletes a custom role | everyone who held it is **signed out** |
+| resets a user's password | that user is **signed out** of every session. Their API tokens are left alone; use *deactivate* to revoke everything |
+
+Only the sessions belonging to the provider whose assignment changed are affected:
+a role assignment is keyed on `(provider, email)` and a session's roles come from
+its own provider's assignments, so a change to one cannot have made another stale.
+
+`session_absolute_ttl_hours` is the backstop for anything this misses — it bounds
+how long a role resolved at sign-in can outlive a change to it, regardless.
 
 ### Viewing Active Sessions
 
