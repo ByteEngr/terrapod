@@ -169,6 +169,36 @@ This is a straight pass-through to the pod's `hostAliases`, so it takes the shap
 
 ---
 
+## Where runner Jobs run
+
+Runner Jobs are created in `listener.runnerNamespace`, which **defaults to the
+release namespace** — the same namespace as the API, the listener and the web
+pod.
+
+**Give them a namespace of their own.** Runner Jobs execute arbitrary
+Terraform/Tofu, and while they share the release namespace the listener's
+`jobs: create` and `secrets: create` grants cover every Secret the control plane
+holds, and (with NetworkPolicies off) runner code can reach Postgres and Redis
+directly. `namespace.createRunner: true` has the chart create the namespace;
+everything else the topology needs — the listener's `Role` and `RoleBinding`, the
+runner `ServiceAccount`, the runner `NetworkPolicy` — already renders there.
+
+The full rationale, the exact values, and what you must create yourself if you do
+not let the chart do it are in
+[Security hardening → Separate the runner namespace](security-hardening.md#separate-the-runner-namespace).
+
+Two details worth knowing if you are debugging a separated deployment:
+
+- The runner's `TP_API_URL` is the **fully qualified** in-cluster Service name
+  (`<release>-api.<release-namespace>.svc.cluster.local:8000`) rather than a bare
+  one, because a bare name resolves only from the release namespace. Override it
+  with `runners.serverUrl` (or `listener.apiUrl`) if runners reach the API by
+  some other route.
+- With NetworkPolicies on, the API policy admits runners via a
+  `namespaceSelector` on the runner namespace. If you hand-write that policy,
+  remember that a bare `podSelector` matches only pods in the policy's own
+  namespace.
+
 ## Job Configuration
 
 All runner Jobs inherit the following settings from `runners.*` in Helm values:
@@ -549,6 +579,16 @@ On startup each pod runs the same flow:
 4. If the join token is exhausted (`401`/`403`) before this pod gets a chance, the pod backs off (1, 2, 4, ... up to 30s, ~3 min total budget) and re-reads the Secret. As soon as a peer pod's bootstrap completes, the loser adopts that identity. This is why the default `max_uses: 2` is enough even for large replica counts — only the first two pods ever consume token uses, the rest discover the Secret.
 
 The default join token policy (`api.config.agent_pools.default_join_token_*`) creates tokens with `max_uses: 2` and a 1h expiry. Set either field to `null` via the API for unlimited uses or no expiry. Setting `max_uses: 1` is also fine for single-replica deployments — the bootstrap-race retry only matters when you scale up before the first pod completes.
+
+**A token seeded by the bootstrap Job is bounded too** — one use and 24 hours, via
+`bootstrap.poolTokenMaxUses` / `poolTokenTTLSeconds`. Step 1 above is why one use
+is enough: the credentials Secret survives pod replacement, so only a listener
+with no Secret to read ever presents the join token. The case for raising it to 2
+is the same one the API's default exists for — the winning pod dying between
+step 2 and step 3, with no use left for another to take over. An expired or spent
+bootstrap token is not re-armed by a later `helm upgrade`; issue a replacement
+through the API. See
+[Security hardening → Bootstrap join tokens expire](security-hardening.md#bootstrap-join-tokens-expire).
 
 ### Renewal
 
