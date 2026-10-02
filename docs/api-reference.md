@@ -1212,9 +1212,20 @@ The stream sends `: keepalive` comments every ~1 second. Events are JSON-encoded
 GET /api/v1/workspace-events
 ```
 
-Server-Sent Events stream for the workspace list page. Emits events whenever any workspace changes (run status, lock, settings, state). The web UI uses this to refresh the workspace list without polling.
+Server-Sent Events stream for the workspace list page. Emits events whenever a workspace changes (run status, lock, settings, state). The web UI uses this to refresh the workspace list without polling.
 
-**Required permission:** Any authenticated user.
+**Required permission:** any authenticated user to subscribe — but **each event is
+filtered against the subscriber's own `workspace:read`**, so a stream only carries
+workspaces that principal can see.
+
+The filter is new in 2.0 (GHSA-mc7f-xmq4-jgvw). This is one global channel
+carrying every workspace's id and coarse status, so before it any authenticated
+user learned of the existence and state of every workspace in the deployment.
+A decision is cached per connection for 30 seconds, so a role change is felt
+within that window rather than at the next reconnect; an unresolvable workspace
+(deleted, or a transient database error) is treated as unreadable. The web UI is
+unaffected — it reloads the list on any event and ignores the payload, so a
+dropped event is a reload that would have found nothing changed.
 
 ### Plan Details
 
@@ -1249,29 +1260,39 @@ Returns the structured JSON representation of the plan, as produced by `terrafor
 
 The endpoint is mounted at `/api/tfe/v2/` because `go-tfe` and Terraform's `cloud` block expect it there. Returns **404** if the runner never uploaded the JSON output (older runs, runs that errored before the plan completed).
 
-**Required permission: `read` on the workspace — the same tier as viewing the run.**
-Be deliberate about that when granting `read`, because the structured plan is a
-richer artifact than the human-readable log it sits beside. It carries each
-resource's **resolved attribute values**, which includes values that originated in
-a sensitive variable: Terraform marks them in the plan rather than removing them,
-and Terrapod stores and serves the plan as the engine produced it. So a principal
-who can view a run can also read the values that run is about to apply.
+**Required permission: `state:read` on the workspace — the `plan` tier, the same
+as downloading raw state.** The structured plan is a far richer artifact than the
+human-readable log it sits beside: it carries each resource's **resolved
+attribute values**, the root `variables` with their values (sensitive ones
+included), and `prior_state.values` — the whole state in cleartext, resource
+secrets and all. Terraform marks sensitive values in the plan rather than
+removing them, and Terrapod stores and serves the plan as the engine produced it.
 
-Two ways to narrow it today, both available on this release line:
+**Changed in 2.0 (GHSA-gwwq-5v7q-h3f4).** This endpoint used to need only
+`run:read`, so it sat in the `read` preset — which handed a read-only principal
+exactly what the `state:read` gate and the sensitive-variable masking exist to
+withhold. If you rely on a `read`-only principal fetching plan JSON (a downstream
+tool, a dashboard), raise that principal to `plan` before upgrading; a `read`-tier
+caller now gets **403**. TFE does not grant structured plan output at its read
+tier either.
 
-- **Grant `read` deliberately.** On a workspace whose plans carry secrets, the
-  label-based role that grants `read` is the control. There is no separate
-  switch for this endpoint.
+Two things that remain true whatever tier you grant:
+
+- **The `plan` tier is still a real grant.** On a workspace whose plans carry
+  secrets, the label-based role that grants `state:read` is the control. There is
+  no separate switch for this endpoint, and there is no redacted variant: a
+  second, weaker-but-plausible plan artifact would be one more thing to keep
+  correct for ever. (The AI channel does redact, because a third party receives
+  the document there — a different reason that does not generalise.)
 - **Keep secrets out of resource arguments.** What puts a value in the plan is
   its being an argument of a resource, not which variable category delivered it.
   A credential a provider reads from its own environment variable never becomes a
   resource attribute, so it never reaches the plan; the same secret interpolated
   into a resource argument does, whichever category carried it.
 
-**This changes in 2.0**, where the endpoint requires the **`plan`** tier instead,
-putting it alongside `download raw state` — the other route that serves resolved
-values. If you rely on a `read`-only principal fetching plan JSON (a downstream
-tool, a dashboard), raise that principal to `plan` before upgrading.
+The run page's **Impact graph** (`GET /api/v1/runs/{run_id}/impact-graph`) stays
+at `run:read`: it is derived server-side and carries resource addresses, types,
+planned actions and dependency edges — no attribute values.
 
 ### Impact Graph
 
@@ -1666,7 +1687,16 @@ POST /api/v1/workspaces/{id}/run-triggers
 }
 ```
 
-**Required permission:** `admin` on the destination workspace.
+**Required permission:** `admin` on the destination workspace, **and `read` on
+the source workspace**.
+
+The source-side check is new in 2.0 (GHSA-mc7f-xmq4-jgvw). Without it the
+destination grant bounded nothing about which workspaces could be named as a
+source, so a user holding `admin` on one workspace of their own could post
+arbitrary ids and read the answer — an existence-and-name oracle over the whole
+fleet. A source the caller cannot read is reported as **404 Workspace not
+found**, identical to an id that does not exist: a 403 would confirm the
+workspace is there, which is the thing being withheld.
 
 **Validation:**
 - Source and destination must be different workspaces
@@ -2404,6 +2434,20 @@ section below).
 
 **Required permission:** `write` on the module (the owner has `admin`).
 
+**A published version is immutable, and the server enforces that** (new in 2.0,
+GHSA-mhhr-896g-4p33). Re-uploading a version that already holds bytes answers
+**409 Conflict** and stores nothing. It used to upsert and replace them in place
+— and module consumers do not hash-lock, so every workspace pinned to that
+version silently picked up different source on its next init. Publish a new
+version instead; if a published one genuinely has to go, delete it first (that is
+`registry:admin`, and audited).
+
+Completing a version whose first attempt failed is still allowed: a row that
+never reached `uploaded` is a resumed publish, not an overwrite, so a failed
+upload does not strand the version number. The VCS tag poller has its own path
+and is unaffected — a **moved tag** deliberately updates its version in place,
+because there the tag rather than the version is the author's statement.
+
 **Tooling:** the [`terrapod-publish`](registry-publishing.md) CLI packages
 the source directory and performs this upload.
 
@@ -2692,21 +2736,31 @@ Generates a short-lived HMAC-signed runner token scoped to the specified run. Ca
 **Request body (optional):**
 ```json
 {
-  "ttl": 3600
+  "ttl": 3600,
+  "phase": "plan"
 }
 ```
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `ttl` | integer | `runners.tokenTTLSeconds` (default 3600) | Requested token lifetime in seconds. Clamped to `runners.maxTokenTTLSeconds` (default 7200) |
+| `phase` | string | — | The Job's phase, `plan` or `apply`. Bound into the token so it cannot drive the other phase's endpoints (GHSA-xmrf-hxq9-m59m, new in 2.0). Omitted or unrecognised mints an unphased token |
 
 **Response:**
 ```json
 {
-  "token": "runtok:{run_id}:{ttl}:{timestamp}:{hmac_sig}",
-  "expires_in": 3600
+  "token": "runtok:{run_id}:{phase}:{ttl}:{timestamp}:{hmac_sig}",
+  "expires_in": 3600,
+  "phase": "plan"
 }
 ```
+
+A request that sends no `phase` gets the older four-field token
+(`runtok:{run_id}:{ttl}:{timestamp}:{hmac_sig}`) and `"phase": null` — which is
+what a listener image older than the claim produces, and it keeps working: an
+absent claim is read as "no claim", so the phase checks are skipped rather than
+failing. Both parts of the wire are additive, so neither upgrade order breaks a
+run.
 
 **Auth:** Listener certificate.
 
@@ -3641,6 +3695,25 @@ DELETE /api/v1/authentication-tokens/{id}
 ## Run Artifacts (Runner)
 
 Authenticated endpoints for runner Jobs to download inputs and upload outputs. All endpoints require a runner token (`Authorization: Bearer runtok:...`) scoped to the specified `run_id`.
+
+Since 2.0 (GHSA-xmrf-hxq9-m59m) a token is also scoped to its **phase** and to
+the time its run is **live**:
+
+- An endpoint that belongs to one phase refuses a token from the other with
+  **403**. Plan phase: `PUT plan-log`, `PUT plan-file`, `PUT lock-file`,
+  `PUT plan-json-output`, `PUT plan-artifacts`, `PUT cost-estimate`, the
+  `onboarding-*` uploads, `POST plan-result`, and the policy + security-scan
+  runner protocol. Apply phase: `GET plan-file`, `GET lock-file`,
+  `GET plan-artifacts`, `PUT apply-log`, `PUT state`, `PUT pulumi-deployment`,
+  `POST state-diverged`, `POST apply-result`. Both: `GET config`, `GET state`,
+  `GET pulumi-deployment`, `POST resource-profile`.
+- A token whose run has reached a terminal state — or has been deleted — fails
+  **authentication** (401), on every runner-reachable surface including the
+  binary cache, the provider mirror, the package-cache proxy and the container
+  registry.
+- A token carrying no phase claim passes every phase, because that is what a
+  listener older than the claim mints. See
+  [Listener Runner Token](#listener-runner-token).
 
 ### Download Config Archive
 

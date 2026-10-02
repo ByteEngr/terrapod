@@ -2720,8 +2720,15 @@ async def create_runner_token(
 
     Called by the listener after claiming a run. The token authenticates
     runner Job API calls (binary cache, provider mirror, artifact upload/download).
+
+    The listener names the Job's `phase` in the body, which is bound into the
+    token so a plan-phase Job cannot drive the apply-phase routes
+    (GHSA-xmrf-hxq9-m59m). **Optional, and it has to stay optional**: a listener
+    image older than the claim sends no phase, and must still get a working
+    token — so an absent or unrecognised phase mints the older unphased form
+    rather than failing or guessing one.
     """
-    from terrapod.auth.runner_tokens import generate_runner_token
+    from terrapod.auth.runner_tokens import RUNNER_PHASES, generate_runner_token
     from terrapod.config import load_runner_config
 
     run = await _get_run(run_id, db)
@@ -2733,13 +2740,17 @@ async def create_runner_token(
 
     config = load_runner_config()
     requested_ttl = body.get("ttl", config.token_ttl_seconds)
-    token = generate_runner_token(run.id, ttl=requested_ttl)
+    requested_phase = body.get("phase")
+    phase = requested_phase if requested_phase in RUNNER_PHASES else None
+    token = generate_runner_token(run.id, ttl=requested_ttl, phase=phase)
 
     # Compute actual TTL (may have been clamped)
     max_ttl = config.max_token_ttl_seconds
     actual_ttl = min(requested_ttl, max_ttl) if max_ttl > 0 else requested_ttl
 
-    return JSONResponse(content={"token": token, "expires_in": actual_ttl})
+    # `phase` echoed back so a listener can tell whether the server bound one —
+    # additive, and absent from an older server's response, which reads as None.
+    return JSONResponse(content={"token": token, "expires_in": actual_ttl, "phase": phase})
 
 
 # ── Job Lifecycle Callbacks ───────────────────────────────────────────────
@@ -2949,7 +2960,7 @@ async def report_plan_result(
     network partition, etc.). Both paths land in the same idempotent helper
     so whichever wins, the second is a no-op.
     """
-    require_runner_for_run(user, run_id)
+    require_runner_for_run(user, run_id, phase="plan")
     run = await _get_run(run_id, db)
 
     has_changes = body.get("has_changes")
@@ -2971,7 +2982,7 @@ async def report_apply_result(
     runner's exit. Drives `applying → applied` via `run_service.complete_apply`,
     which is idempotent against the listener-driven fallback.
     """
-    require_runner_for_run(user, run_id)
+    require_runner_for_run(user, run_id, phase="apply")
     run = await _get_run(run_id, db)
     await run_service.complete_apply(db, run)
     await db.commit()
@@ -3057,12 +3068,26 @@ async def plan_json_output(
     the `json-output` attribute — so it needs no capability, and it used to
     treat the plan UUID as one. A plan JSON is the full resolved plan, secrets
     included, so a guessable id was a worse exposure here than in the logs.
+
+    **It is gated on `state:read`, NOT `run:read` (GHSA-gwwq-5v7q-h3f4).** The
+    document embeds `prior_state.values` — the whole state in cleartext,
+    resource secrets included — and the root `variables` with their values,
+    sensitive ones among them. So it is state-grade data, and serving it a tier
+    below raw state download handed a read-tier user exactly what the
+    `state:read` gate and the sensitive-variable masking exist to withhold.
+    TFE does not grant structured plan output at its read tier either.
+
+    Not redacted for the read tier instead: a redacted plan is a second,
+    weaker-but-plausible artifact to keep correct for ever, and the AI channel
+    already redacts (there, because a third party receives the document — a
+    different reason that does not generalise to serving it to a human who may
+    not read the state).
     """
     run_uuid = parse_id(plan_id, "plan-", "run-", detail="Plan not found")
     run = await run_service.get_run(db, run_uuid)
     if run is None:
         raise HTTPException(status_code=404, detail="Plan not found")
-    await _require_run_ws_capability(run, cap.RUN_READ, user, db, request=request)
+    await _require_run_ws_capability(run, cap.STATE_READ, user, db, request=request)
 
     # Fast path: the flag is the source of truth. Avoid a storage call
     # for runs that never produced JSON (errored, older, upload failed).
