@@ -51,6 +51,7 @@ Beyond broad TFE compatibility, Terrapod is built with three deliberate design f
 | **AI Policy Gate** | The plan summary's verdict as a post-plan gate — natural-language deny criteria plus a risk threshold, advisory or mandatory, with admin override; off by default |
 | **Policy-as-Code** | OPA/Rego policy sets evaluated on every run; advisory or mandatory enforcement, label-scoped; optional shared evaluation for helper rules and data files |
 | **IaC Security Scanning** | Checkov/Trivy misconfiguration scanning of the plan JSON; per-workspace advisory or enforced, severity threshold, skip rules |
+| **Compliance Reporting** | Audit-ready compliance reports and CSV exports combining OPA policy set evaluations, Checkov/Trivy findings, post-plan decision verdicts, and cost estimation summaries |
 | **Runner Debug Mode** | Per-workspace opt-in keeping a failed runner pod exec-able so a credential, DNS or mount failure can be reproduced with the run's real environment; auto-expires, off by default |
 | **Drift Detection** | Scheduled plan-only runs to detect out-of-band infrastructure changes |
 | **Workspace Health** | Per-workspace health conditions with status indicators on workspace list |

@@ -1,16 +1,20 @@
-"""Unit tests for the Run Compliance Reporting API endpoints (#1704)."""
+"""API router unit tests for compliance reporting endpoints (#1704)."""
 
 import uuid
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+from fastapi import HTTPException
 
 from terrapod.api.dependencies import AuthenticatedUser
 from terrapod.api.routers import runs as runs_router
 from terrapod.auth import capabilities as cap
 from terrapod.services import compliance_report_service
 
-STAMP = datetime(2026, 9, 28, 12, 0, tzinfo=UTC)
+STAMP = datetime(2026, 10, 7, 12, 0, tzinfo=UTC)
 READ_CAPS = {cap.RUN_READ}
+NO_CAPS = set()
 
 
 def _user() -> AuthenticatedUser:
@@ -53,21 +57,21 @@ def _setup_run(status="planned"):
 
 
 class TestRunComplianceReportAPI:
-    async def test_show_run_compliance_report_success(self):
+    async def test_show_run_compliance_report_success_envelope(self):
         db, ws, run = _setup_run(status="applied")
         mock_report = {
             "id": f"cmpl-{run.id}",
-            "run_id": str(run.id),
-            "workspace_id": str(ws.id),
+            "run-id": str(run.id),
+            "workspace-id": str(ws.id),
             "verdict": "COMPLIANT",
-            "run_status": "applied",
-            "created_at": "2026-09-28T12:00:00Z",
-            "execution_backend": "tofu",
-            "is_destroy": False,
-            "plan_only": False,
-            "policy_checks_summary": [],
-            "policy_evaluations": [],
-            "security_scan": None,
+            "run-status": "applied",
+            "created-at": "2026-10-07T12:00:00Z",
+            "execution-backend": "tofu",
+            "is-destroy": False,
+            "plan-only": False,
+            "policy-checks-summary": [],
+            "policy-evaluations": [],
+            "security-scan": None,
         }
 
         with (
@@ -89,20 +93,21 @@ class TestRunComplianceReportAPI:
 
         assert response.status_code == 200
         body = response.body.decode("utf-8")
+        assert '"type":"compliance-reports"' in body or '"type": "compliance-reports"' in body
         assert "COMPLIANT" in body
         assert f"cmpl-{run.id}" in body
 
-    async def test_show_workspace_compliance_report_json(self):
+    async def test_show_workspace_compliance_report_json_envelope(self):
         db, ws, run = _setup_run(status="applied")
         mock_workspace_report = {
-            "workspace_id": str(ws.id),
-            "total_runs_evaluated": 1,
+            "workspace-id": str(ws.id),
+            "total-runs-evaluated": 1,
             "summary": {
                 "compliant": 1,
-                "non_compliant": 0,
+                "non-compliant": 0,
                 "overridden": 0,
-                "pending_review": 0,
-                "compliance_rate_percent": 100.0,
+                "pending-review": 0,
+                "compliance-rate-percent": 100.0,
             },
             "runs": [],
         }
@@ -128,30 +133,34 @@ class TestRunComplianceReportAPI:
 
         assert response.status_code == 200
         body = response.body.decode("utf-8")
-        assert "compliance_rate_percent" in body
+        assert (
+            '"type":"workspace-compliance-reports"' in body
+            or '"type": "workspace-compliance-reports"' in body
+        )
+        assert "compliance-rate-percent" in body
 
     async def test_show_workspace_compliance_report_csv(self):
         db, ws, run = _setup_run(status="applied")
         mock_workspace_report = {
-            "workspace_id": str(ws.id),
-            "total_runs_evaluated": 1,
+            "workspace-id": str(ws.id),
+            "total-runs-evaluated": 1,
             "summary": {
                 "compliant": 1,
-                "non_compliant": 0,
+                "non-compliant": 0,
                 "overridden": 0,
-                "pending_review": 0,
-                "compliance_rate_percent": 100.0,
+                "pending-review": 0,
+                "compliance-rate-percent": 100.0,
             },
             "runs": [
                 {
-                    "run_id": str(run.id),
-                    "workspace_id": str(ws.id),
+                    "run-id": str(run.id),
+                    "workspace-id": str(ws.id),
                     "verdict": "COMPLIANT",
-                    "run_status": "applied",
-                    "created_at": "2026-09-28T12:00:00Z",
-                    "execution_backend": "tofu",
-                    "is_destroy": False,
-                    "plan_only": False,
+                    "run-status": "applied",
+                    "created-at": "2026-10-07T12:00:00Z",
+                    "execution-backend": "tofu",
+                    "is-destroy": False,
+                    "plan-only": False,
                 }
             ],
         }
@@ -180,3 +189,39 @@ class TestRunComplianceReportAPI:
         csv_text = response.body.decode("utf-8")
         assert "run_id,workspace_id,verdict" in csv_text
         assert "COMPLIANT" in csv_text
+
+    async def test_show_run_compliance_report_forbidden_without_capability(self):
+        db, ws, run = _setup_run(status="applied")
+
+        with (
+            patch.object(runs_router, "_get_run", AsyncMock(return_value=run)),
+            patch.object(
+                runs_router, "resolve_workspace_capabilities_for", AsyncMock(return_value=NO_CAPS)
+            ),
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                await runs_router.show_run_compliance_report(
+                    run_id=str(run.id),
+                    user=_user(),
+                    db=db,
+                )
+            assert exc_info.value.status_code == 403
+
+    async def test_show_workspace_compliance_report_forbidden_without_capability(self):
+        db, ws, run = _setup_run(status="applied")
+
+        with (
+            patch.object(runs_router, "_get_workspace", AsyncMock(return_value=ws)),
+            patch.object(
+                runs_router, "resolve_workspace_capabilities_for", AsyncMock(return_value=NO_CAPS)
+            ),
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                await runs_router.show_workspace_compliance_report(
+                    workspace_id=str(ws.id),
+                    limit=50,
+                    format="json",
+                    user=_user(),
+                    db=db,
+                )
+            assert exc_info.value.status_code == 403

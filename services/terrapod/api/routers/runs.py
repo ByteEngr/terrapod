@@ -2060,14 +2060,23 @@ async def show_run_compliance_report(
     run = await _get_run(run_id, db)
     await _require_run_ws_capability(run, cap.RUN_READ, user, db)
     report = await compliance_report_service.generate_run_compliance_report(db, run)
-    return JSONResponse(content={"data": report})
+    return JSONResponse(
+        content={
+            "data": {
+                "id": f"cmpl-{run.id}",
+                "type": "compliance-reports",
+                "attributes": report,
+                "relationships": {"run": {"data": {"id": f"run-{run.id}", "type": "runs"}}},
+            }
+        }
+    )
 
 
 @extensions_router.get("/workspaces/{workspace_id}/compliance-report")
 async def show_workspace_compliance_report(
     workspace_id: str = Path(...),
     limit: int = Query(50, ge=1, le=500),
-    format: str = Query("json", regex="^(json|csv)$"),
+    format: Literal["json", "csv"] = Query("json"),
     user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
@@ -2094,7 +2103,18 @@ async def show_workspace_compliance_report(
             headers={"Content-Disposition": f"attachment; filename=compliance-{ws.id}.csv"},
         )
 
-    return JSONResponse(content={"data": report})
+    return JSONResponse(
+        content={
+            "data": {
+                "id": f"ws-cmpl-{ws.id}",
+                "type": "workspace-compliance-reports",
+                "attributes": report,
+                "relationships": {
+                    "workspace": {"data": {"id": f"ws-{ws.id}", "type": "workspaces"}}
+                },
+            }
+        }
+    )
 
 
 @extensions_router.get("/runs/{run_id}/plan")

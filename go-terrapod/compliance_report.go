@@ -15,59 +15,67 @@ type PolicyCheckSummary struct {
 	Kind           string `json:"kind"`
 	Status         string `json:"status"`
 	Passed         int    `json:"passed"`
-	SoftFailed     int    `json:"soft_failed"`
-	AdvisoryFailed int    `json:"advisory_failed"`
+	SoftFailed     int    `json:"soft-failed"`
+	AdvisoryFailed int    `json:"advisory-failed"`
 }
 
 // PolicyEvaluationDetail describes an OPA policy set evaluation detail.
 type PolicyEvaluationDetail struct {
-	PolicySetID      string  `json:"policy_set_id"`
-	EnforcementLevel string  `json:"enforcement_level"`
+	PolicySetID      *string `json:"policy-set-id,omitempty"`
+	PolicySetName    string  `json:"policy-set-name"`
+	EnforcementLevel string  `json:"enforcement-level"`
 	Outcome          string  `json:"outcome"`
-	OverriddenBy     *string `json:"overridden_by,omitempty"`
-	OverriddenAt     *string `json:"overridden_at,omitempty"`
+	OverriddenBy     *string `json:"overridden-by,omitempty"`
+	OverriddenAt     *string `json:"overridden-at,omitempty"`
 }
 
 // SecurityScanSummary describes security scanner results in a compliance report.
 type SecurityScanSummary struct {
-	Scanner       string `json:"scanner"`
-	Enforced      bool   `json:"enforced"`
-	Outcome       string `json:"outcome"`
-	CriticalCount int    `json:"critical_count"`
-	HighCount     int    `json:"high_count"`
-	MediumCount   int    `json:"medium_count"`
-	LowCount      int    `json:"low_count"`
+	Engine             string  `json:"engine"`
+	EnforcementLevel   string  `json:"enforcement-level"`
+	SeverityThreshold  string  `json:"severity-threshold"`
+	Outcome            string  `json:"outcome"`
+	CriticalCount      int     `json:"critical-count"`
+	HighCount          int     `json:"high-count"`
+	MediumCount        int     `json:"medium-count"`
+	LowCount           int     `json:"low-count"`
+	UnknownCount       int     `json:"unknown-count"`
+	TotalCount         int     `json:"total-count"`
+	BlockingCount      int     `json:"blocking-count"`
+	Error              *string `json:"error,omitempty"`
+	OverriddenBy       *string `json:"overridden-by,omitempty"`
+	OverriddenAt       *string `json:"overridden-at,omitempty"`
 }
 
 // RunComplianceReport is an audit-ready compliance report for a single run.
 type RunComplianceReport struct {
 	ID                  string                   `json:"id"`
-	RunID               string                   `json:"run_id"`
-	WorkspaceID         string                   `json:"workspace_id"`
+	RunID               string                   `json:"run-id"`
+	WorkspaceID         string                   `json:"workspace-id"`
 	Verdict             string                   `json:"verdict"`
-	RunStatus           string                   `json:"run_status"`
-	CreatedAt           string                   `json:"created_at"`
-	ExecutionBackend    string                   `json:"execution_backend"`
-	IsDestroy           bool                     `json:"is_destroy"`
-	PlanOnly            bool                     `json:"plan_only"`
-	PolicyChecksSummary []PolicyCheckSummary     `json:"policy_checks_summary"`
-	PolicyEvaluations   []PolicyEvaluationDetail `json:"policy_evaluations"`
-	SecurityScan        *SecurityScanSummary     `json:"security_scan,omitempty"`
+	RunStatus           string                   `json:"run-status"`
+	CreatedAt           string                   `json:"created-at"`
+	ExecutionBackend    string                   `json:"execution-backend"`
+	IsDestroy           bool                     `json:"is-destroy"`
+	PlanOnly            bool                     `json:"plan-only"`
+	PolicyChecksSummary []PolicyCheckSummary     `json:"policy-checks-summary"`
+	PolicyEvaluations   []PolicyEvaluationDetail `json:"policy-evaluations"`
+	SecurityScan        *SecurityScanSummary     `json:"security-scan,omitempty"`
 }
 
 // WorkspaceComplianceSummary carries aggregated counts across workspace runs.
 type WorkspaceComplianceSummary struct {
 	Compliant             int     `json:"compliant"`
-	NonCompliant          int     `json:"non_compliant"`
+	NonCompliant          int     `json:"non-compliant"`
 	Overridden            int     `json:"overridden"`
-	PendingReview         int     `json:"pending_review"`
-	ComplianceRatePercent float64 `json:"compliance_rate_percent"`
+	PendingReview         int     `json:"pending-review"`
+	ComplianceRatePercent float64 `json:"compliance-rate-percent"`
 }
 
 // WorkspaceComplianceReport aggregates compliance reports across workspace runs.
 type WorkspaceComplianceReport struct {
-	WorkspaceID        string                     `json:"workspace_id"`
-	TotalRunsEvaluated int                        `json:"total_runs_evaluated"`
+	WorkspaceID        string                     `json:"workspace-id"`
+	TotalRunsEvaluated int                        `json:"total-runs-evaluated"`
 	Summary            WorkspaceComplianceSummary `json:"summary"`
 	Runs               []RunComplianceReport      `json:"runs"`
 }
@@ -89,35 +97,38 @@ func (c *Client) GetRunComplianceReport(ctx context.Context, runID string) (*Run
 	if err != nil {
 		return nil, fmt.Errorf("parse compliance report response: %w", err)
 	}
-	report := &RunComplianceReport{}
-	if raw, ok := res.Attributes["id"]; ok {
-		_ = json.Unmarshal(raw, &report.ID)
-	}
-	if raw, ok := res.Attributes["run_id"]; ok {
+	report := &RunComplianceReport{ID: res.ID}
+	if raw, ok := res.Attributes["run-id"]; ok {
 		_ = json.Unmarshal(raw, &report.RunID)
 	}
-	if raw, ok := res.Attributes["workspace_id"]; ok {
+	if raw, ok := res.Attributes["workspace-id"]; ok {
 		_ = json.Unmarshal(raw, &report.WorkspaceID)
 	}
 	if raw, ok := res.Attributes["verdict"]; ok {
 		_ = json.Unmarshal(raw, &report.Verdict)
 	}
-	if raw, ok := res.Attributes["run_status"]; ok {
+	if raw, ok := res.Attributes["run-status"]; ok {
 		_ = json.Unmarshal(raw, &report.RunStatus)
 	}
-	if raw, ok := res.Attributes["created_at"]; ok {
+	if raw, ok := res.Attributes["created-at"]; ok {
 		_ = json.Unmarshal(raw, &report.CreatedAt)
 	}
-	if raw, ok := res.Attributes["execution_backend"]; ok {
+	if raw, ok := res.Attributes["execution-backend"]; ok {
 		_ = json.Unmarshal(raw, &report.ExecutionBackend)
 	}
-	if raw, ok := res.Attributes["policy_checks_summary"]; ok {
+	if raw, ok := res.Attributes["is-destroy"]; ok {
+		_ = json.Unmarshal(raw, &report.IsDestroy)
+	}
+	if raw, ok := res.Attributes["plan-only"]; ok {
+		_ = json.Unmarshal(raw, &report.PlanOnly)
+	}
+	if raw, ok := res.Attributes["policy-checks-summary"]; ok {
 		_ = json.Unmarshal(raw, &report.PolicyChecksSummary)
 	}
-	if raw, ok := res.Attributes["policy_evaluations"]; ok {
+	if raw, ok := res.Attributes["policy-evaluations"]; ok {
 		_ = json.Unmarshal(raw, &report.PolicyEvaluations)
 	}
-	if raw, ok := res.Attributes["security_scan"]; ok {
+	if raw, ok := res.Attributes["security-scan"]; ok {
 		_ = json.Unmarshal(raw, &report.SecurityScan)
 	}
 	return report, nil
@@ -145,10 +156,10 @@ func (c *Client) GetWorkspaceComplianceReport(ctx context.Context, workspaceID s
 		return nil, fmt.Errorf("parse workspace compliance report response: %w", err)
 	}
 	report := &WorkspaceComplianceReport{}
-	if raw, ok := res.Attributes["workspace_id"]; ok {
+	if raw, ok := res.Attributes["workspace-id"]; ok {
 		_ = json.Unmarshal(raw, &report.WorkspaceID)
 	}
-	if raw, ok := res.Attributes["total_runs_evaluated"]; ok {
+	if raw, ok := res.Attributes["total-runs-evaluated"]; ok {
 		_ = json.Unmarshal(raw, &report.TotalRunsEvaluated)
 	}
 	if raw, ok := res.Attributes["summary"]; ok {
