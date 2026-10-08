@@ -22,6 +22,7 @@ import { CostPanel } from '@/components/cost-panel'
 import { ResourceAccessPanel } from '@/components/resource-access-panel'
 import { ArchitectureCritiquePanel } from '@/components/architecture-critique-panel'
 import { StackOutputsPanel } from '@/components/stack-outputs-panel'
+import { InventoryPanel, useInventoryPresence } from '@/components/inventory-panel'
 import { useIsTouch } from '@/lib/use-media-query'
 import { getAuthState, isAdmin } from '@/lib/auth'
 import { apiFetch, fetchAllPages, parseApiError } from '@/lib/api'
@@ -290,9 +291,9 @@ const ALL_TRIGGERS = [
 const ALL_STAGES = ['pre_plan', 'post_plan', 'pre_apply'] as const
 const ALL_ENFORCEMENT_LEVELS = ['mandatory', 'advisory'] as const
 
-type Tab = 'configuration' | 'variables' | 'runs' | 'state' | 'state-graph' | 'cost' | 'architecture' | 'versions' | 'notifications' | 'run-tasks' | 'run-triggers' | 'sharing' | 'access'
+type Tab = 'configuration' | 'variables' | 'runs' | 'state' | 'state-graph' | 'cost' | 'architecture' | 'versions' | 'notifications' | 'run-tasks' | 'run-triggers' | 'inventory' | 'sharing' | 'access'
 
-const VALID_TABS: Set<string> = new Set(['configuration', 'variables', 'runs', 'state', 'state-graph', 'cost', 'architecture', 'versions', 'notifications', 'run-tasks', 'run-triggers', 'sharing', 'access'])
+const VALID_TABS: Set<string> = new Set(['configuration', 'variables', 'runs', 'state', 'state-graph', 'cost', 'architecture', 'versions', 'notifications', 'run-tasks', 'run-triggers', 'inventory', 'sharing', 'access'])
 
 // Views that read TERRAFORM state specifically, so they have nothing to show on
 // a Pulumi workspace and 404 if asked (#1568). Their tabs are absent there
@@ -374,7 +375,28 @@ function WorkspaceDetailContent() {
         : status
   // Resolved once here so the loaders, the SSE handler, the tab strip and the
   // render sites all agree on which tab is showing.
-  const activeTab: Tab = isPulumi && TERRAFORM_ONLY_TABS.has(requestedTab) ? 'configuration' : requestedTab
+  // The Inventory tab is DATA-gated, not configuration-gated (#1967, #1968,
+  // #1969). A workspace with no hosts, no groups and no inventory settings has
+  // nothing to show, so the tab is simply absent — there is nothing for a
+  // terraform/tofu-only deployment to turn off, which is the mechanism rather
+  // than a flag (#1986).
+  //
+  // The probe lives with the panel because the three questions it asks are the
+  // panel's own; on any failure it answers false and the tab stays hidden, so a
+  // 403 from a role without `inventory:read` and a transport blip both mean "do
+  // not offer a surface this reader cannot use".
+  //
+  // A stale `?tab=inventory` on a workspace with no inventory falls back the
+  // same way a Terraform-only tab does on Pulumi: Configuration renders a page
+  // instead of a blank pane. The probe answers false on the first frame too,
+  // but the page shows a spinner until the workspace resolves, so the fallback
+  // only bites once the probe has had its chance.
+  const hasInventory = useInventoryPresence(workspaceId)
+  const activeTab: Tab =
+    (isPulumi && TERRAFORM_ONLY_TABS.has(requestedTab)) ||
+    (requestedTab === 'inventory' && !hasInventory)
+      ? 'configuration'
+      : requestedTab
 
   // Overview editing
   const [editing, setEditing] = useState(false)
@@ -2037,6 +2059,9 @@ function WorkspaceDetailContent() {
     : archEnabled
       ? ['cost', 'architecture']
       : ['cost']
+  // Empty until this workspace actually has an inventory, which is what hides
+  // the tab from every workspace that does not (#1986).
+  const inventoryMembers: Tab[] = hasInventory ? ['inventory'] : []
   const tabGroups: { key: Tab; label: string; members: Tab[] }[] = ([
     { key: 'configuration', label: t('tabs.configuration'), members: ['configuration'] },
     { key: 'variables', label: t('tabs.variables'), members: ['variables'] },
@@ -2046,6 +2071,10 @@ function WorkspaceDetailContent() {
     { key: 'versions', label: t('tabs.versions'), members: ['versions'] },
     { key: 'notifications', label: t('tabs.notifications'), members: ['notifications'] },
     { key: 'run-tasks', label: t('tabs.automation'), members: ['run-tasks', 'run-triggers'] },
+    // Data-gated: the probe answers false until a row exists, and a
+    // group with no members is dropped from the strip entirely — the same
+    // mechanism Insights uses on a Pulumi workspace (#1967, #1968).
+    { key: 'inventory', label: t('tabs.inventory'), members: inventoryMembers },
     { key: 'sharing', label: t('tabs.sharing'), members: ['sharing'] },
     { key: 'access', label: t('tabs.access'), members: ['access'] },
   ] as { key: Tab; label: string; members: Tab[] }[]).filter((g) => g.members.length > 0)
@@ -5129,6 +5158,12 @@ function WorkspaceDetailContent() {
             </div>
           </div>
         )}
+
+        {/* Inventory Tab — the eight structures an ansible inventory has, each
+            editable per row (#1967, #1968, #1969). Rendered only when the
+            workspace actually has one; the panel owns its own data and its own
+            `?inv=` sub-view, so the page passes nothing but the id. */}
+        {activeTab === 'inventory' && <InventoryPanel workspaceId={workspaceId} />}
 
         {/* Sharing Tab — cross-workspace remote-state allowlist (#344, #349) */}
         {activeTab === 'access' && (

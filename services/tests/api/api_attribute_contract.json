@@ -352,6 +352,52 @@
     "node-id",
     "role"
   ],
+  "inventory._group_child_json": [
+    "created-at"
+  ],
+  "inventory._group_json": [
+    "child-count",
+    "created-at",
+    "member-count",
+    "name",
+    "updated-at",
+    "variable-count"
+  ],
+  "inventory._host_group_json": [
+    "created-at"
+  ],
+  "inventory._host_json": [
+    "created-at",
+    "group-count",
+    "name",
+    "updated-at",
+    "variable-count"
+  ],
+  "inventory._settings_json": [
+    "branch",
+    "created-at",
+    "ignore-paths",
+    "include-platform",
+    "repo-url",
+    "updated-at",
+    "working-directory"
+  ],
+  "inventory._var_json": [
+    "created-at",
+    "key",
+    "sensitive",
+    "structured",
+    "updated-at",
+    "value"
+  ],
+  "inventory.show_resolved_inventory": [
+    "group-children",
+    "group-count",
+    "groups",
+    "host-count",
+    "hosts",
+    "limit"
+  ],
   "module_autodiscovery_rules._preview_json": [
     "entries",
     "files-walked",

@@ -17,9 +17,11 @@ import sqlalchemy as sa
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    CheckConstraint,
     DateTime,
     Float,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     String,
@@ -4078,3 +4080,418 @@ def subject_matches(model, identity_subject: str | None):
     if identity_subject is None:
         return model.subject.is_(None)
     return or_(model.subject.is_(None), model.subject == identity_subject)
+
+
+# --- Ansible inventory (#1967, #1968) ---
+#
+# Eight tables, one per structure ansible's inventory actually has, because the
+# structures have one-to-many and many-to-many mappings and a faithful
+# representation is what lets a second concern contribute to a group it does not
+# own. The earlier shape put group membership in a JSONB array on the host and
+# had no group entity at all, so `group_vars` and `[group:children]` could not
+# be expressed at all.
+#
+# ## Everything is workspace-scoped, and the keys enforce it
+#
+# Each row carries `workspace_id`, and every link is a COMPOSITE foreign key
+# `(workspace_id, <parent>_id)` against a `UNIQUE (workspace_id, id)` on the
+# parent. That makes a membership spanning two workspaces structurally
+# impossible rather than something application code has to remember, and gives
+# every per-workspace query and ceiling one index to use.
+#
+# ## The joins carry a surrogate id rather than a composite primary key
+#
+# Both precedents exist here. `variable_set_workspaces` and
+# `execution_hook_workspaces` use a composite primary key and consequently have
+# no addressable route; `workspace_remote_state_consumers` chose a surrogate id,
+# which is what buys it `GET /remote-state-consumers/{id}`. A Terraform resource
+# needs a row it can address, so the joins follow the second.
+#
+# ## Three variable tables rather than one polymorphic table
+#
+# They are structurally alike -- key, value, structured, sensitive -- but one
+# table would need a polymorphic parent reference, which cannot carry a real
+# foreign key. Referential integrity is the whole reason for the composite keys
+# above, so three tables with three honest FKs it is. Worth saying here because
+# it reads as duplication to anyone later tempted to merge them.
+
+
+class InventorySettings(Base):
+    """A workspace's inventory configuration: at most one row (#1967).
+
+    **One inventory per workspace.** Disjoint targeting is what groups and
+    `--limit` are for, which is ansible's own answer, so there is no named
+    inventory object and nothing has to choose between several.
+
+    A 1:1 row rather than columns on `Workspace`, deliberately. Six inventory
+    columns there would flow through `test_workspace_setting_parity` and
+    therefore the bulk-update ledger, the autodiscovery rule template, the
+    provider's workspace resource and every surface that gate checks -- and a
+    terraform/tofu-only deployment would pay for all of it. Here the absence of
+    a row *is* "this workspace has no ansible", which costs nothing.
+    """
+
+    __tablename__ = "inventory_settings"
+
+    #: The workspace IS the key. No surrogate id: there can only be one.
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    #: Whether the declared rows take part in resolution. False resolves the VCS
+    #: source alone, which is how an operator moves a repo's inventory in before
+    #: declaring anything.
+    include_platform: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+    #: The VCS source. NULL means there is none, and the rows are the whole
+    #: inventory.
+    #:
+    #: **Not the workspace's own Terraform binding**, and that is the reason
+    #: these are columns here rather than a reference to it: even in one
+    #: repository the root directory differs (`terraform/` versus `ansible/`),
+    #: and a configure-only workspace has no Terraform binding at all.
+    vcs_connection_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("vcs_connections.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    repo_url: Mapped[str] = mapped_column(String(500), nullable=False, default="")
+    branch: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    #: The directory ansible reads as ONE source. A directory, not a file, on
+    #: purpose: ansible reads a directory lexically, so a single binding already
+    #: carries arbitrarily many inventory files in an order the operator
+    #: controls through filenames.
+    working_directory: Mapped[str] = mapped_column(String(500), nullable=False, default="")
+    ignore_paths: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, onupdate=now_utc, nullable=False
+    )
+
+    workspace: Mapped[Workspace] = relationship()
+
+    __table_args__ = (
+        # A repo with no connection could never be fetched, so it is refused
+        # rather than stored as a configuration that silently does nothing.
+        CheckConstraint(
+            "vcs_connection_id IS NOT NULL OR repo_url = ''",
+            name="ck_inventory_settings_repo_needs_connection",
+        ),
+        Index("ix_inventory_settings_vcs_connection_id", "vcs_connection_id"),
+    )
+
+
+class InventoryHost(Base):
+    """One host. `name` is ansible's `inventory_hostname` (#1968).
+
+    **Everything else about a host is a variable row.** There is no `address`
+    column: `ansible_host` is a variable like any other, because that is what it
+    is to ansible, and a promoted column would be a second home for one value
+    with a precedence rule to explain.
+    """
+
+    __tablename__ = "inventory_hosts"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=generate_uuid7
+    )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    #: Validated against `--limit`'s own operators -- see
+    #: `inventory_resolution.validate_host_name`, which refuses the characters
+    #: that would make a host unselectable or silently change which other hosts
+    #: a pattern selects.
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, onupdate=now_utc, nullable=False
+    )
+
+    workspace: Mapped[Workspace] = relationship()
+
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "name", name="uq_inventory_hosts_workspace_name"),
+        # What the composite foreign keys below point at.
+        UniqueConstraint("workspace_id", "id", name="uq_inventory_hosts_workspace_id"),
+        Index("ix_inventory_hosts_workspace_id", "workspace_id"),
+    )
+
+
+class InventoryGroup(Base):
+    """One ansible group (#1967).
+
+    `all` and `ungrouped` are refused as names: ansible derives both, and the
+    rendered document is rooted at `all:`, so a declared group of that name
+    would collide with the document's own structure.
+    """
+
+    __tablename__ = "inventory_groups"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=generate_uuid7
+    )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, onupdate=now_utc, nullable=False
+    )
+
+    workspace: Mapped[Workspace] = relationship()
+
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "name", name="uq_inventory_groups_workspace_name"),
+        UniqueConstraint("workspace_id", "id", name="uq_inventory_groups_workspace_id"),
+        Index("ix_inventory_groups_workspace_id", "workspace_id"),
+    )
+
+
+class InventoryHostGroup(Base):
+    """A host's membership of a group -- one `[groupname]` line (#1967).
+
+    Many-to-many, and its own row rather than a list on either side, so a
+    membership has an id a Terraform resource can address and two concerns can
+    each put their own hosts in a shared group without owning it.
+    """
+
+    __tablename__ = "inventory_host_groups"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=generate_uuid7
+    )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    host_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    group_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint("host_id", "group_id", name="uq_inventory_host_groups_pair"),
+        # Composite, so a host in one workspace cannot be put in a group in
+        # another. Enforced by the database rather than remembered in code.
+        ForeignKeyConstraint(
+            ["workspace_id", "host_id"],
+            ["inventory_hosts.workspace_id", "inventory_hosts.id"],
+            ondelete="CASCADE",
+            name="fk_inventory_host_groups_host",
+        ),
+        ForeignKeyConstraint(
+            ["workspace_id", "group_id"],
+            ["inventory_groups.workspace_id", "inventory_groups.id"],
+            ondelete="CASCADE",
+            name="fk_inventory_host_groups_group",
+        ),
+        Index("ix_inventory_host_groups_workspace_id", "workspace_id"),
+        Index("ix_inventory_host_groups_group_id", "group_id"),
+    )
+
+
+class InventoryGroupChild(Base):
+    """A `[groupname:children]` entry: one group nested inside another (#1967).
+
+    A group may have several parents, which ansible allows, so this is
+    many-to-many too. Terrapod does not resolve the resulting graph -- ansible
+    does -- so a cycle is refused at the write for the operator's sake rather
+    than because anything here would loop on one.
+    """
+
+    __tablename__ = "inventory_group_children"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=generate_uuid7
+    )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    parent_group_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    child_group_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "parent_group_id", "child_group_id", name="uq_inventory_group_children_pair"
+        ),
+        # The one-step cycle, which the database can state. Longer ones are the
+        # service's job, because a CHECK cannot walk a graph.
+        CheckConstraint(
+            "parent_group_id <> child_group_id",
+            name="ck_inventory_group_children_not_self",
+        ),
+        ForeignKeyConstraint(
+            ["workspace_id", "parent_group_id"],
+            ["inventory_groups.workspace_id", "inventory_groups.id"],
+            ondelete="CASCADE",
+            name="fk_inventory_group_children_parent",
+        ),
+        ForeignKeyConstraint(
+            ["workspace_id", "child_group_id"],
+            ["inventory_groups.workspace_id", "inventory_groups.id"],
+            ondelete="CASCADE",
+            name="fk_inventory_group_children_child",
+        ),
+        Index("ix_inventory_group_children_workspace_id", "workspace_id"),
+        Index("ix_inventory_group_children_child_group_id", "child_group_id"),
+    )
+
+
+# ## The three variable tables
+#
+# `value` is `EncryptedText` on all three, so a secret host variable is not
+# plaintext in the database. That makes `sensitive` purely a display-masking
+# flag in API, UI and MCP responses -- orthogonal, because a column cannot be
+# conditionally encrypted.
+#
+# **All three MUST be listed in `crypto/columns.py::ENCRYPTED_COLUMNS`.** That
+# list is the sole driver of `cli.encryption_migrate`, so an unlisted column is
+# visited by neither `encrypt` nor `decrypt` and a DEK rotation never re-keys
+# it. Two columns sat absent for two releases exactly that way.
+
+
+class InventoryHostVar(Base):
+    """One entry in a host's `host_vars` (#1967)."""
+
+    __tablename__ = "inventory_host_vars"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=generate_uuid7
+    )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    host_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    key: Mapped[str] = mapped_column(String(255), nullable=False)
+    value: Mapped[str] = mapped_column(EncryptedText, nullable=False, default="")
+    #: Whether `value` is a typed expression rather than a plain string, the
+    #: same question `Variable.structured` answers (#1435). A list, a number or
+    #: a nested object is what ansible's own `group_vars` carries, so the
+    #: variable surface has to be able to say so.
+    structured: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    sensitive: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, onupdate=now_utc, nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint("host_id", "key", name="uq_inventory_host_vars_host_key"),
+        ForeignKeyConstraint(
+            ["workspace_id", "host_id"],
+            ["inventory_hosts.workspace_id", "inventory_hosts.id"],
+            ondelete="CASCADE",
+            name="fk_inventory_host_vars_host",
+        ),
+        Index("ix_inventory_host_vars_workspace_id", "workspace_id"),
+        Index("ix_inventory_host_vars_host_id", "host_id"),
+    )
+
+
+class InventoryGroupVar(Base):
+    """One entry in a group's `group_vars` (#1967)."""
+
+    __tablename__ = "inventory_group_vars"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=generate_uuid7
+    )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    group_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    key: Mapped[str] = mapped_column(String(255), nullable=False)
+    value: Mapped[str] = mapped_column(EncryptedText, nullable=False, default="")
+    structured: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    sensitive: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, onupdate=now_utc, nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint("group_id", "key", name="uq_inventory_group_vars_group_key"),
+        ForeignKeyConstraint(
+            ["workspace_id", "group_id"],
+            ["inventory_groups.workspace_id", "inventory_groups.id"],
+            ondelete="CASCADE",
+            name="fk_inventory_group_vars_group",
+        ),
+        Index("ix_inventory_group_vars_workspace_id", "workspace_id"),
+        Index("ix_inventory_group_vars_group_id", "group_id"),
+    )
+
+
+class InventoryGlobalVar(Base):
+    """One entry in `group_vars/all` (#1967).
+
+    **Parented on the workspace, not on a group row**, because `all` cannot be
+    declared as a group: the rendered document is rooted at `all:`, so a group
+    of that name would collide with it. These rows land at that root's `vars:`,
+    which is what `group_vars/all` means in ansible -- a real structure, and the
+    consequence of refusing `all` as a name rather than a way round it.
+    """
+
+    __tablename__ = "inventory_global_vars"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=generate_uuid7
+    )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    key: Mapped[str] = mapped_column(String(255), nullable=False)
+    value: Mapped[str] = mapped_column(EncryptedText, nullable=False, default="")
+    structured: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    sensitive: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, onupdate=now_utc, nullable=False
+    )
+
+    workspace: Mapped[Workspace] = relationship()
+
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "key", name="uq_inventory_global_vars_workspace_key"),
+        Index("ix_inventory_global_vars_workspace_id", "workspace_id"),
+    )

@@ -1555,6 +1555,18 @@ def create_application() -> FastAPI:
 
     include_terrapod(remote_state_consumers_router)
 
+    # Ansible inventory: the hosts a workspace declares through its own
+    # Terraform (#1968) and the inventory object those hosts resolve into
+    # (#1967). The resolved read writes nothing -- dynamic inventory was
+    # declined (#1970), so every source is static and resolving is a query.
+    # Native only -- no CLI consumes it. Nothing is created for a workspace that never
+    # declares a host, so a terraform/tofu-only deployment carries no rows and
+    # sees no surface (#1986 withdrew the engine on/off switch, so this is keyed
+    # on data rather than on a flag).
+    from terrapod.api.routers.inventory import router as inventory_router
+
+    include_terrapod(inventory_router)
+
     # OPA policy-as-code enforcement — Terrapod-native management of
     # policy sets + policies, plus per-run policy evaluations and the
     # admin override action (#343).
