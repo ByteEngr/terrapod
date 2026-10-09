@@ -31,20 +31,20 @@ type PolicyEvaluationDetail struct {
 
 // SecurityScanSummary describes security scanner results in a compliance report.
 type SecurityScanSummary struct {
-	Engine             string  `json:"engine"`
-	EnforcementLevel   string  `json:"enforcement-level"`
-	SeverityThreshold  string  `json:"severity-threshold"`
-	Outcome            string  `json:"outcome"`
-	CriticalCount      int     `json:"critical-count"`
-	HighCount          int     `json:"high-count"`
-	MediumCount        int     `json:"medium-count"`
-	LowCount           int     `json:"low-count"`
-	UnknownCount       int     `json:"unknown-count"`
-	TotalCount         int     `json:"total-count"`
-	BlockingCount      int     `json:"blocking-count"`
-	Error              *string `json:"error,omitempty"`
-	OverriddenBy       *string `json:"overridden-by,omitempty"`
-	OverriddenAt       *string `json:"overridden-at,omitempty"`
+	Engine            string  `json:"engine"`
+	EnforcementLevel  string  `json:"enforcement-level"`
+	SeverityThreshold string  `json:"severity-threshold"`
+	Outcome           string  `json:"outcome"`
+	CriticalCount     int     `json:"critical-count"`
+	HighCount         int     `json:"high-count"`
+	MediumCount       int     `json:"medium-count"`
+	LowCount          int     `json:"low-count"`
+	UnknownCount      int     `json:"unknown-count"`
+	TotalCount        int     `json:"total-count"`
+	BlockingCount     int     `json:"blocking-count"`
+	Error             *string `json:"error,omitempty"`
+	OverriddenBy      *string `json:"overridden-by,omitempty"`
+	OverriddenAt      *string `json:"overridden-at,omitempty"`
 }
 
 // RunComplianceReport is an audit-ready compliance report for a single run.
