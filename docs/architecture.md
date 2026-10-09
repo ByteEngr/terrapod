@@ -221,9 +221,11 @@ Terrapod's execution layer follows the Actions Runner Controller (ARC) pattern: 
         |
 3. Listener receives SSE event → claims run: GET /api/v1/listeners/{id}/runs/next
         |
-4. Listener requests a runner token:
-   POST /api/v1/listeners/{id}/runs/{run_id}/runner-token
-   - Returns short-lived HMAC-signed token scoped to run_id
+4. Listener requests a runner token, naming the Job's phase:
+   POST /api/v1/listeners/{id}/runs/{run_id}/runner-token  {"phase": "plan"}
+   - Returns a short-lived HMAC-signed token scoped to run_id AND that phase
+   - A listener older than the phase claim sends none and gets an unphased
+     token, which still works (the claim is additive on the wire)
         |
 5. Listener creates K8s Job in runner namespace
    - Image: terrapod-runner (slim Debian + python + git + opa)
@@ -471,10 +473,13 @@ Incoming request
   |
   v
 1. If Authorization: Bearer <token> header present:
-   a. Try runner token (fast, no I/O):
+   a. Try runner token:
       - Token starts with "runtok:" prefix?
       - Verify HMAC-SHA256 signature + check expiry
-      - Return AuthenticatedUser with auth_method="runner_token", run_id={scoped_run_id}
+      - Check the run is still live: a revocation marker in Redis, else one
+        indexed read of the run's status (terminal or missing => 401)
+      - Return AuthenticatedUser with auth_method="runner_token",
+        run_id={scoped_run_id}, run_phase={plan|apply|None}
    b. Try API token lookup:
       - SHA-256 hash the token
       - Query api_tokens table by hash
@@ -641,7 +646,7 @@ Any non-terminal state -----> canceled (user action)
 - The `workspace.locked` flag is the CLI/manual state lock only (set by the `cloud`/`remote` backend's state lock and the UI padlock) — runs do **not** auto-set it. Per-workspace run serialization is enforced in the dispatcher instead: only one apply-capable run executes per workspace at a time; a manually locked workspace blocks apply-capable runs (plan-only/speculative runs are exempt)
 - Queue dispatch uses `SELECT ... FOR UPDATE SKIP LOCKED` (PostgreSQL job queue pattern)
 - Plan-only (speculative) runs skip the apply phase entirely
-- **Run options** — runs can carry optional CLI flags: `-target` (resource targeting), `-replace` (force resource replacement), `-refresh-only`, `-refresh=false`, `-allow-empty-apply`. These are stored on the run, passed through the listener to the runner Job as env vars (`TP_TARGET_ADDRS`, `TP_REPLACE_ADDRS`, `TP_REFRESH_ONLY`, `TP_REFRESH`, `TP_ALLOW_EMPTY_APPLY`), and applied as CLI arguments by the entrypoint
+- **Run options** — runs can carry optional CLI flags: `-target` (resource targeting), `-replace` (force resource replacement), `-refresh-only`, `-refresh=false`, `-allow-empty-apply`. These are stored on the run, passed through the listener to the runner Job as env vars (`TP_TARGET_ADDRS`, `TP_REPLACE_ADDRS`, `TP_REFRESH_ONLY`, `TP_REFRESH`, `TP_ALLOW_EMPTY_APPLY`), and applied as CLI arguments by the entrypoint. Most map onto every engine — Pulumi reads `-target`/`-replace` as URNs and `-refresh-only`/`-refresh=false` as `pulumi refresh` and `--refresh=false` — but `-allow-empty-apply` has no Pulumi equivalent and is refused there rather than stored unread
 - **Drift detection** runs are plan-only runs created by the `drift_check` scheduler task. They detect out-of-band infrastructure changes without applying anything. See [Drift Detection](drift-detection.md)
 - **Run tasks** can gate transitions at `pre_plan`, `post_plan`, and `pre_apply` boundaries. A mandatory task failure blocks the run; at `post_plan` an admin can override it, while `pre_plan` and `pre_apply` verdicts are final (the escape is to fix the cause and plan again). See [Run Tasks](run-tasks.md)
 - **Run triggers** fire when a non-speculative run reaches `applied` — downstream workspaces automatically get new runs queued. See [Run Triggers](run-triggers.md)

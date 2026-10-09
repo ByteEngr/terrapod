@@ -3,6 +3,7 @@
 import asyncio
 import uuid
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest  # noqa: F401  # used by tests appended later via @pytest.mark.asyncio
@@ -22,6 +23,9 @@ def _mock_workspace(**overrides):
     ws.vcs_last_attempted_at = overrides.get("vcs_last_attempted_at", None)
     ws.vcs_last_error = overrides.get("vcs_last_error", None)
     ws.vcs_last_error_at = overrides.get("vcs_last_error_at", None)
+    # Mirrors the column default. A MagicMock attribute would be truthy, which
+    # is the opposite of the shipped behaviour and would hide the gate.
+    ws.allow_fork_pr_plans = overrides.get("allow_fork_pr_plans", False)
     ws.locked = False
     ws.auto_apply = False
     ws.execution_mode = "agent"
@@ -1488,6 +1492,10 @@ class TestFilteredPRIsDecidedOnce:
         pr.head_sha = head_sha
         pr.head_ref = "feature"
         pr.title = "some app change"
+        # Same-repository PR. Stated rather than left to MagicMock truthiness:
+        # a bare attribute reads as "from a fork", and these tests would then
+        # pass only because the workspace mock's opt-in is truthy too.
+        pr.from_fork = False
         return [pr]
 
     def _db_with_no_existing_run(self):
@@ -1796,6 +1804,7 @@ class TestPRSessionIsCreatedInBothModes:
         pr.head_sha = "deadbeefcafe"
         pr.head_ref = "feature/x"
         pr.title = "add a thing"
+        pr.from_fork = False
         return pr
 
     def _db(self):
@@ -1916,3 +1925,188 @@ class TestClosedPRSessionsAreReconciledInBothModes:
         reconcile.assert_awaited_once()
         # Comment-command polling drives applies, so it stays apply-then-merge only.
         comments.assert_not_awaited()
+
+
+class TestTheMergeCommitIsAttributedToItsPR:
+    """#1878. A post-merge plan+apply is a BRANCH run and carries no PR number.
+
+    That is deliberate rather than an oversight: three separate places in this
+    poller read `vcs_pull_request_number` as "this is a speculative PR run", so
+    writing the number onto these runs would make the commit look unhandled,
+    break the branch-run dedup, and get the run force-cancelled the moment the
+    PR left the open list. The merge commit is therefore the only honest join,
+    and only the provider can make it.
+    """
+
+    def _conn(self):
+        return SimpleNamespace(id=uuid.uuid4(), provider="github")
+
+    def _session(self, pr_number=7):
+        return SimpleNamespace(pr_number=pr_number, merge_commit_sha=None, state="open")
+
+    def _db(self, sessions):
+        db = AsyncMock()
+        result = MagicMock()
+        result.scalars.return_value.all.return_value = sessions
+        db.execute.return_value = result
+        return db
+
+    async def _attribute(self, db, conn, sessions_returned, pulls):
+        from terrapod.services import vcs_poller
+
+        meta = MagicMock()
+
+        async def _get_or_fetch(_key, fetch):
+            return await fetch()
+
+        meta.get_or_fetch = _get_or_fetch
+        with patch.object(vcs_poller, "_provider_pulls_for_commit", AsyncMock(return_value=pulls)):
+            await vcs_poller._attribute_merge_commit(
+                db, conn, "acme", "infra", "cafe1234", meta=meta
+            )
+
+    async def test_the_session_learns_its_merge_commit(self):
+        sess = self._session()
+        db = self._db([sess])
+        await self._attribute(db, self._conn(), [sess], [7])
+        assert sess.merge_commit_sha == "cafe1234"
+
+    async def test_it_is_recorded_as_merged_not_merely_closed(self):
+        """`_reconcile_closed_pr_sessions` stamps `closed` by set difference
+        against the open-PR list and never asks the provider WHY a PR left it,
+        so a PR merged by a human has been indistinguishable from an abandoned
+        one. The provider has now said which this was."""
+        sess = self._session()
+        db = self._db([sess])
+        await self._attribute(db, self._conn(), [sess], [7])
+        assert sess.state == "merged"
+
+    async def test_a_commit_that_closed_no_pr_changes_nothing(self):
+        """The ordinary case for a commit pushed straight at the branch."""
+        sess = self._session()
+        db = self._db([sess])
+        await self._attribute(db, self._conn(), [sess], [])
+        assert sess.merge_commit_sha is None
+        assert sess.state == "open"
+
+    async def test_another_repos_pr_number_is_not_claimed(self):
+        """PR numbers are small and collide across repos, so a number with no
+        session of ours behind it must not be attributed to anything."""
+        sess = self._session(pr_number=7)
+        db = self._db([sess])
+        await self._attribute(db, self._conn(), [sess], [99])
+        assert sess.merge_commit_sha is None
+
+    async def test_the_provider_is_not_asked_when_no_session_could_match(self):
+        """The bound that matters: this is a per-commit API call on the poll
+        path, and most commits belong to repos with nothing to update."""
+        from terrapod.services import vcs_poller
+
+        db = self._db([])
+        meta = MagicMock()
+        called = False
+
+        async def _get_or_fetch(_key, fetch):
+            nonlocal called
+            called = True
+            return await fetch()
+
+        meta.get_or_fetch = _get_or_fetch
+        with patch.object(vcs_poller, "_provider_pulls_for_commit", AsyncMock(return_value=[7])):
+            await vcs_poller._attribute_merge_commit(
+                db, self._conn(), "acme", "infra", "cafe1234", meta=meta
+            )
+        assert called is False
+
+    async def test_it_is_memoised_per_commit_so_a_monorepo_asks_once(self):
+        """Every workspace on a monorepo sees the same new commit, and they are
+        polled independently — without the cycle's cache that is one API call
+        per workspace for one answer."""
+        from terrapod.services import vcs_poller
+
+        sess = self._session()
+        db = self._db([sess])
+        meta = MagicMock()
+        keys: list = []
+
+        async def _get_or_fetch(key, fetch):
+            keys.append(key)
+            return await fetch()
+
+        meta.get_or_fetch = _get_or_fetch
+        with patch.object(vcs_poller, "_provider_pulls_for_commit", AsyncMock(return_value=[7])):
+            await vcs_poller._attribute_merge_commit(
+                db, self._conn(), "acme", "infra", "cafe1234", meta=meta
+            )
+        assert keys and "cafe1234" in keys[0][3]
+
+
+class TestForkPullRequestsDoNotPlanByDefault:
+    """A fork PR executes its author's code during a speculative plan, with
+    everything the run receives — env secrets, sensitive variables, Vault
+    values, minted git credentials, the Job's cloud identity. A fork author has
+    no write access and cannot merge, so that plan is the only path by which
+    their code reaches those credentials.
+
+    The negative case is the important one and is asserted first below: a
+    SAME-REPOSITORY PR must still plan. Plan-on-PR is the safety property the
+    product exists to provide, and its author can already get code applied by
+    merging — gating them would ask a reviewer to merge blind while buying
+    almost nothing.
+    """
+
+    def _pr(self, *, from_fork):
+        pr = MagicMock()
+        pr.number, pr.head_sha = 11, "fff999"
+        pr.head_ref, pr.title = "contrib", "a contribution"
+        pr.from_fork = from_fork
+        return pr
+
+    def _db(self):
+        db = AsyncMock()
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = None
+        result.scalars.return_value.all.return_value = []
+        db.execute = AsyncMock(return_value=result)
+        return db
+
+    async def _cycle(self, ws, pr):
+        from terrapod.services.vcs_poller import _poll_workspace_prs
+
+        with patch("terrapod.services.vcs_poller._list_open_prs", new=AsyncMock(return_value=[pr])):
+            await _poll_workspace_prs(self._db(), ws, _mock_connection(), "org", "repo", "main")
+
+    @patch("terrapod.services.vcs_poller._create_vcs_run")
+    async def test_a_same_repository_pr_still_plans(self, mock_create):
+        """The regression guard. If this ever fails, the gate has been widened
+        past forks and the core workflow is broken."""
+        mock_create.return_value = MagicMock(id=uuid.uuid4())
+        await self._cycle(_mock_workspace(), self._pr(from_fork=False))
+        mock_create.assert_called()
+
+    @patch("terrapod.services.vcs_poller._create_vcs_run")
+    async def test_a_fork_pr_does_not_plan_on_a_default_workspace(self, mock_create):
+        await self._cycle(_mock_workspace(), self._pr(from_fork=True))
+        mock_create.assert_not_called()
+
+    @patch("terrapod.services.vcs_poller._create_vcs_run")
+    async def test_a_fork_pr_plans_once_the_workspace_opts_in(self, mock_create):
+        mock_create.return_value = MagicMock(id=uuid.uuid4())
+        await self._cycle(_mock_workspace(allow_fork_pr_plans=True), self._pr(from_fork=True))
+        mock_create.assert_called()
+
+    @patch("terrapod.services.vcs_poller._upsert_pr_session")
+    @patch("terrapod.services.vcs_poller._create_vcs_run")
+    async def test_a_blocked_fork_pr_gets_no_pr_session(self, mock_create, mock_session):
+        """No session means no comment-command surface, and that is load-bearing.
+
+        `handle_vcs_comment_dispatch` works from a `PRSession`, which carries no
+        notion of where the head branch lives — so it cannot re-apply this gate
+        itself. What keeps `terrapod plan` from handing a fork author the plan
+        the poller just withheld is that the session is only written after a run
+        exists, below this gate in the same loop. Moving the upsert above it
+        would reopen the hole without touching a line of gate code.
+        """
+        mock_create.return_value = MagicMock(id=uuid.uuid4())
+        await self._cycle(_mock_workspace(), self._pr(from_fork=True))
+        mock_session.assert_not_called()

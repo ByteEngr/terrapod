@@ -27,6 +27,7 @@
     "account": "Ratio",
     "apiTokens": "Tesserae API",
     "sessions": "Sessiones",
+    "slackLinks": "Nexus Slack",
     "logOut": "Exire",
     "menu": "Index",
     "openMenu": "Indicem aperire",
@@ -70,7 +71,6 @@
       "agentPool": "Copia Actorum",
       "none": "Nullus",
       "autoApply": "Applicatio Automatica",
-      "autoApplyModeHint": "never: semper hominem exspecta. always: omne consilium prosperum applica. create / create/update: sola consilia iis actionibus circumscripta applica — numquam deletionem aut substitutionem.",
       "enabled": "Activatum",
       "workingDirectory": "Directorium Operandi",
       "workingDirectoryPlaceholder": "e.g. environments/dev",
@@ -372,6 +372,22 @@
         "load": "Sessiones onerari non potuerunt",
         "revoke": "Sessiones revocari non potuerunt ({status})",
         "revokeGeneric": "Sessiones revocari non potuerunt"
+      }
+    },
+    "slackLinks": {
+      "title": "Nexus Slack",
+      "description": "Rationes Slack quae pro te agere possunt. Ratio Slack nexa cursus tuis permissionibus probare et abicere potest; ergo quodcumque non agnoscis revoca.",
+      "empty": "Nulla ratio Slack tibi nexa est.",
+      "revoke": "Revocare",
+      "confirmRevoke": "Nexum usoris Slack {user} revocare? Ea ratio pro te ex Slack amplius agere non poterit.",
+      "columns": {
+        "slackUser": "Usor Slack",
+        "team": "Grex Slack",
+        "linkedAt": "Nexum"
+      },
+      "errors": {
+        "load": "Nexus tui Slack legi non potuerunt.",
+        "revoke": "Ille nexus Slack revocari non potuit."
       }
     }
   },
@@ -761,7 +777,9 @@
       "setAssignmentStatus": "Attributio poni non potuit ({status})",
       "deleteAssignment": "Attributio deleri non potuit",
       "conflictingLabelKeys": "{keys} plus quam unum valorem accepit. Regula tituli unum valorem per clavem tenet, itaque ultimus priores tacite substitueret. Plures valores unius clavis ab API sustinentur sed hic nondum poni possunt."
-    }
+    },
+    "pinnedToSubject": "Affixum",
+    "pinnedToSubjectTitle": "Subiecto IdP {subject} affixum"
   },
   "adminVcs": {
     "title": "Nexus VCS",
@@ -774,6 +792,23 @@
       "delete": "Delere"
     },
     "confirmDelete": "Hunc nexum VCS delere? Loca operis eo utentia integrationem VCS amittent. Hoc revocari non potest.",
+    "access": {
+      "heading": "Quis hac coniunctione uti potest",
+      "intro": "Hae tres optiones decernunt quae spatia operis ad hanc coniunctionem dirigi possint. Fides ipsa tantum scribenda manet.",
+      "ownerEmail": "Inscriptio possessoris",
+      "ownerEmailHint": "Possessor hac coniunctione semper uti potest. Vacuum relinque ut coniunctio sine possessore maneat.",
+      "labels": "Titulis accessus",
+      "labelsHint": "Munus cuius regulae his titulis congruunt spatium operis ad hanc coniunctionem dirigere potest.",
+      "allowedRepositories": "Promptuaria permissa",
+      "allowedRepositoriesHint": "Formulae glob cum promptuario comparatae quod spatium operis uti petit.",
+      "addPattern": "Formulam addere",
+      "anyRepositoryWarning": "Nullae formulae enumeratae sunt, itaque haec coniunctio ad quodlibet promptuarium dirigi potest.",
+      "restricted": "{count, plural, one {# formula enumerata est} other {# formulae enumeratae sunt}}, itaque promptuarium quod nulli earum congruit recusatur.",
+      "ownedBy": "Possidetur a {email}",
+      "unowned": "Nullus possessor constitutus est",
+      "anyRepositorySummary": "Quodlibet promptuarium permittitur",
+      "repositoryCount": "Circumscriptum ad {count, plural, one {# promptuarium} other {# promptuaria}}"
+    },
     "form": {
       "name": "Nomen",
       "namePattern": "Litterae, numeri, lineolae et lineolae subiectae solum. A littera vel numero incipiat necesse est.",
@@ -922,7 +957,6 @@
       "varKey": "Clavis",
       "varValue": "Valor",
       "varCategory": "Categoria",
-      "categoryTerraform": "Terraform",
       "categoryEnv": "Ambitus",
       "sensitive": "Sensibile",
       "sensAbbr": "Sens.",
@@ -988,7 +1022,9 @@
       "valueSource": "Fons valoris",
       "valueSourceStatic": "Valorem inserere",
       "valueSourceVault": "Ex OpenBao/Vault legere",
-      "vaultHint": "Terrapod arcanum ex OpenBao (vel HashiCorp Vault) tempore cursus legit. Nihil hic servatur."
+      "vaultHint": "Terrapod arcanum ex OpenBao (vel HashiCorp Vault) tempore cursus legit. Nihil hic servatur.",
+      "categoryNative": "Nativa",
+      "structured": "Structa"
     }
   },
   "adminAutodiscovery": {
@@ -1076,7 +1112,10 @@
       "terragruntVersion": "Versio Terragrunt",
       "noExpiry": "Nulla expiratio",
       "addDriftIgnoreRule": "Regulam addere",
-      "debugModeHint": "Podes cursorum defectorum apertos tenere in locis operis quos haec regula creat. Praedefinite exstinctus — pod retentus credentias illius loci operis servat."
+      "debugModeHint": "Podes cursorum defectorum apertos tenere in locis operis quos haec regula creat. Praedefinite exstinctus — pod retentus credentias illius loci operis servat.",
+      "allowForkPrPlansHint": "Ad omnem locum operis quem haec regula creat pertinet. Praedefinite exstinctum: rogatio tractionis e furca nullum consilium speculativum accipit, quia codicem auctoris sui cum credentiis loci operis exsequeretur.",
+      "oidcAudiences": "Auditores identitatis exsecutionis (a locis operis creatis hereditati)",
+      "oidcAudiencesHint": "Superscriptiones auditorum omni loco operis quem haec regula creat impositae, sub configuratione provider ad quam tessera pertinet — aws, vel aws.west pro configuratione cum alias. Vacuas relinque et illi loci operis configurationem propriam instructionis adhibent."
     },
     "table": {
       "name": "Nomen",
@@ -1270,7 +1309,8 @@
       "cancel": "Abrogare",
       "working": "Operatur...",
       "previewDryRun": "Praevidere (cursus siccus)",
-      "applyChanges": "Mutationes applicare"
+      "applyChanges": "Mutationes applicare",
+      "setOidcAudiences": "Auditores OIDC identitatis exsecutionis statuere (chartam in omni loco operis conveniente substituit)"
     },
     "diff": {
       "colWorkspace": "Locus Operis",
@@ -1919,12 +1959,24 @@
       "always": "semper",
       "create": "creare",
       "createUpdate": "creare/mutare"
+    },
+    "oidcAudiences": {
+      "addProvider": "Configurationem provider addere",
+      "audiences": "Auditores",
+      "badgeInherited": "Praedefinitum instructionis",
+      "badgeOwned": "Locus operis",
+      "issuerDisabled": "Haec instructio nullum emissorem OpenID Connect publicat, ideo nihil hic configuratum valere potest.",
+      "override": "Supervertere",
+      "overrideAria": "Auditores pro {provider} in hoc loco operis supervertere",
+      "providerDuplicate": "Illa configuratio provider iam inscriptionem habet.",
+      "providerInvalid": "Nomen provider spatia non habet et ad summum unum punctum — aws, vel aws.west.",
+      "providerPlaceholder": "aws, vel aws.west",
+      "removeProviderAria": "Configurationem provider {provider} removere"
     }
   },
   "planSummary": {
     "aiGenerated": "AI generatum",
     "heading": {
-      "planSummary": "Summarium consilii",
       "failureAnalysis": "Analysis defectus"
     },
     "errors": {
@@ -1933,13 +1985,11 @@
     "regenerate": {
       "label": "Regenerare",
       "queueing": "In ordinem ponitur…",
-      "tooltip": "Summarium AI contra eosdem ingressus consilii iterum curre",
       "ariaLabel": "Summarium AI regenerare",
       "confirm": "Analysin AI regenerare? Hoc modelum iterum currit.",
       "error": "Regenerari non potuit: <mono>{detail}</mono>"
     },
     "pending": {
-      "summarisingPlan": "Consilium summatim redigitur…",
       "analysingFailure": "Defectus analysatur…"
     },
     "skipped": {
@@ -1963,7 +2013,6 @@
     "badges": {
       "noChanges": "Nullae mutationes",
       "noChangesLower": "nullae mutationes",
-      "noChangesTitle": "Consilium nullas mutationes facultatum rettulit",
       "toAdd": "{count, plural, one {# addendum} other {# addenda}}",
       "toChange": "{count, plural, one {# mutandum} other {# mutanda}}",
       "toDestroy": "{count, plural, one {# destruendum} other {# destruenda}}",
@@ -1973,7 +2022,6 @@
     "chat": {
       "heading": "Subsequens",
       "sharedThreadNote": "Unus filum communis, visibilis cuivis cum accessu legendi loci operis.",
-      "placeholder": "Roga quaestionem subsequentem de hoc consilio… (⌘/Ctrl + Enter ut mittas)",
       "send": "Mittere",
       "thinking": "Cogitatur…",
       "you": "Tu",
@@ -1997,7 +2045,6 @@
     "workspaceFallback": "locus operis",
     "backTo": "Retro ad {name}",
     "errorHeading": "Error",
-    "discardedHeading": "Reiectum — reconsilium requisitum",
     "common": {
       "yes": "Ita",
       "no": "Non"
@@ -2051,14 +2098,13 @@
     },
     "badge": {
       "destroy": "destructio",
-      "planOnly": "solum consilium"
+      "savedPlan": "consilium servatum",
+      "savedPlanHint": "Applicatio dilata: haec executio locum operis non tenet donec consilium servatum applicetur."
     },
     "actions": {
       "retryShort": "Retentare",
       "retryFull": "Exsecutionem Retentare",
       "retrying": "Retentatur…",
-      "confirmShort": "Applicare",
-      "confirmFull": "Confirmare et Applicare",
       "confirming": "Confirmatur…",
       "discard": "Reicere",
       "discarding": "Reicitur…",
@@ -2068,8 +2114,6 @@
       "queuing": "In ordinem mittitur…"
     },
     "confirm": {
-      "apply": "Hanc exsecutionem applicare? Hoc consilium applicat et infrastructuram mutat.",
-      "discard": "Hoc consilium reicere?",
       "cancel": "Hanc exsecutionem abrogare?",
       "retry": "Hanc exsecutionem retentare?"
     },
@@ -2092,20 +2136,19 @@
       "impactFull": "Graphum effectus",
       "cost": "Impensa",
       "costFull": "Aestimatio impensae",
-      "planLabel": "Consilium<log>Diarium</log>",
-      "applyLabel": "Applicatio<log>Diarium</log>",
-      "planFull": "Diarium consilii",
-      "applyFull": "Diarium applicationis",
       "details": "Particularia",
       "security": "Securitas",
       "securityFull": "Perscrutatio securitatis"
     },
     "banner": {
       "destroy": "Haec est exsecutio <strong>destructionis</strong> — omnes facultates administratae destruentur cum applicatur.",
-      "planOnlyCli": "Haec est exsecutio <strong>solum-consilii</strong> ex CLI in loco operis VCS-coniuncto incepta. Applicatio pro codice CLI-subdito non praesto est — solum codex VCS-administratus applicari potest.",
       "moduleOverridesPrefix": "Haec exsecutio <strong>substitutiones modulorum</strong> usurpat",
       "moduleOverridesFromPr": "e PR #{number}",
       "moduleOverridesSuffix": "e ramo PR petentur loco versionis tabularii editae."
+    },
+    "bindPlan": {
+      "bound": "Ad hanc praevisionem alligata: renovatio ipsum consilium hic ostensum adhibet, et quidquid postea mutatum est renovationem deficere facit nec adhibetur.",
+      "unbound": "Ad hanc praevisionem non alligata: renovatio mutationes suas ipsa invenit cum currit, sicut simplex pulumi up facit, itaque quod adhibet ab eo quod hic ostenditur differre potest."
     },
     "cards": {
       "changes": "Mutationes",
@@ -2117,7 +2160,6 @@
     },
     "changes": {
       "noChanges": "Nullae mutationes",
-      "planning": "Consilium fit…",
       "toAdd": "addenda",
       "toChange": "mutanda",
       "toDestroy": "destruenda",
@@ -2154,7 +2196,6 @@
       "executionBackend": "Instrumentum Exsecutionis",
       "source": "Fons",
       "autoApply": "Applicatio Automatica",
-      "planOnly": "Solum Consilium",
       "triggeredBy": "Concitatum a",
       "created": "Creatum",
       "commit": "Commissio",
@@ -2170,11 +2211,7 @@
     "timeline": {
       "heading": "Series Temporum",
       "queued": "In Ordine Positum",
-      "planningStarted": "Consilium inceptum",
-      "planComplete": "Consilium perfectum",
       "confirmed": "Confirmatum",
-      "applyingStarted": "Applicatio incepta",
-      "applied": "Applicatum",
       "errored": "Erratum",
       "canceled": "Abrogatum",
       "discarded": "Reiectum"
@@ -2198,12 +2235,8 @@
       "followOffTitle": "Caudam vivam sequi",
       "end": "Finis",
       "endTitle": "Ad finem diarii salire",
-      "planEmpty": "Nullus egressus consilii adhuc praesto.",
-      "applyEmpty": "Nullus egressus applicationis adhuc praesto.",
       "index": {
         "label": "Salire ad",
-        "title": "Salire ad mutationem rei aut ad summarium consilii",
-        "summary": "Summarium consilii",
         "action": {
           "create": "creare",
           "update": "renovare",
@@ -2215,13 +2248,11 @@
           "error": "erratum",
           "warning": "monitum"
         }
-      },
-      "applySkippedNoChanges": "Nulla applicatio acta est: consilium nullas mutationes habuit, itaque nihil applicandum erat."
+      }
     },
     "policyPanel": {
       "heading": "Probationes Regularum",
       "passedCount": "{passed}/{total} probata",
-      "blockedMessage": "Haec exsecutio <strong>a copia regularum obligatoria obstruitur</strong>. Non applicabitur donec defectus solvatur aut administrator eam supersedat.",
       "overriding": "Superseditur...",
       "overrideContinue": "Supersedere et Pergere",
       "overrideFailed": "Supersessio defecit",
@@ -2261,7 +2292,6 @@
       "unpricedHint": "Nihil in datis pretiorum his congruebat — genus non designatum, fons sine impensa directa, vel provisor nondum comprehensus.",
       "indicative": "Aestimationes indicativae sunt; impensa vera ab usu, regione, obligationibus et deductionibus pendet.",
       "asOfState": "secundum statum v{serial}",
-      "noState": "Nullus sumptus adhuc — post primam applicationem apparet.",
       "usageBand": "{dimension}: {typical} {unit} usitate (ambitus {low}–{high})",
       "usageBandCost": "{dimension}: {costTypical}/mens. usitate — {costLow}–{costHigh} inter {low}–{high} {unit}"
     },
@@ -2348,7 +2378,6 @@
       "passed": "Nulla criteria regulae congruunt.",
       "overriding": "Superseditur...",
       "overrideContinue": "Supersedere et Pergere",
-      "overrideConfirm": "Portam regulae AI supersedere et hanc executionem contra sententiam applicari sinere?",
       "overrideFailed": "Supersessio defecit",
       "overrideFailedStatus": "Supersessio defecit ({status})",
       "overriddenBy": "supersessum ab {by}"
@@ -2407,9 +2436,6 @@
       "translatedNote": "Ex originali in conspectu translatum."
     },
     "drift": {
-      "remediate": "Consilium + exsecutio",
-      "remediateTitle": "Cursum consilii + exsecutionis in ordinem mittere ut infrastructura configurationi rursus congruat",
-      "remediateConfirm": "Cursum consilii + exsecutionis pro hoc loco operis in ordinem mittere?",
       "remediateMessage": "Ex inspectione discrepantiae in ordinem missum",
       "remediateFailed": "Cursus correctionis in ordinem mitti non potuit"
     }
@@ -2469,6 +2495,7 @@
       "architecture": "Architectura",
       "insights": "Perspicientiae",
       "automation": "Automatio",
+      "inventory": "Inventarium",
       "access": "Aditus"
     },
     "lifecycle": {
@@ -2501,6 +2528,9 @@
       "version": "Versio",
       "versionPlaceholder": "e.g. 1.11 aut 1.11.5",
       "versionTitle": "Versio forma X.Y aut X.Y.Z (exempli gratia 1.11 aut 1.11.5)",
+      "ansibleVersion": "Versio Ansible",
+      "ansibleVersionPlaceholder": "e.g. 2.21.5",
+      "ansibleVersionTitle": "Versio ansible-core huic loco operis. Vacuum relinque ut praedefinitum instructionis sequatur.",
       "terragruntEnabledAgent": "Activatum (modus agent)",
       "terragruntEnabledVersion": "Activatum (v{version})",
       "terragruntVersionPlaceholder": "e.g. 1.0",
@@ -2541,12 +2571,16 @@
       "engineTerraform": "Terraform",
       "nameTitlePulumi": "Duae partes signo '::' divisae — project::stack. Tantum litterae, numeri, lineolae et lineolae subscriptae; utraque pars littera vel numero incipiat.",
       "bindPlan": "Renovationem ad praevisionem probatam alliga",
-      "bindPlanHelp": "Cum activatum est, renovatio ipsum consilium quod praevisio servavit adhibet, ita ut quidquid post praevisionem mutatum est renovationem deficere faciat potius quam adhibeatur. Hoc consiliis renovationis Pulumi nititur, quae adhuc experimentalia sunt. Cum inactivatum est, renovatio mutationes suas ipsa invenit, sicut simplex pulumi up facit. <docs>Quomodo cursus Pulumi operantur</docs>"
+      "bindPlanHelp": "Cum activatum est, renovatio ipsum consilium quod praevisio servavit adhibet, ita ut quidquid post praevisionem mutatum est renovationem deficere faciat potius quam adhibeatur. Hoc consiliis renovationis Pulumi nititur, quae adhuc experimentalia sunt. Cum inactivatum est, renovatio mutationes suas ipsa invenit, sicut simplex pulumi up facit. <docs>Quomodo cursus Pulumi operantur</docs>",
+      "oidcAudiences": "Auditores identitatis exsecutionis",
+      "oidcAudiencesAdd": "Auditorem addere",
+      "oidcAudiencesHint": "Terrapod pro omni configuratione provider quam exsecutio adhibet tesseram OpenID Connect brevis aevi emittit eamque in tabulam scribit quam exsecutio legere potest. Inscriptionem sub provider pone, sicut configuratio tua eum nominat — aws, vel aws.west pro configuratione cum alias — et auditores quos illud propositum accipit enumera. Omnis inscriptio configurationem propriam instructionis pro illo provider supervertit; eam remove, et ille provider ad auditores instructionis redit. Auditor chorda opaca est quam propositum foederationis elegit, ideo prorsus ut eam scribis servatur.",
+      "oidcAudiencesLoading": "Auditores in instructione configurati examinantur …",
+      "oidcAudiencesNone": "Nulli (exsecutiones propria identitate copiae actorum utuntur)",
+      "oidcAudiencesPlaceholder": "e.g. sts.amazonaws.com"
     },
     "vcsWorkflowWarning": {
       "title": "Auctoritas repositorio VCS tuo delegata.",
-      "rbac": "Quisquis PR conflare potest applicare potest. Regulae protectionis ramorum (recognitiones requisitae, probationes status, approbatio dominorum codicis) fiunt porta. RBAC partium/titulorum Terrapod<em>non</em> applicatur ad actiones commentario-actas in hoc modo.",
-      "recommended": "<strong>Commendatum:</strong> historiam linearem require (rebase/squash ante conflationem) ut commissio quam applicas sit commissio quae terram tangit.",
       "credit": "Meritum: hic fluxus operis ad exemplar <atlantis>Atlantis</atlantis> conformatus est. Atlantis manet rectum instrumentum turmis quae solum applicationes PR-commentario-actas et nullam suggestus UI volunt."
     },
     "vcsPolling": {
@@ -2562,7 +2596,6 @@
     },
     "lock": {
       "title": "Status Occlusionis",
-      "lockedDesc": "Hoc locus operis occlusum est. Nulla consilia nec applicationes currere possunt.",
       "unlockedDesc": "Hoc locus operis reseratum est et exsecutionibus paratum.",
       "lock": "Occludere",
       "unlock": "Reserare",
@@ -2584,7 +2617,6 @@
       "dismissTitle": "Vacua statum aberrationis relatum. Proxima inspectio ordinata eum ex realitate reimplebit.",
       "lastChecked": "Ultimo Inspectum",
       "checkNow": "Nunc Inspicere",
-      "checkNowTitle": "Exsecutionem solum-consilii in ordinem pone ut aberrationem inspicias",
       "checkNowTitleDisabled": "Prius inventionem aberrationis activa"
     },
     "intervals": {
@@ -2598,13 +2630,10 @@
       "7days": "7 dies"
     },
     "planExpiry": {
-      "title": "Exspiratio Consilii",
-      "description": "Automatice reice consilium non confirmatum ubi hoc antiquius est, ut consilium obsoletum contra mundum mutatum applicari non possit. Praedefinite deactivatum; consilium deinde iterum currendum est. (Applicatur solum ad exsecutiones applicationis-capaces.)",
       "expireAfter": "Exspirare post"
     },
     "aiSummary": {
       "title": "Summarium Consilii AI",
-      "description": "Summarium mutationum ab LLM automatice generatum, aestimatio periculi et analysis defectus in omni exitu phasis consilii huius loci operis.",
       "mode": "Modus",
       "modeDefault": "Praedefinitum instructionis sequi",
       "modeEnabled": "Semper summatim redigere",
@@ -2619,7 +2648,6 @@
     },
     "slack": {
       "title": "Nuntiationes Slack",
-      "description": "Adscribe hoc locus operis ad nuntiationes exsecutionis Slack — petitiones approbationis, applicationes, errores et aberrationes. Relinque canalem vacuum et hoc locus operis silet (nulla per totam instructionem dispersio). Requirit ut app Slack ab administratore activetur.",
       "channel": "Canalis",
       "channelPlaceholder": "#deploys aut ID canalis (e.g. C0123ABCD)",
       "notSet": "Non positum — silens.",
@@ -2694,20 +2722,18 @@
       "vaultFileEncoding": "Codificatio",
       "vaultFileEncodingNone": "Ut in OpenBao/Vault servatum",
       "vaultFileEncodingBase64": "Base64 decodere",
-      "vaultFileEncodingHint": "Campum decodit antequam scribitur. Exitus textus esse debet; fasciculi binarii non sustinentur."
+      "vaultFileEncodingHint": "Campum decodit antequam scribitur. Exitus textus esse debet; fasciculi binarii non sustinentur.",
+      "categoryNative": "Nativa",
+      "structured": "Structa",
+      "categoryTerraform": "Terraform",
+      "categoryPulumiConfig": "Configuratio Pulumi"
     },
     "runs": {
       "options": "Optiones",
       "hideOptions": "Optiones Celare",
       "queueDestroy": "Destruere",
-      "queueDestroyTitle": "Consilium destructionis in ordinem pone",
       "destroyAllConfirm": "Omnes facultates destruere?",
       "confirmDestroy": "Destructionem Confirmare",
-      "queuePlan": "Consilium",
-      "queueRun": "Consilium + exsecutio",
-      "queuePlanConfirm": "Consilium speculativum huic loco operis in ordinem ponere?",
-      "queueApplyConfirm": "Exsecutionem plan + apply in ordinem ponere? Hoc infrastructuram mutare potest.",
-      "planOptions": "Optiones Consilii",
       "targetResources": "Facultates destinatas",
       "replaceResources": "Facultates substituere",
       "commaSeparated": "(commate seiuncta)",
@@ -2718,7 +2744,6 @@
       "branch": "Ramus",
       "tag": "Nota",
       "defaultBranch": "Praedefinitus ({branch})",
-      "nonDefaultRefNote": "Ref non-praedefinitum selectum — exsecutio solum-consilii erit",
       "empty": "Nullae adhuc exsecutiones huic loco operis.",
       "runId": "ID Exsecutionis",
       "status": "Status",
@@ -2729,13 +2754,11 @@
       "created": "Creatum",
       "needsConfirm": "confirmatione eget",
       "typeDestroy": "destructio",
-      "typePlanOnly": "solum consilium",
-      "typePlanApply": "plan + apply",
       "sourceModuleTest": "probatio moduli",
       "sourceModulePublish": "editio moduli",
-      "queueApplyTitle": "Cursum consilii + exsecutionis in ordinem mittere",
-      "queueApplyRefBlocked": "Exsecutio non praesto est dum ramus, nota vel commissio electa est — ii cursus semper consilium solum sunt",
-      "awaitingDecision": "decretum exspectat"
+      "awaitingDecision": "decretum exspectat",
+      "typeSavedPlan": "consilium servatum",
+      "typeSavedPlanHint": "Applicatio dilata: haec executio locum operis non tenet donec consilium servatum applicetur."
     },
     "state": {
       "deleteConfirm": "Versionem status #{serial} delere? Hoc revocari non potest.",
@@ -2752,12 +2775,18 @@
       "runner": "cursor",
       "latest": "novissima"
     },
+    "stateOutputs": {
+      "title": "Egressus",
+      "fromSerial": "Series #{serial}",
+      "empty": "Hic status nullos egressus declarat.",
+      "sensitive": "Sensibile",
+      "loadFailed": "Egressus huius loci operis onerari non potuerunt."
+    },
     "configurations": {
       "description": "Fontium archiva huic loco operis subdita, novissima primum. Elige duas lineas ad comparandum.",
       "selectedCount": "{count}/2 selectae",
       "compare": "Comparare",
       "comparing": "Comparatur…",
-      "empty": "Nullae adhuc versiones configurationis. Hic apparent statim atque `terraform plan` subdit aut impulsus VCS exsecutionem concitat.",
       "id": "ID",
       "source": "Fons",
       "status": "Status",
@@ -2819,7 +2848,6 @@
     },
     "runTriggers": {
       "title": "Concitatores Exsecutionis",
-      "description": "Cum locus operis fons applicationem perficit, loca operis subsequentia novam exsecutionem automatice in ordinem positam accipiunt. Usque ad 20 loca operis fontia per destinationem.",
       "inboundHeading": "Loca operis fontia quae exsecutiones hic concitant",
       "inboundEmpty": "Nulla loca operis fontia exsecutiones in hoc loco operis concitant.",
       "pickerPlaceholder": "Quaere loca operis ut fontem addas…",
@@ -2827,6 +2855,173 @@
       "outboundEmpty": "Hoc locus operis in nullo alio loco operis exsecutiones concitat.",
       "destinationNote": "(destinatio; inde remove)",
       "removeConfirm": "Hunc concitatorem exsecutionis removere?"
+    },
+    "inventory": {
+      "scope": {
+        "heading": "Inventarium",
+        "body": "Hospites et greges quos hoc locus operis tenet, et in quae eos ansible resolvit. Quaeque linea hic redigi potest; playbook in eos exsequi nondum praesto est."
+      },
+      "nav": {
+        "label": "Partes inventarii",
+        "hosts": "Hospites",
+        "groups": "Greges",
+        "vars": "Variabiles",
+        "resolved": "Resolutum",
+        "settings": "Optiones"
+      },
+      "actions": {
+        "save": "Servare",
+        "saving": "Servatur…",
+        "cancel": "Abrogare",
+        "edit": "Redigere",
+        "delete": "Delere",
+        "remove": "Removere",
+        "add": "Addere",
+        "adding": "Additur…",
+        "rename": "Renominare"
+      },
+      "hosts": {
+        "heading": "Hospites",
+        "body": "Una linea pro quoque hospite. Hospitem aperi ut variabiles eius et greges ad quos pertinet redigas.",
+        "empty": "Nulli adhuc hospites.",
+        "colName": "Hospes",
+        "colGroups": "Greges",
+        "colVars": "Variabiles",
+        "newLabel": "Nomen novi hospitis",
+        "newPlaceholder": "web-1",
+        "add": "Hospitem addere",
+        "confirmDelete": "Hospitem {name} delere? Variabiles eius et pertinentiae eius ad greges cum eo abeunt.",
+        "renameLabel": "Nomen hospitis"
+      },
+      "groups": {
+        "heading": "Greges",
+        "body": "Una linea pro quoque grege. Gregem aperi ut variabiles eius, hospites membros eius et greges intus insertos redigas.",
+        "empty": "Nulli adhuc greges.",
+        "colName": "Grex",
+        "colMembers": "Hospites",
+        "colChildren": "Greges filii",
+        "colVars": "Variabiles",
+        "newLabel": "Nomen novi gregis",
+        "newPlaceholder": "web",
+        "add": "Gregem addere",
+        "confirmDelete": "Gregem {name} delere? Variabiles eius et pertinentiae eius cum eo abeunt; ipsi hospites manent.",
+        "renameLabel": "Nomen gregis"
+      },
+      "vars": {
+        "actions": "Actiones",
+        "key": "Clavis",
+        "keyPlaceholder": "ansible_user",
+        "value": "Valor",
+        "structured": "Structuratum",
+        "sensitive": "Sensibile",
+        "structuredHelp": "Index, numerus aut obiectum valor structuratus est: Structuratum signa et fontem eius litteralem in valore scribe. Valor sensibilis numquam relegitur — campus pro eo velamen ostendit.",
+        "structuredBadge": "structuratum",
+        "sensitiveKeep": "Hoc vacuum relinque ut valor servatus maneat.",
+        "empty": "Nullae hic variabiles.",
+        "add": "Variabilem addere",
+        "confirmDelete": "Variabilem {key} delere?"
+      },
+      "hostDetail": {
+        "heading": "Hospes {name}",
+        "body": "Omnia quae hic unus hospes fert.",
+        "back": "Ad hospites redire",
+        "gone": "Ille hospes iam non exstat.",
+        "vars": "Variabiles hospitis",
+        "varsBody": "Variabiles quae ad hunc solum hospitem pertinent. Variabilem gregis eiusdem nominis vincunt.",
+        "memberships": "Greges",
+        "membershipsBody": "Greges ad quos hic hospes pertinet. Pertinentia nexus est, itaque unam hic removere et hospitem et gregem suo loco relinquit.",
+        "membershipsEmpty": "Hic hospes in nullo grege est, itaque ansible eum in ungrouped ponit.",
+        "addGroup": "Ad gregem addere",
+        "addGroupLabel": "Gregem elige",
+        "removeGroupAria": "Hunc hospitem ex {name} removere",
+        "confirmRemoveGroup": "Hunc hospitem ex {name} eximere?"
+      },
+      "groupDetail": {
+        "heading": "Grex {name}",
+        "body": "Omnia quae hic unus grex fert.",
+        "back": "Ad greges redire",
+        "gone": "Ille grex iam non exstat.",
+        "vars": "Variabiles gregis",
+        "varsBody": "Variabiles quae ad omnem hospitem huius gregis pertinent, sive directe sive per insertionem.",
+        "members": "Hospites membri",
+        "membersBody": "Hospites qui directe in hoc grege sunt. Hospes per gregem insertum solum attactus hic non enumeratur.",
+        "membersEmpty": "Nulli hospites directe in hoc grege.",
+        "addHost": "Hospitem addere",
+        "addHostLabel": "Hospitem elige",
+        "removeHostAria": "{name} ex hoc grege removere",
+        "confirmRemoveHost": "{name} ex hoc grege eximere?",
+        "children": "Greges filii",
+        "childrenBody": "Greges intra hunc inserti. Hospites eorum huius quoque gregis membri sunt, et variabiles huius gregis ad eos perveniunt.",
+        "childrenEmpty": "Nulli greges intra hunc inserti.",
+        "addChild": "Gregem filium addere",
+        "addChildLabel": "Gregem inserendum elige",
+        "removeChildAria": "{name} ex filiis huius gregis removere",
+        "confirmRemoveChild": "{name} intra hunc gregem inserere desinere?",
+        "parents": "Greges parentes",
+        "parentsBody": "Greges intra quos hic insertus est. Grex plures parentes habere potest.",
+        "parentsEmpty": "Hic grex intra nihil insertus est.",
+        "addParent": "Gregem parentem addere",
+        "addParentLabel": "Gregem parentem elige",
+        "removeParentAria": "Hunc gregem ex {name} removere",
+        "confirmRemoveParent": "Hunc gregem intra {name} inserere desinere?"
+      },
+      "globalVars": {
+        "heading": "Variabiles inventarii",
+        "body": "Variabiles quae ad omnem hospitem pertinent — group_vars/all ansibilis. Variabilis gregis aut hospitis eiusdem nominis eam hic positam vincit."
+      },
+      "resolved": {
+        "heading": "Hospites resoluti",
+        "body": "Quid ansible ex lineis faciat: quisque hospes cum variabilibus quas tandem tenet, post coniunctionem et praecedentiam.",
+        "hosts": "Hospites",
+        "groups": "Greges",
+        "liveNote": "Haec viva sunt. Omnis fons hic staticus est, itaque lectio lineas resolvit ut sibi ipsa respondeat — nihil est quod renovetur.",
+        "noHosts": "Nihil in hospitem resolutum est.",
+        "noVars": "nullae variabiles",
+        "groupsHeading": "Pertinentia ad greges",
+        "directOnly": "Pertinentia directa tantum, prorsus ut ansible eam refert: grex cuius hospites omnes per gregem insertum adveniunt nullos proprios enumerat. Insertio infra est.",
+        "noGroups": "Nulli greges resoluti.",
+        "noDirectMembers": "nulli hospites directi",
+        "nestingHeading": "Insertio gregum",
+        "nestingBody": "Qui greges intra quos sedeant. Limes in parente positus ad omnem hospitem infra eum pervenit.",
+        "noNesting": "Nulli greges inserti sunt.",
+        "limitHeading": "Quid limes peteret?",
+        "limitBody": "Exemplar ansible --limit contra hoc inventarium extende et vide prorsus quos hospites eligat antequam quidquam exsequatur. Ansible extensionem facit, itaque grex, exclusio et ~regex omnia ita se gerunt ut tempore exsecutionis se gerent.",
+        "limitLabel": "Exemplar limitis",
+        "limitPlaceholder": "web:!web-2",
+        "limitApply": "Limitem applicare",
+        "limitClear": "Purgare",
+        "limitApplied": "Ad {limit} limitatum. Omnia infra sunt quae illud exemplar petit."
+      },
+      "settings": {
+        "heading": "Optiones",
+        "body": "Utrum lineae hic tentae valeant, et promptuarium ex quo inventarium quoque legitur.",
+        "absent": "Nullae optiones, quod praestitutum est: hospites et greges hic tenti totum inventarium sunt.",
+        "includePlatform": "Hospitibus et gregibus hic tentis uti",
+        "includePlatformHelp": "Praestituto accensum. Id exstingue ut ex solo promptuario resolvatur, his lineis suo loco relictis sed extra responsum.",
+        "included": "ita",
+        "excluded": "non",
+        "vcsConnection": "Nexus VCS",
+        "vcsNone": "Nullus",
+        "field": {
+          "repo-url": "Promptuarium",
+          "branch": "Ramus",
+          "working-directory": "Directorium"
+        },
+        "branchHelp": "Vacuum relinque ut ramum praestitutum promptuarii sequaris.",
+        "ignorePaths": "Semitae neglectae",
+        "ignorePathsHelp": "Unum glob per lineam. Quidquid congruit ex inventario ex promptuario lecto excluditur.",
+        "unset": "non positum",
+        "create": "Optiones addere",
+        "clear": "Optiones purgare",
+        "confirmClear": "Has optiones purgare? Vinculum promptuarii cum eis abit; hospites et greges hic tenti manent."
+      },
+      "errors": {
+        "load": "Inventarium onerari non potuit",
+        "save": "Servari non potuit",
+        "delete": "Deleri non potuit",
+        "resolved": "Inventarium resolvi non potuit",
+        "settings": "Optiones inventarii servari non potuerunt"
+      }
     },
     "sharing": {
       "title": "Communicatio Status Remoti",
@@ -2896,8 +3091,6 @@
       "addVariableStatus": "Variabilis addi non potuit ({status})",
       "deleteVariable": "Variabilis deleri non potuit",
       "updateVariable": "Variabilis renovari non potuit",
-      "queuePlan": "Consilium in ordinem poni non potuit",
-      "queuePlanStatus": "Consilium in ordinem poni non potuit ({status})",
       "queueDestroy": "Destructio in ordinem poni non potuit",
       "queueDestroyStatus": "Destructio in ordinem poni non potuit ({status})",
       "createNotification": "Nuntiatio creari non potuit",
@@ -2914,7 +3107,8 @@
       "uploadState": "Status subdi non potuit",
       "uploadStateFile": "Tabula status subdi non potuit",
       "updateSecurityScan": "Scrutinium securitatis renovari non potuit",
-      "updateDebugMode": "Modus purgandi renovari non potuit"
+      "updateDebugMode": "Modus purgandi renovari non potuit",
+      "updateForkPlans": "Consilia rogationum tractionis e furca renovari non potuerunt"
     },
     "subtabs": {
       "state": "Status",
@@ -2967,6 +3161,14 @@
       "bannerTitle": "Modus purgandi huic loco operis accensus est",
       "bannerBody": "Pod cursus defecti ad inspiciendum apertus tenetur potius quam finitur, et dum tenetur credentias variabilesque decryptas huius loci operis servat. Modum purgandi exstingue cum quaerere desieris.",
       "confirmEnable": "Modum purgandi accendere? Pod cursus defecti apertus tenebitur cum credentiis variabilibusque decryptis huius loci operis, donec fenestra exeat aut pod deleas."
+    },
+    "allowForkPrPlans": {
+      "title": "Consilia in rogationibus tractionis e furca",
+      "description": "Utrum rogatio tractionis e furca aperta consilium speculativum accipiat. Praedefinite exstinctum, quia illud consilium codicem auctoris furcae cum credentiis huius loci operis exsequitur.",
+      "label": "Rogationes tractionis e furca consiliari",
+      "hint": "Exsecutio accipit variabiles ambitus huius loci operis, valores sensibiles, arcana quaelibet per Vault resoluta, atque identitatem nubis operis. Qui rogationem tractionis e furca aperit neque scribendi potestatem habet neque conflare potest; itaque consilium speculativum sola via est qua codex eius ad illas credentias pervenit. Hoc accende pro loco operis qui nihil auferendum continet — exempli gratia, pro repositorio modulorum publico quod conlationes communitatis accipit. Rogationes tractionis e ramis ipsius repositorii non afficiuntur et semper consilium accipiunt.",
+      "activeBadge": "Accensum",
+      "confirmEnable": "Rogationes tractionis e furcis apertas consiliari? Codex auctorum earum cum credentiis variabilibusque decryptis huius loci operis exsequetur, nemine prius approbante."
     }
   },
   "graphs": {
@@ -3189,11 +3391,14 @@
     "unknown": "ignotum",
     "confirm": {
       "prompt": "Hanc rationem Slack ad <em>tuam</em> identitatem Terrapod nectere? Omnis futura actio Slack (approbare/reicere) ut hic usor Terrapod cum permissionibus eius curret.",
+      "slackName": "Ratio Slack",
       "slackUser": "Usor Slack",
       "slackTeam": "Turma Slack",
       "terrapodAccount": "Ratio Terrapod",
       "warning": "Perge solum si hunc nexum modo ipse ex Slack incepisti. Si non fecisti, claude hanc scidam et ne nectas — hoc rationem Slack supra ad <em>tuam</em> identitatem Terrapod vincit.",
-      "button": "Confirmare et nectere"
+      "button": "Confirmare et nectere",
+      "namesUnavailable": "Terrapod nomen huius rationis Slack reperire non potuit. Identificatores supra inspice, et tantum perge si hanc coniunctionem ipse ex Slack incepisti.",
+      "nameIsSelfChosen": "Cognomen in spatio Slack unicum est; nomen infra ab ipso domino eligitur, ergo cognomine iudica."
     },
     "success": {
       "message": "Ratio tua Slack nunc cum Terrapod nexa est.",
@@ -3416,7 +3621,77 @@
       },
       "status": {
         "planning": "Consilium Fit",
-        "applying": "Applicatur"
+        "applying": "Applicatur",
+        "planned": "Consilium Factum",
+        "applied": "Applicatum"
+      },
+      "words": {
+        "actionConfirmFull": "Confirmare et Applicare",
+        "actionConfirmShort": "Applicare",
+        "activityApplied": "Applicatio perfecta",
+        "activityConfirmed": "Applicatio incipitur",
+        "activityDiscarded": "Consilium reiectum",
+        "activityPlannedComplete": "Consilium perfectum",
+        "activityPlannedConfirmable": "Exspectatur ut confirmes et applices",
+        "activityPlannedSpeculative": "Consilium speculativum perfectum",
+        "aiPolicyOverrideConfirm": "Portam regulae AI supersedere et hanc executionem contra sententiam applicari sinere?",
+        "aiSummaryDescription": "Summarium mutationum ab LLM automatice generatum, aestimatio periculi et analysis defectus in omni exitu phasis consilii huius loci operis.",
+        "aiSummaryTitle": "Summarium Consilii AI",
+        "badgePlanOnly": "solum consilium",
+        "bannerPlanOnlyCli": "Haec est exsecutio <strong>solum-consilii</strong> ex CLI in loco operis VCS-coniuncto incepta. Applicatio pro codice CLI-subdito non praesto est — solum codex VCS-administratus applicari potest.",
+        "changesPlanning": "Consilium fit…",
+        "configurationsEmpty": "Nullae adhuc versiones configurationis. Hic apparent statim atque `terraform plan` subdit aut impulsus VCS exsecutionem concitat.",
+        "confirmApply": "Hanc exsecutionem applicare? Hoc consilium applicat et infrastructuram mutat.",
+        "confirmDiscard": "Hoc consilium reicere?",
+        "costNoState": "Nullus sumptus adhuc — post primam applicationem apparet.",
+        "detailsPlanOnly": "Solum Consilium",
+        "discardedHeading": "Reiectum — reconsilium requisitum",
+        "driftCheckNowTitle": "Exsecutionem solum-consilii in ordinem pone ut aberrationem inspicias",
+        "driftRemediate": "Consilium + exsecutio",
+        "driftRemediateConfirm": "Cursum consilii + exsecutionis pro hoc loco operis in ordinem mittere?",
+        "driftRemediateTitle": "Cursum consilii + exsecutionis in ordinem mittere ut infrastructura configurationi rursus congruat",
+        "errorsQueuePlan": "Consilium in ordinem poni non potuit",
+        "errorsQueuePlanStatus": "Consilium in ordinem poni non potuit ({status})",
+        "fieldsAutoMerge": "Automatice-conflare post applicationem",
+        "formAutoApplyModeHint": "never: semper hominem exspecta. always: omne consilium prosperum applica. create / create/update: sola consilia iis actionibus circumscripta applica — numquam deletionem aut substitutionem.",
+        "lockLockedDesc": "Hoc locus operis occlusum est. Nulla consilia nec applicationes currere possunt.",
+        "logApplyEmpty": "Nullus egressus applicationis adhuc praesto.",
+        "logApplySkipped": "Nulla applicatio acta est: consilium nullas mutationes habuit, itaque nihil applicandum erat.",
+        "logIndexSummary": "Summarium consilii",
+        "logIndexTitle": "Salire ad mutationem rei aut ad summarium consilii",
+        "logPlanEmpty": "Nullus egressus consilii adhuc praesto.",
+        "nonDefaultRefNote": "Ref non-praedefinitum selectum — exsecutio solum-consilii erit",
+        "planExpiryDescription": "Automatice reice consilium non confirmatum ubi hoc antiquius est, ut consilium obsoletum contra mundum mutatum applicari non possit. Praedefinite deactivatum; consilium deinde iterum currendum est. (Applicatur solum ad exsecutiones applicationis-capaces.)",
+        "planExpiryTitle": "Exspiratio Consilii",
+        "planOptions": "Optiones Consilii",
+        "planSummaryChatPlaceholder": "Roga quaestionem subsequentem de hoc consilio… (⌘/Ctrl + Enter ut mittas)",
+        "planSummaryHeading": "Summarium consilii",
+        "planSummaryNoChangesTitle": "Consilium nullas mutationes facultatum rettulit",
+        "planSummaryRegenerateTooltip": "Summarium AI contra eosdem ingressus consilii iterum curre",
+        "planSummarySummarising": "Consilium summatim redigitur…",
+        "policyBlockedMessage": "Haec exsecutio <strong>a copia regularum obligatoria obstruitur</strong>. Non applicabitur donec defectus solvatur aut administrator eam supersedat.",
+        "queueApplyConfirm": "Exsecutionem plan + apply in ordinem ponere? Hoc infrastructuram mutare potest.",
+        "queueApplyRefBlocked": "Exsecutio non praesto est dum ramus, nota vel commissio electa est — ii cursus semper consilium solum sunt",
+        "queueApplyTitle": "Cursum consilii + exsecutionis in ordinem mittere",
+        "queueDestroyTitle": "Consilium destructionis in ordinem pone",
+        "queuePlan": "Consilium",
+        "queuePlanConfirm": "Consilium speculativum huic loco operis in ordinem ponere?",
+        "queueRun": "Consilium + exsecutio",
+        "replacePlaceholder": "e.g. aws_instance.web",
+        "runTriggersDescription": "Cum locus operis fons applicationem perficit, loca operis subsequentia novam exsecutionem automatice in ordinem positam accipiunt. Usque ad 20 loca operis fontia per destinationem.",
+        "tabApplyFull": "Diarium applicationis",
+        "tabApplyLabel": "Applicatio<log>Diarium</log>",
+        "tabPlanFull": "Diarium consilii",
+        "tabPlanLabel": "Consilium<log>Diarium</log>",
+        "targetPlaceholder": "e.g. aws_instance.web, aws_s3_bucket.data",
+        "timelineApplied": "Applicatum",
+        "timelineApplyingStarted": "Applicatio incepta",
+        "timelinePlanComplete": "Consilium perfectum",
+        "timelinePlanningStarted": "Consilium inceptum",
+        "typePlanApply": "plan + apply",
+        "vcsWorkflowWarningRbac": "Quisquis PR conflare potest applicare potest. Regulae protectionis ramorum (recognitiones requisitae, probationes status, approbatio dominorum codicis) fiunt porta. RBAC partium/titulorum Terrapod<em>non</em> applicatur ad actiones commentario-actas in hoc modo.",
+        "vcsWorkflowWarningRecommended": "<strong>Commendatum:</strong> historiam linearem require (rebase/squash ante conflationem) ut commissio quam applicas sit commissio quae terram tangit.",
+        "slackDescription": "Adscribe hoc locus operis ad nuntiationes exsecutionis Slack — petitiones approbationis, applicationes, errores et aberrationes. Relinque canalem vacuum et hoc locus operis silet (nulla per totam instructionem dispersio). Requirit ut app Slack ab administratore activetur."
       }
     },
     "pulumi": {
@@ -3425,14 +3700,84 @@
         "applying": "pulumi up curritur"
       },
       "runStatus": {
-        "planning": "Consilium Fit",
-        "planned": "Consilium Factum",
-        "applying": "Applicatur",
-        "applied": "Applicatum"
+        "planning": "Praevisio Fit",
+        "planned": "Praevisio Facta",
+        "applying": "Renovatur",
+        "applied": "Renovatum"
       },
       "status": {
-        "planning": "Consilium Fit",
-        "applying": "Applicatur"
+        "planning": "Praevisio Fit",
+        "applying": "Renovatur",
+        "planned": "Praevisio Facta",
+        "applied": "Renovatum"
+      },
+      "words": {
+        "actionConfirmFull": "Confirmare et Renovare",
+        "actionConfirmShort": "Renovare",
+        "activityApplied": "Renovatio perfecta",
+        "activityConfirmed": "Renovatio incipitur",
+        "activityDiscarded": "Praevisio reiecta",
+        "activityPlannedComplete": "Praevisio perfecta",
+        "activityPlannedConfirmable": "Exspectatur ut confirmes et renoves",
+        "activityPlannedSpeculative": "Praevisio speculativa perfecta",
+        "aiPolicyOverrideConfirm": "Portam regulae AI supersedere et hanc executionem contra sententiam renovare sinere?",
+        "aiSummaryDescription": "Summarium mutationum ab LLM automatice generatum, aestimatio periculi et analysis defectus in omni exitu phasis praevisionis huius loci operis.",
+        "aiSummaryTitle": "Summarium Praevisionis AI",
+        "badgePlanOnly": "solum praevisio",
+        "bannerPlanOnlyCli": "Haec est exsecutio <strong>solum-praevisionis</strong> ex CLI in loco operis VCS-coniuncto incepta. Renovatio pro codice CLI-subdito non praesto est — solum codex VCS-administratus renovari potest.",
+        "changesPlanning": "Praevisio fit…",
+        "configurationsEmpty": "Nullae adhuc versiones configurationis. Hic apparent statim atque impulsus VCS exsecutionem concitat.",
+        "confirmApply": "Hanc exsecutionem renovare? Hoc praevisionem exsequitur et infrastructuram mutat.",
+        "confirmDiscard": "Hanc praevisionem reicere?",
+        "costNoState": "Nullus sumptus adhuc — post primam renovationem apparet.",
+        "detailsPlanOnly": "Solum Praevisio",
+        "discardedHeading": "Reiectum — praevisio iteranda",
+        "driftCheckNowTitle": "Exsecutionem solum-praevisionis in ordinem pone ut aberrationem inspicias",
+        "driftRemediate": "Praevisio + renovatio",
+        "driftRemediateConfirm": "Cursum praevisionis + renovationis pro hoc loco operis in ordinem mittere?",
+        "driftRemediateTitle": "Cursum praevisionis + renovationis in ordinem mittere ut infrastructura configurationi rursus congruat",
+        "errorsQueuePlan": "Praevisio in ordinem poni non potuit",
+        "errorsQueuePlanStatus": "Praevisio in ordinem poni non potuit ({status})",
+        "fieldsAutoMerge": "Automatice-conflare post renovationem",
+        "formAutoApplyModeHint": "never: semper hominem exspecta. always: post omnem praevisionem prosperam renova. create / create/update: renova solum ex praevisionibus iis actionibus circumscriptis — numquam deletionem aut substitutionem.",
+        "lockLockedDesc": "Hoc locus operis occlusum est. Nullae praevisiones nec renovationes currere possunt.",
+        "logApplyEmpty": "Nullus egressus renovationis adhuc praesto.",
+        "logApplySkipped": "Nulla renovatio acta est: praevisio nullas mutationes habuit, itaque nihil renovandum erat.",
+        "logIndexSummary": "Summarium praevisionis",
+        "logIndexTitle": "Salire ad mutationem rei aut ad summarium praevisionis",
+        "logPlanEmpty": "Nullus egressus praevisionis adhuc praesto.",
+        "nonDefaultRefNote": "Ref non-praedefinitum selectum — exsecutio solum-praevisionis erit",
+        "planExpiryDescription": "Automatice reice praevisionem non confirmatam ubi haec antiquior est, ut praevisio obsoleta contra mundum mutatum perfici non possit. Praedefinite deactivatum; praevisio deinde iterum currenda est. (Applicatur solum ad exsecutiones renovationis-capaces.)",
+        "planExpiryTitle": "Exspiratio Praevisionis",
+        "planOptions": "Optiones Praevisionis",
+        "planSummaryChatPlaceholder": "Roga quaestionem subsequentem de hac praevisione… (⌘/Ctrl + Enter ut mittas)",
+        "planSummaryHeading": "Summarium praevisionis",
+        "planSummaryNoChangesTitle": "Praevisio nullas mutationes facultatum rettulit",
+        "planSummaryRegenerateTooltip": "Summarium AI contra eosdem ingressus praevisionis iterum curre",
+        "planSummarySummarising": "Praevisio summatim redigitur…",
+        "policyBlockedMessage": "Haec exsecutio <strong>a copia regularum obligatoria obstruitur</strong>. Non renovabit donec defectus solvatur aut administrator eam supersedat.",
+        "queueApplyConfirm": "Exsecutionem praevisionis + renovationis in ordinem ponere? Hoc infrastructuram mutare potest.",
+        "queueApplyRefBlocked": "Renovatio non praesto est dum ramus, nota vel commissio electa est — ii cursus semper solum praevisiones sunt",
+        "queueApplyTitle": "Cursum praevisionis + renovationis in ordinem mittere",
+        "queueDestroyTitle": "Praevisionem destructionis in ordinem pone",
+        "queuePlan": "Praevisio",
+        "queuePlanConfirm": "Praevisionem speculativam huic loco operis in ordinem ponere?",
+        "queueRun": "Praevisio + renovatio",
+        "replacePlaceholder": "e.g. urn:pulumi:dev::shop::aws:ec2/instance:Instance::web",
+        "runTriggersDescription": "Cum locus operis fons renovationem perficit, loca operis subsequentia novam exsecutionem automatice in ordinem positam accipiunt. Usque ad 20 loca operis fontia per destinationem.",
+        "tabApplyFull": "Diarium renovationis",
+        "tabApplyLabel": "Renovatio<log>Diarium</log>",
+        "tabPlanFull": "Diarium praevisionis",
+        "tabPlanLabel": "Praevisio<log>Diarium</log>",
+        "targetPlaceholder": "e.g. urn:pulumi:dev::shop::aws:s3/bucket:Bucket::assets",
+        "timelineApplied": "Renovatum",
+        "timelineApplyingStarted": "Renovatio incepta",
+        "timelinePlanComplete": "Praevisio perfecta",
+        "timelinePlanningStarted": "Praevisio incepta",
+        "typePlanApply": "praevisio + renovatio",
+        "vcsWorkflowWarningRbac": "Quisquis PR conflare potest renovare potest. Regulae protectionis ramorum (recognitiones requisitae, probationes status, approbatio dominorum codicis) fiunt porta. RBAC partium/titulorum Terrapod<em>non</em> applicatur ad actiones commentario-actas in hoc modo.",
+        "vcsWorkflowWarningRecommended": "<strong>Commendatum:</strong> historiam linearem require (rebase/squash ante conflationem) ut commissio ex qua renovas sit commissio quae terram tangit.",
+        "slackDescription": "Adscribe hoc locus operis ad nuntiationes exsecutionis Slack — petitiones approbationis, renovationes, errores et aberrationes. Relinque canalem vacuum et hoc locus operis silet (nulla per totam instructionem dispersio). Requirit ut app Slack ab administratore activetur."
       }
     }
   },

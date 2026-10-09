@@ -16,11 +16,19 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from terrapod.api.metrics import AUTH_LOGIN
+from terrapod.auth.builtin_roles import PLATFORM_ROLE_NAMES
 from terrapod.auth.claims_mapper import map_claims_to_roles
 from terrapod.auth.recent_users import mark_user_seen, record_recent_user
 from terrapod.auth.sso import AuthenticatedIdentity
 from terrapod.config import ClaimsToRolesMapping, settings
-from terrapod.db.models import PlatformRoleAssignment, RoleAssignment, User
+from terrapod.db.models import (
+    PlatformRoleAssignment,
+    RoleAssignment,
+    User,
+)
+from terrapod.db.models import (
+    subject_matches as _subject_matches,
+)
 from terrapod.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -34,6 +42,9 @@ class LoginResult:
     display_name: str | None
     roles: list[str]
     provider_name: str
+    # The IdP subject, carried so the caller can put it on the session and so a
+    # subject-pinned role assignment can be matched (GHSA-3m8x-ff8g-7x8c).
+    subject: str | None = None
 
 
 async def process_login(
@@ -45,7 +56,8 @@ async def process_login(
 
     This function is read-only with respect to roles — it never writes to
     the role_assignments table. Role resolution merges three sources:
-    1. IDP groups from connector (already prefix-stripped by the connector)
+    1. IDP groups from connector (prefix-filtered there; platform roles refused
+       here — see Source 1 below)
     2. claims_to_roles config mapping
     3. Internal role_assignments table query by (provider_name, email)
 
@@ -87,8 +99,33 @@ async def process_login(
     # Resolve roles from three sources (read-only — no writes)
     roles: set[str] = set()
 
-    # Source 1: IDP groups from connector
-    roles.update(identity.groups)
+    # Source 1: IDP groups from connector.
+    #
+    # Platform roles are refused from this source (GHSA-22vg-4g2w-7w34). An IdP
+    # group is a name in someone else's directory: a group called `admin` may be
+    # the cloud team's, or one anybody can self-join, and unioning it verbatim
+    # turned that into Terrapod platform admin. `role_prefixes` narrows which
+    # groups are considered, but it is empty by default — so in most deployments
+    # filtering protects nobody and this floor is what actually closes it.
+    #
+    # Granting admin or audit stays possible and stays deliberate: a
+    # claims-to-roles rule (source 2) or a platform role assignment (source 3).
+    # Both are written by someone who administers Terrapod, which is the
+    # distinction that matters — not whether a group name happens to match.
+    idp_roles = {g for g in identity.groups if g not in PLATFORM_ROLE_NAMES}
+    refused = sorted(set(identity.groups) - idp_roles)
+    if refused:
+        logger.warning(
+            "Refused platform roles asserted by an IdP group",
+            provider=identity.provider_name,
+            email=identity.email,
+            refused=refused,
+            detail=(
+                "grant these with a claims_to_roles rule or a platform role "
+                "assignment instead; an IdP group name is not an authorization"
+            ),
+        )
+    roles.update(idp_roles)
 
     # Source 2: claims_to_roles config mapping
     if claims_rules:
@@ -96,7 +133,9 @@ async def process_login(
         roles.update(mapped)
 
     # Source 3: Internal role assignments from DB
-    internal = await _load_internal_assignments(db, identity.provider_name, identity.email)
+    internal = await _load_internal_assignments(
+        db, identity.provider_name, identity.email, identity.subject
+    )
     roles.update(internal)
 
     all_roles = sorted(roles)
@@ -122,6 +161,7 @@ async def process_login(
         display_name=identity.display_name,
         roles=all_roles,
         provider_name=identity.provider_name,
+        subject=identity.subject,
     )
 
 
@@ -129,13 +169,27 @@ async def _load_internal_assignments(
     db: AsyncSession,
     provider_name: str,
     email: str,
+    subject: str | None = None,
 ) -> list[str]:
-    """Load internally-assigned role names from both role tables."""
+    """Load internally-assigned role names from both role tables.
+
+    This is the LOGIN-side twin of `dependencies._resolve_user_roles`, and the two
+    must agree about what an assignment matches. They are separate functions because
+    login already has the identity in hand while the token path has to reconstruct
+    it -- but a rule applied in one and not the other is a hole: the fix for
+    GHSA-3m8x-ff8g-7x8c would have been defeated by logging in rather than by using a
+    token.
+
+    `subject` pins an assignment to one IdP subject. Unpinned assignments (the normal
+    case) match on provider and email as before; a pinned one matches only its own
+    subject, so an unknown subject matches unpinned assignments only.
+    """
     # Custom role assignments (FK to roles table)
     result = await db.execute(
         select(RoleAssignment.role_name).where(
             RoleAssignment.provider_name == provider_name,
             RoleAssignment.email == email,
+            _subject_matches(RoleAssignment, subject),
         )
     )
     roles = list(result.scalars().all())
@@ -145,6 +199,7 @@ async def _load_internal_assignments(
         select(PlatformRoleAssignment.role_name).where(
             PlatformRoleAssignment.provider_name == provider_name,
             PlatformRoleAssignment.email == email,
+            _subject_matches(PlatformRoleAssignment, subject),
         )
     )
     roles.extend(result.scalars().all())

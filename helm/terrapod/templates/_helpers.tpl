@@ -133,6 +133,35 @@ and is unique per Helm release even if multiple releases share `listener.name`.
 {{- end -}}
 
 {{/*
+Name and key of the Secret holding the listener's JOIN token -- an operator's own
+`listener.existingSecret` when they have one, otherwise the chart-managed Secret
+rendered from `listener.joinToken` (GHSA-93m3-v3h4-4qvw).
+
+Distinct from terrapod.listenerCredentialsSecretName above, which is the Secret
+the LISTENER writes its issued certificate into. This one is the credential it
+presents to be issued that certificate in the first place.
+
+There is no empty case for the name and no literal fallback: the Deployment
+renders the env var only when a token is configured at all, so these are only
+consulted when one of the two paths applies.
+*/}}
+{{- define "terrapod.listener.joinTokenSecretName" -}}
+{{- if .Values.listener.existingSecret -}}
+{{- .Values.listener.existingSecret -}}
+{{- else -}}
+{{- printf "%s-listener-join-token" (include "terrapod.fullname" .) -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "terrapod.listener.joinTokenSecretKey" -}}
+{{- if .Values.listener.existingSecret -}}
+{{- .Values.listener.joinTokenKey | default "join_token" -}}
+{{- else -}}
+join_token
+{{- end -}}
+{{- end -}}
+
+{{/*
 Get the API image reference, defaulting tag to appVersion
 */}}
 {{- define "terrapod.api.image" -}}
@@ -186,6 +215,42 @@ Get the runner namespace (defaults to release namespace)
 */}}
 {{- define "terrapod.runnerNamespace" -}}
 {{- default .Release.Namespace .Values.listener.runnerNamespace -}}
+{{- end }}
+
+{{/*
+"true" when runner Jobs land in a namespace of their own, "" when they share the
+release namespace with the control plane (GHSA-p8xx-7rwg-9f72).
+
+Two things have to change shape in the separated topology and nothing else can
+tell them apart: the API's NetworkPolicy peer for runners needs a
+namespaceSelector, and the runner Namespace itself has to exist. An empty
+`listener.runnerNamespace` and one set to the release namespace are the same
+arrangement, so both answer "".
+*/}}
+{{- define "terrapod.runnerNamespaceIsSeparate" -}}
+{{- if and .Values.listener.runnerNamespace (ne .Values.listener.runnerNamespace .Release.Namespace) -}}
+true
+{{- end -}}
+{{- end }}
+
+{{/*
+The in-cluster API URL, fully qualified (GHSA-p8xx-7rwg-9f72).
+
+**Fully qualified on purpose, and the FQDN is the point.** This becomes
+`server_url` in runners.yaml, which the listener uses for its own calls AND
+hands to every runner Job as `TP_API_URL`. A bare Service name resolves only
+through the pod's own DNS search path, so it works from the release namespace
+and fails from anywhere else -- which is to say it fails in exactly the topology
+we recommend, where runner Jobs live in a namespace of their own. Making the
+default depend on a name that only resolves while the isolation is OFF is the
+wrong way round.
+
+Resolving a FQDN costs nothing from the release namespace either, so there is
+one form rather than a branch. `proxy.noProxy` already carries
+`.svc.cluster.local`, so this stays proxy-exempt.
+*/}}
+{{- define "terrapod.inClusterAPIURL" -}}
+{{- printf "http://%s-api.%s.svc.cluster.local:8000" (include "terrapod.fullname" .) .Release.Namespace -}}
 {{- end }}
 
 {{/*
@@ -295,8 +360,12 @@ Validate the optional webhook Ingress:
   - hostname is required when enabled (every public-internet caller resolves it)
   - web.enabled is required (the webhook Ingress routes to the web BFF, same
     as the management Ingress)
-  - paths must be non-empty (an empty allow-list is pointless and would
-    produce an unreachable Ingress)
+  - the RESOLVED path set must be non-empty. That is not the same as the
+    operator's list: when the OIDC issuer is enabled the chart adds its two
+    paths itself, so `paths: []` is the supported way to publish the issuer
+    and no webhook path at all — a first-class configuration for a deployment
+    that polls VCS. Judging the operator's list alone would refuse exactly
+    the arrangement values.yaml advertises.
 */}}
 {{- define "terrapod.validateWebhookIngress" -}}
 {{- if .Values.webhookIngress.enabled -}}
@@ -306,8 +375,8 @@ Validate the optional webhook Ingress:
 {{- if not .Values.web.enabled -}}
 {{- fail "webhookIngress.enabled is true but web.enabled is false. The webhook Ingress routes to the web frontend — set web.enabled=true." -}}
 {{- end -}}
-{{- if not .Values.webhookIngress.paths -}}
-{{- fail "webhookIngress.enabled is true but webhookIngress.paths is empty. The default allow-list ships in values.yaml; an empty list would produce an Ingress that accepts nothing." -}}
+{{- if and (not .Values.webhookIngress.paths) (not ((.Values.api.config.auth).oidc_issuer).enabled) -}}
+{{- fail "webhookIngress.enabled is true but webhookIngress.paths is empty and the OIDC issuer is disabled, so the Ingress would accept nothing. The default allow-list ships in values.yaml. To publish ONLY the issuer and no webhook path, set api.config.auth.oidc_issuer.enabled=true — the chart adds the two issuer paths itself." -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}
@@ -369,14 +438,29 @@ target so consumers (api, migrations, bootstrap) need no manual url/secret.
 
 {{/*
 Name of the Secret holding the database URL: an operator-provided existingSecret
-if set; otherwise the chart-managed embedded secret when postgresql.deploy=true;
-otherwise empty (the consumer falls back to postgresql.url).
+if set; the chart-managed embedded secret when postgresql.deploy=true; otherwise
+the chart-managed secret this chart renders from `postgresql.url`.
+
+**There is no longer a literal-env fallback, and that is the point
+(GHSA-93m3-v3h4-4qvw).** A URL supplied in `postgresql.url` used to be rendered
+straight into the env of the API Deployment and four Jobs, so anyone with read on
+Deployments or Jobs -- or running `helm get values` -- read the database
+credentials out of the manifest. It now goes into `secret-database-url.yaml` and
+reaches every consumer by `secretKeyRef`, which is the same channel
+`existingSecret` has always used.
+
+So this returns empty only when there is no database configured at all, and the
+`{{- else if .Values.postgresql.url }}` literal branch the consumers used to
+carry is unreachable. Do not re-add one: it would put the DSN back in the
+manifest for exactly the operators who did not supply their own Secret.
 */}}
 {{- define "terrapod.postgresql.secretName" -}}
 {{- if .Values.postgresql.existingSecret -}}
 {{- .Values.postgresql.existingSecret -}}
 {{- else if .Values.postgresql.deploy -}}
 {{- printf "%s-postgresql" (include "terrapod.fullname" .) -}}
+{{- else if .Values.postgresql.url -}}
+{{- printf "%s-database-url" (include "terrapod.fullname" .) -}}
 {{- end -}}
 {{- end -}}
 

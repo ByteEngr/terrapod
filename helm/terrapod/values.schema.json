@@ -180,6 +180,18 @@
         },
         "serviceAccount": {
           "$ref": "#/$defs/serviceAccountSpec"
+        },
+        "oidcSigningKey": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "existingSecret": {
+              "type": "string"
+            },
+            "existingSecretKey": {
+              "type": "string"
+            }
+          }
         }
       }
     },
@@ -796,6 +808,14 @@
         "poolTokenKey": {
           "type": "string"
         },
+        "poolTokenMaxUses": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "poolTokenTTLSeconds": {
+          "type": "integer",
+          "minimum": 0
+        },
         "pools": {
           "type": "array",
           "items": {
@@ -1131,6 +1151,12 @@
           "type": "boolean"
         },
         "labels": {
+          "type": "object"
+        },
+        "createRunner": {
+          "type": "boolean"
+        },
+        "runnerLabels": {
           "type": "object"
         }
       }
@@ -1603,6 +1629,10 @@
               "type": "integer",
               "minimum": 1
             },
+            "session_absolute_ttl_hours": {
+              "type": "integer",
+              "minimum": 0
+            },
             "api_token_max_ttl_hours": {
               "type": "integer",
               "minimum": 0
@@ -1688,6 +1718,9 @@
                       },
                       "existingSecretKey": {
                         "type": "string"
+                      },
+                      "require_email_verified": {
+                        "type": "boolean"
                       }
                     }
                   }
@@ -1728,33 +1761,59 @@
                         "items": {
                           "type": "object"
                         }
+                      },
+                      "validate_destination": {
+                        "type": "boolean"
+                      },
+                      "validate_in_response_to": {
+                        "type": "boolean"
+                      },
+                      "reject_replayed_assertions": {
+                        "type": "boolean"
+                      },
+                      "want_assertions_signed": {
+                        "type": "boolean"
+                      },
+                      "reject_deprecated_algorithm": {
+                        "type": "boolean"
                       }
                     }
                   }
                 }
               }
-            }
-          }
-        },
-        "engines": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "ansible": {
-              "type": "object",
-              "additionalProperties": false,
-              "properties": {
-                "enabled": {
-                  "type": "boolean"
-                }
-              }
             },
-            "pulumi": {
+            "oidc_issuer": {
               "type": "object",
               "additionalProperties": false,
               "properties": {
                 "enabled": {
                   "type": "boolean"
+                },
+                "public_url": {
+                  "type": "string"
+                },
+                "token_ttl_seconds": {
+                  "type": "integer",
+                  "minimum": 60,
+                  "maximum": 43200
+                },
+                "audiences": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "key_propagation_seconds": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "retired_key_grace_seconds": {
+                  "type": "integer",
+                  "minimum": 0
                 }
               }
             }
@@ -2127,6 +2186,17 @@
             },
             "default_region": {
               "type": "string"
+            },
+            "prices_sha256": {
+              "type": "string"
+            },
+            "prices_max_compressed_bytes": {
+              "type": "integer",
+              "minimum": 1024
+            },
+            "prices_max_decompressed_bytes": {
+              "type": "integer",
+              "minimum": 1024
             }
           }
         },
@@ -2144,6 +2214,9 @@
             "module_poll_interval_seconds": {
               "type": "integer",
               "minimum": 1
+            },
+            "require_push_permission_for_commands": {
+              "type": "boolean"
             },
             "tmpdir": {
               "type": "string"
@@ -2177,8 +2250,15 @@
                 },
                 "existingSecretKey": {
                   "type": "string"
+                },
+                "allow_token_delivery_to_runners": {
+                  "type": "boolean"
                 }
               }
+            },
+            "require_connection_authorization": {
+              "type": "boolean",
+              "description": "Require a claim to a VCS connection before naming it (GHSA-v8g7-pqrj-8mcm)."
             }
           }
         },
@@ -2221,6 +2301,9 @@
                   "type": "null"
                 }
               ]
+            },
+            "require_listener_proof_of_possession": {
+              "type": "boolean"
             }
           }
         },
@@ -3070,6 +3153,9 @@
         },
         "require_strong_secrets": {
           "type": "boolean"
+        },
+        "default_ansible_version": {
+          "type": "string"
         }
       }
     }

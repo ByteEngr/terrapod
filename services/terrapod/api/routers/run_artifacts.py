@@ -154,6 +154,7 @@ async def download_config(
     db: AsyncSession = Depends(get_db),
 ) -> RedirectResponse:
     """Download the configuration archive for a run."""
+    # No phase: both phases download the configuration tarball.
     require_runner_for_run(user, run_id)
     run = await _get_run(run_id, db)
 
@@ -173,6 +174,7 @@ async def download_state(
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Download the current state for the run's workspace."""
+    # No phase: the plan reads state to refresh, the apply to apply onto.
     require_runner_for_run(user, run_id)
     run = await _get_run(run_id, db)
 
@@ -210,7 +212,7 @@ async def download_plan_file(
     db: AsyncSession = Depends(get_db),
 ) -> RedirectResponse:
     """Download the plan file from the plan phase."""
-    require_runner_for_run(user, run_id)
+    require_runner_for_run(user, run_id, phase="apply")
     run = await _get_run(run_id, db)
 
     storage = get_storage()
@@ -236,7 +238,7 @@ async def download_lock_file(
     apply phase still works (with the today-behaviour drift risk) when
     the plan ran on an older runner that didn't upload a lock file.
     """
-    require_runner_for_run(user, run_id)
+    require_runner_for_run(user, run_id, phase="apply")
     run = await _get_run(run_id, db)
 
     storage = get_storage()
@@ -256,7 +258,7 @@ async def upload_plan_log(
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Upload the plan log."""
-    require_runner_for_run(user, run_id)
+    require_runner_for_run(user, run_id, phase="plan")
     run = await _get_run(run_id, db)
 
     storage = get_storage()
@@ -276,7 +278,7 @@ async def upload_plan_file(
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Upload the plan file."""
-    require_runner_for_run(user, run_id)
+    require_runner_for_run(user, run_id, phase="plan")
     run = await _get_run(run_id, db)
 
     storage = get_storage()
@@ -299,7 +301,7 @@ async def upload_lock_file(
     upload as best-effort — a failure here just means the apply phase
     falls back to re-resolving providers (today's behaviour).
     """
-    require_runner_for_run(user, run_id)
+    require_runner_for_run(user, run_id, phase="plan")
     run = await _get_run(run_id, db)
 
     storage = get_storage()
@@ -321,7 +323,7 @@ async def upload_plan_json_output(
     the read URL with confidence (errored / older / failed-upload runs
     leave the flag at its default `false`).
     """
-    require_runner_for_run(user, run_id)
+    require_runner_for_run(user, run_id, phase="plan")
     run = await _get_run(run_id, db)
 
     # Stream the plan JSON to a capped tempfile on the ephemeral PVC instead
@@ -521,7 +523,7 @@ async def upload_cost_estimate(
     caches the plan-total monthly range for cheap list display. Advisory: a
     parse failure still stores the artifact, just without the cached totals.
     """
-    require_runner_for_run(user, run_id)
+    require_runner_for_run(user, run_id, phase="plan")
     run = await _get_run(run_id, db)
 
     # Small artifact (bounded by resource count) but streamed to a tempfile for
@@ -588,7 +590,7 @@ async def upload_apply_log(
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Upload the apply log."""
-    require_runner_for_run(user, run_id)
+    require_runner_for_run(user, run_id, phase="apply")
     run = await _get_run(run_id, db)
 
     storage = get_storage()
@@ -612,8 +614,23 @@ async def upload_state(
     stores the state at the canonical key so that subsequent plans can
     find it via the standard state download path.
     """
-    require_runner_for_run(user, run_id)
+    require_runner_for_run(user, run_id, phase="apply")
     run = await _get_run(run_id, db)
+
+    # A plan-only run does not write state. `require_runner_for_run` proves the
+    # caller holds THIS run's token and nothing more, so without this a
+    # speculative pull-request plan could push a state version and have it
+    # become the workspace's canonical state — the run's own token is all it
+    # takes, and a speculative run is exactly the kind a stranger's pull
+    # request creates.
+    #
+    # The Pulumi route in this file has carried the same guard since it was
+    # written (`upload_pulumi_deployment`); the Terraform route never got it.
+    if run.plan_only:
+        raise HTTPException(
+            status_code=409,
+            detail="A plan-only run does not write state",
+        )
 
     # Stream the state body to a capped tempfile on the ephemeral PVC rather
     # than buffering it in the worker heap — runner state uploads can be
@@ -637,6 +654,24 @@ async def upload_state(
             pass
 
 
+async def _latest_state_version(db: AsyncSession, workspace_id: uuid.UUID) -> StateVersion | None:
+    """The workspace's head state version, by serial.
+
+    Defined here rather than carried from the 2.x line, where the same helper
+    exists but was introduced by Pulumi work this line does not have. The query
+    is engine-agnostic and deliberately identical to it, so the two converge
+    rather than drift.
+    """
+    return (
+        await db.execute(
+            select(StateVersion)
+            .where(StateVersion.workspace_id == workspace_id)
+            .order_by(StateVersion.serial.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+
+
 async def _persist_runner_state(
     db: AsyncSession,
     run: Run,
@@ -654,6 +689,31 @@ async def _persist_runner_state(
     caller's try/finally) stays small and the parsing/divergence logic reads
     linearly. The tempfile at `tmp_path` is owned by the caller.
     """
+    # Lineage identifies the state FILE; serial identifies a revision within it.
+    # A state carrying a different lineage is not a later revision of this
+    # workspace's state, it is somebody else's state — so serial ordering says
+    # nothing useful about it and accepting it would replace the workspace's
+    # history wholesale. The column has been stored since state versions existed
+    # and was never once compared.
+    #
+    # Compared only when BOTH sides are non-empty: the column defaults to "" and
+    # legacy rows predate it being populated, so a strict comparison would
+    # refuse every upload on a workspace whose head was written before then.
+    latest = await _latest_state_version(db, run.workspace_id)
+    # `latest.lineage` is relaxed because the column defaults to "" and legacy rows
+    # predate it being populated. The UPLOADED lineage is NOT relaxed: terraform and
+    # tofu always write one, so an empty value is not a legacy artefact — it is the
+    # one input an attacker controls, and treating it as "skip the check" turned the
+    # guard off for exactly the caller it exists to stop.
+    if latest is not None and latest.lineage and latest.lineage != lineage:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "State lineage does not match the recorded state for this "
+                "workspace. This state belongs to a different state file."
+            ),
+        )
+
     # tofu/terraform does NOT bump the state serial when an apply leaves the
     # persisted state byte-identical to the prior state. This happens whenever a
     # resource carries a *perpetual phantom diff* — write-only attributes that are
@@ -706,6 +766,22 @@ async def _persist_runner_state(
             )
             return Response(status_code=200)
         raise HTTPException(status_code=409, detail=_existing_serial_msg)
+
+    # Serial must move forward. The block above owns the equal-serial cases (an
+    # identical body is an idempotent no-op; a different one is divergence), so
+    # what is left here is a serial that does not yet exist — and a state
+    # claiming a serial BELOW the recorded head would quietly become the head,
+    # because the download path serves the highest serial. A forward gap is
+    # allowed: terraform normally increments by one, but a gap is not evidence
+    # of anything wrong, where going backwards always is.
+    if latest is not None and serial < latest.serial:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"State serial {serial} is behind the recorded serial "
+                f"{latest.serial} for this workspace."
+            ),
+        )
 
     # Create StateVersion record
     sv = StateVersion(
@@ -791,16 +867,27 @@ async def _persist_runner_state(
 
 
 # ── Pulumi deployments (#1576) ───────────────────────────────────────────
-# An agent-mode Pulumi run keeps its stack in a file backend inside the Job, the
-# way a Terraform run keeps terraform.tfstate in its working directory. It never
-# uses Terrapod as a live Pulumi backend: the deployment comes in through the
-# first endpoint below at the start of the run and goes back through the second,
-# once, after an update. Previews write nothing.
+# The hand-over pair an agent-mode Pulumi run used to be built on: the stack
+# lived in a file backend inside the Job, came in through the first endpoint
+# below at the start of the run, and went back through the second, once, after
+# an update.
+#
+# **No agent run calls either of them any more.** #1881 points the runner at
+# Terrapod's own Pulumi service backend, so the CLI reads and writes the stack
+# through that surface as it goes and there is no hand-over left to make. They
+# are kept all the same: retiring a published API surface is its own decision,
+# with its own deprecation window, and is not something reversing the runner's
+# backend gets to make on the way past. They remain a working way to lift a
+# deployment out of a run and put one back, gated on the runner token for that
+# run as they always were.
 
-#: The serial of the state version a deployment download was read from. The
-#: runner quotes it back on upload, so a state that moved while the run held it
-#: is refused rather than silently overwritten. Mirrored in the runner's
-#: `phases/state.py`, which cannot import this module; a test pins the two.
+#: The serial of the state version a deployment download was read from. Whoever
+#: downloaded it quotes it back on upload, so a state that moved meanwhile is
+#: refused rather than silently overwritten. The runner used to mirror the
+#: literal in its own `phases/state.py`, which cannot import this module, and a
+#: test pinned the two; since #1881 there is no second copy, and the test pins
+#: the name alone — a rename would break exactly the pre-#1881 runner images the
+#: N-2 skew guarantee keeps working.
 PULUMI_STATE_SERIAL_HEADER = "X-Terrapod-State-Serial"
 
 #: The deployment-schema version `pulumi stack import` expects alongside a body.
@@ -874,17 +961,23 @@ async def download_pulumi_deployment(
     user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
-    """The run's stack, with its secrets opened, for the runner to import.
+    """The run's stack, with its secrets opened, ready for `pulumi stack import`.
 
     The body is `{"version": 3, "deployment": ...}`, the shape
-    `pulumi stack import` reads, with no `secrets_providers` block: the runner
-    supplies its own. Always 200 — a stack with no state answers
-    `deployment: null` — so "nothing yet" can never be confused with a failed
-    download.
+    `pulumi stack import` reads, with no `secrets_providers` block — whoever
+    imports it seals the stack under their own. Always 200 — a stack with no
+    state answers `deployment: null` — so "nothing yet" can never be confused
+    with a failed download.
+
+    **The runner no longer calls this** (#1881): an agent run reads the stack
+    through Terrapod's Pulumi service backend, one value at a time, and is never
+    handed the whole deployment with its secrets opened. The route is kept
+    because retiring it is a separate decision; see the section comment above.
     """
     from terrapod.crypto.service import get_encryption
     from terrapod.services.pulumi_state_service import UnreadableSecretsError, reveal_secrets
 
+    # No phase: the preview and the update both read the stack.
     require_runner_for_run(user, run_id)
     run = await _get_run(run_id, db)
     ws = await _pulumi_workspace(run, db)
@@ -935,6 +1028,11 @@ async def upload_pulumi_deployment(
     stack meanwhile: the Terraform upload's divergence check, keyed on the serial
     Terrapod issued because a Pulumi deployment carries none of its own. A retry
     of an upload that already landed is answered 200.
+
+    **The runner no longer calls this** (#1881): an agent update checkpoints to
+    the Pulumi service backend as it goes, and completing the update is what
+    publishes the state version. See the section comment above for why the route
+    is kept.
     """
     from terrapod.crypto.service import get_encryption
     from terrapod.services import run_service
@@ -944,7 +1042,7 @@ async def upload_pulumi_deployment(
         service_provider,
     )
 
-    require_runner_for_run(user, run_id)
+    require_runner_for_run(user, run_id, phase="apply")
     run = await _get_run(run_id, db)
     ws = await _pulumi_workspace(run, db)
     if run.plan_only:
@@ -1098,6 +1196,7 @@ async def record_resource_profile(
 
     Runner-token auth, scoped to this run_id.
     """
+    # No phase: every phase posts its own exit profile on the way out.
     require_runner_for_run(user, run_id)
     run = await _get_run(run_id, db)
 
@@ -1173,7 +1272,7 @@ async def mark_state_diverged(
     Called by the runner entrypoint when a state upload fails after a
     successful apply. The workspace is flagged so the UI can warn users.
     """
-    require_runner_for_run(user, run_id)
+    require_runner_for_run(user, run_id, phase="apply")
     run = await _get_run(run_id, db)
 
     ws = await db.get(Workspace, run.workspace_id)
@@ -1229,7 +1328,7 @@ async def download_plan_artifacts(
     expected (older plans, plans that produced no new files); the
     apply phase proceeds without the restore.
     """
-    require_runner_for_run(user, run_id)
+    require_runner_for_run(user, run_id, phase="apply")
     run = await _get_run(run_id, db)
 
     storage = get_storage()
@@ -1259,7 +1358,7 @@ async def upload_plan_artifacts(
     it under chunked transfer encoding). The runner treats 413 as a
     skip-the-restore signal — apply proceeds without it.
     """
-    require_runner_for_run(user, run_id)
+    require_runner_for_run(user, run_id, phase="plan")
     run = await _get_run(run_id, db)
 
     max_bytes = settings.runner_artifacts.plan_artifacts_max_bytes
@@ -1367,7 +1466,7 @@ async def upload_onboarding_config(
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """The cleaned, import-only generated `resource {}` config (D3 + clean)."""
-    require_runner_for_run(user, run_id)
+    require_runner_for_run(user, run_id, phase="plan")
     session = await _get_onboarding_session_for_run(run_id, db)
     session.generated_config = await _read_capped_text(request)
     await db.commit()
@@ -1382,7 +1481,7 @@ async def upload_onboarding_imports(
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """The candidate `import {}` blocks (D3)."""
-    require_runner_for_run(user, run_id)
+    require_runner_for_run(user, run_id, phase="plan")
     session = await _get_onboarding_session_for_run(run_id, db)
     session.import_blocks = await _read_capped_text(request)
     await db.commit()
@@ -1397,7 +1496,7 @@ async def post_onboarding_query_results(
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """The raw D2 query results + the import-only verdict (JSON)."""
-    require_runner_for_run(user, run_id)
+    require_runner_for_run(user, run_id, phase="plan")
     session = await _get_onboarding_session_for_run(run_id, db)
     try:
         payload = await request.json()

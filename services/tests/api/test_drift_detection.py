@@ -16,6 +16,18 @@ _BASE = "http://test"
 _AUTH = {"Authorization": "Bearer dummy"}
 
 
+def _no_inert_vars():
+    """The engine-mismatch resolver's result (#1565): no workspace here holds a
+    variable its engine never reads.
+
+    The detail route resolves this once per request, so a test that scripts
+    `db.execute` in order has to account for it.
+    """
+    result = MagicMock()
+    result.scalars.return_value.all.return_value = []
+    return result
+
+
 def _user(email="test@example.com", roles=None):
     return AuthenticatedUser(
         email=email,
@@ -37,6 +49,7 @@ def _mock_workspace(ws_id=None, name="test-ws", **overrides):
     ws.auto_apply = False
     ws.execution_mode = "agent"
     ws.engine_version = "1.11"
+    ws.ansible_version = "2.21.5"
     ws.terragrunt_enabled = False
     ws.terragrunt_version = "1.0"
     ws.working_directory = ""
@@ -62,6 +75,7 @@ def _mock_workspace(ws_id=None, name="test-ws", **overrides):
     ws.drift_status = overrides.get("drift_status", "")
     ws.state_diverged = overrides.get("state_diverged", False)
     ws.vcs_workflow = overrides.get("vcs_workflow", "merge_then_apply")
+    ws.allow_fork_pr_plans = overrides.get("allow_fork_pr_plans", False)
     ws.auto_merge = overrides.get("auto_merge", False)
     ws.auto_merge_strategy = overrides.get("auto_merge_strategy", "merge")
     ws.lifecycle_state = overrides.get("lifecycle_state", "active")
@@ -117,7 +131,7 @@ class TestWorkspaceDriftAttributes:
         ws_result.scalar_one_or_none.return_value = ws
         no_run_result = MagicMock()
         no_run_result.scalar_one_or_none.return_value = None
-        mock_db.execute.side_effect = [ws_result, no_run_result]
+        mock_db.execute.side_effect = [ws_result, no_run_result, _no_inert_vars()]
 
         async with AsyncClient(transport=ASGITransport(app=app), base_url=_BASE) as c:
             resp = await c.get(f"/api/v2/workspaces/ws-{ws.id}", headers=_AUTH)
@@ -216,6 +230,9 @@ class TestRunDriftAttributes:
         run.auto_apply_mode = "never"
         run.auto_apply_declined_reason = None
         run.plan_only = True
+        # `terraform plan -out=FILE` (#1903) — same reason as `engine` below:
+        # the serializer reports it and a MagicMock is not JSON-serialisable.
+        run.save_plan = False
         run.source = "drift-detection"
         # The engine this run belongs to (#1521) — explicit because a MagicMock
         # attribute is not JSON-serialisable and the serializer now reports it.

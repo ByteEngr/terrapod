@@ -44,14 +44,70 @@ def _version_hash(key: str, value: str, category: str) -> str:
     return hashlib.sha256(content.encode()).hexdigest()[:16]
 
 
+#: The canonical name for "the parameters the platform supplies to this run".
+#:
+#: Every engine has exactly one such channel and they are the same role, not
+#: three: Terraform's input variables, Pulumi's stack config, Ansible's extra
+#: vars. Only the *delivery* differs, and the runner dispatches that on the
+#: workspace's engine. Naming a category per engine named the mechanism instead,
+#: and made every new engine cost a category, a wire list, a Secret key, a mount,
+#: a UI option and an SDK change (#1898).
+NATIVE_CATEGORY = "native"
+
+#: The name the TFE-compatible surface uses for the same thing, for ever.
+#:
+#: `tfci` and `go-tfe` send `terraform` and that contract is frozen, so it is
+#: accepted on input everywhere and returned on `/api/v2`. Exactly the
+#: arrangement `structured` has with `hcl` (#1435): the column carries the honest
+#: name, the wire carries the compatible one.
+TFE_NATIVE_CATEGORY = "terraform"
+
 # The categories a variable may carry. `git_http_auth`/`git_ssh_auth` (#1028)
 # hold private-git-module credentials — always sensitive, materialized by the
-# runner's git_auth phase, never rendered into terraform inputs.
-VALID_CATEGORIES = frozenset({"terraform", "env", "git_http_auth", "git_ssh_auth"})
+# runner's git_auth phase, never rendered into engine inputs.
+VALID_CATEGORIES = frozenset({NATIVE_CATEGORY, "env", "git_http_auth", "git_ssh_auth"})
 GIT_AUTH_CATEGORIES = frozenset({"git_http_auth", "git_ssh_auth"})
+
+#: Names accepted on input that are not the canonical one. `pulumi_config`
+#: existed only briefly (#1565) and is folded in rather than rejected, so a
+#: request written against that shape keeps working instead of failing on a
+#: category the operator was told to use days earlier.
+_CATEGORY_ALIASES = {
+    TFE_NATIVE_CATEGORY: NATIVE_CATEGORY,
+    "pulumi_config": NATIVE_CATEGORY,
+}
+
+
+def canonical_category(category: str | None) -> str:
+    """Fold an accepted alias onto the stored name.
+
+    Applied at every write boundary, so the column only ever holds a canonical
+    value and nothing downstream has to know the aliases exist.
+
+    `None` means the caller said nothing and takes the default. An empty string
+    is NOT the same thing -- a client that sent `"category": ""` asked for
+    something, and the honest answer is the validator's 422 rather than quietly
+    deciding it meant `native`.
+    """
+    if category is None:
+        return NATIVE_CATEGORY
+    return _CATEGORY_ALIASES.get(category, category)
+
+
+def wire_category(category: str, *, tfe_surface: bool) -> str:
+    """The name to put on the wire for a stored category.
+
+    `native` is returned as `terraform` on the TFE-compatible surface, where a
+    client's own constants are `terraform` and `env` and an unrecognised value
+    would be a compatibility break. The native surface gets the honest name.
+    """
+    if tfe_surface and category == NATIVE_CATEGORY:
+        return TFE_NATIVE_CATEGORY
+    return category
 
 
 def _validated_category(category: str) -> str:
+    category = canonical_category(category)
     if category not in VALID_CATEGORIES:
         raise ValueError(
             f"invalid variable category {category!r}; must be one of "
@@ -198,15 +254,22 @@ async def resolve_variables(db: AsyncSession, workspace_id: uuid.UUID) -> list[R
     2. Workspace-level variables
     3. Non-priority variable set vars
 
+    Precedence applies within a `(category, key)`, never across categories
+    (#1898). Keying on `key` alone made a workspace `terraform:region` *remove* a
+    variable-set `env:region` from the run -- not deprioritise it, remove it,
+    because the later layer overwrote the entry whatever its category. Two
+    variables that mean different things are two variables, and both are
+    delivered.
+
     Returns values ready for runner injection.
     """
-    resolved: dict[str, ResolvedVariable] = {}
+    resolved: dict[tuple[str, str], ResolvedVariable] = {}
 
     # Layer 1: Non-priority variable sets (global + assigned)
     varsets = await _get_applicable_varsets(db, workspace_id, priority=False)
     for vs in varsets:
         for vsv in vs.variables:
-            resolved[vsv.key] = ResolvedVariable(
+            resolved[(vsv.category, vsv.key)] = ResolvedVariable(
                 key=vsv.key,
                 value=vsv.value,
                 category=vsv.category,
@@ -218,7 +281,7 @@ async def resolve_variables(db: AsyncSession, workspace_id: uuid.UUID) -> list[R
     # Layer 2: Workspace variables (override non-priority sets)
     ws_vars = await list_variables(db, workspace_id)
     for var in ws_vars:
-        resolved[var.key] = ResolvedVariable(
+        resolved[(var.category, var.key)] = ResolvedVariable(
             key=var.key,
             value=var.value,
             category=var.category,
@@ -231,7 +294,7 @@ async def resolve_variables(db: AsyncSession, workspace_id: uuid.UUID) -> list[R
     priority_varsets = await _get_applicable_varsets(db, workspace_id, priority=True)
     for vs in priority_varsets:
         for vsv in vs.variables:
-            resolved[vsv.key] = ResolvedVariable(
+            resolved[(vsv.category, vsv.key)] = ResolvedVariable(
                 key=vsv.key,
                 value=vsv.value,
                 category=vsv.category,
@@ -322,6 +385,21 @@ async def applicable_varsets(
     return out
 
 
+def _rule_refused(rule, varset) -> bool:
+    """True when `rule` selects on a dimension the matcher refuses (and logs it)."""
+    from terrapod.services.varset_self_join import rule_refused_dimensions
+
+    refused = rule_refused_dimensions(rule)
+    if refused:
+        logger.warning(
+            "variable set assignment rule selects on a refused dimension; "
+            "reporting no rule-derived workspaces",
+            varset=str(getattr(varset, "id", "")),
+            refused=refused,
+        )
+    return bool(refused)
+
+
 async def workspaces_for_varset(
     db: AsyncSession, varset: VariableSet
 ) -> list[tuple[Workspace, str]]:
@@ -352,7 +430,13 @@ async def workspaces_for_varset(
     for ws in explicit.scalars().all():
         seen[ws.id] = (ws, ASSIGNMENT_EXPLICIT)
 
-    if varset.assignment_rule:
+    # `_rule_refused` is in the condition because the matcher refuses those dimensions,
+    # so such a set reaches nothing through its rule and this view must say so.
+    # Reporting the rows the rule would have selected tells an operator a credential is
+    # in use where it no longer is, which is the wrong direction for the one screen
+    # read before a rotation. Explicit assignments above are unaffected — they do not
+    # go through the rule at all.
+    if varset.assignment_rule and not _rule_refused(varset.assignment_rule, varset):
         try:
             # build_workspace_query inside the guard, exactly as _rule_matches
             # does: it holds the "at least one selector" check, so a rule that
@@ -385,6 +469,21 @@ async def _rule_matches(db: AsyncSession, rule: dict | None, workspace_id: uuid.
 
     if not rule:
         return False
+
+    # GHSA-49q6-pm68-3xgw. A rule stored before these dimensions were refused must
+    # stop matching, not keep working: both are platform state a workspace's own
+    # owner can move, so continuing to honour such a rule would leave the
+    # escalation open for exactly the deployments that already have one.
+    from terrapod.services.varset_self_join import rule_refused_dimensions
+
+    refused = rule_refused_dimensions(rule)
+    if refused:
+        logger.warning(
+            "variable set assignment rule selects on a refused dimension; matching nothing",
+            refused=refused,
+        )
+        return False
+
     try:
         # build_workspace_query must be inside the guard, not only parse_filter:
         # it is where the "at least one selector" check lives, so a rule that

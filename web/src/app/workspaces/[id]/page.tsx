@@ -11,6 +11,7 @@ import { ErrorBanner } from '@/components/error-banner'
 import { EmptyState } from '@/components/empty-state'
 import { SortableHeader } from '@/components/sortable-header'
 import { LabelsEditor } from '@/components/labels-editor'
+import { categoryKey, nativeCategoryKey } from '@/lib/variable-category'
 import { HealthConditions } from '@/components/health-conditions'
 import { PlanSummaryBadges } from '@/components/plan-summary-badges'
 import { WorkspacePicker } from '@/components/workspace-picker'
@@ -20,10 +21,13 @@ import { StateGraphTab } from '@/components/state-graph-tab'
 import { CostPanel } from '@/components/cost-panel'
 import { ResourceAccessPanel } from '@/components/resource-access-panel'
 import { ArchitectureCritiquePanel } from '@/components/architecture-critique-panel'
+import { StackOutputsPanel } from '@/components/stack-outputs-panel'
+import { InventoryPanel, useInventoryPresence } from '@/components/inventory-panel'
 import { useIsTouch } from '@/lib/use-media-query'
 import { getAuthState, isAdmin } from '@/lib/auth'
 import { apiFetch, fetchAllPages, parseApiError } from '@/lib/api'
 import { versionToolFor } from '@/lib/engine-version'
+import { PHASE_STATUSES, engineWord, phaseKey } from '@/lib/phase-vocabulary'
 import { VaultValueDisplay } from '@/components/vault-value-display'
 import {
   VaultReferenceFields,
@@ -32,6 +36,13 @@ import {
   parseVaultReference,
   type VaultReferenceValue,
 } from '@/components/vault-reference-fields'
+import {
+  OidcAudiencesEditor,
+  sanitizeOidcAudiences,
+  partitionOidcAudiences,
+  type OidcAudiences,
+} from '@/components/template-editors'
+import { useOidcAudienceDefaults } from '@/lib/use-oidc-audience-defaults'
 import { VariableEditPanel } from '@/components/variable-edit-panel'
 import { ApplicableVarsets } from '@/components/applicable-varsets'
 import { useSortable } from '@/lib/use-sortable'
@@ -79,6 +90,7 @@ interface WorkspaceAttrs {
   parallelism: number
   'resource-memory': string
   'debug-mode': boolean
+  'allow-fork-pr-plans': boolean
   'agent-pool-id': string | null
   // The full pool set (#1085). Flat — a run is offered to every pool at once
   // and whichever has a live runner claims it first.
@@ -91,6 +103,19 @@ interface WorkspaceAttrs {
   'var-files': string[]
   'trigger-prefixes': string[]
   'drift-ignore-rules': string[]
+  // The audiences a run identity token is minted for (#1901), keyed on the
+  // provider configuration the token is for — `aws`, or `aws.west` for one
+  // aliased configuration.
+  //
+  // **This is the MERGED map, not the workspace's own override**: the server
+  // returns the deployment catalogue with the workspace's map merged over it
+  // per key, carrying no marker saying which is which. So it must never be
+  // written back wholesale — that would promote every inherited entry into an
+  // override. `partitionOidcAudiences` subtracts the catalogue (fetched
+  // separately) to recover what the workspace actually owns, and only that is
+  // sent. Empty here means nothing is in force at all, and the runs then
+  // authenticate with the agent pool's own identity exactly as before.
+  'oidc-audiences': OidcAudiences
   'vcs-repo-url': string
   'vcs-branch': string
   'vcs-connection-id': string | null
@@ -155,6 +180,10 @@ interface RunItem {
     source: string
     message: string
     'plan-only': boolean
+    // `tofu plan -out=FILE` (#1903): apply-capable, apply deferred. Shown
+    // because it is the only reason two runs on one workspace can sit at
+    // `planned` at once -- an ordinary planned run holds the workspace.
+    'save-plan': boolean
     'is-destroy': boolean
     'created-at': string
     'created-by': string
@@ -262,9 +291,18 @@ const ALL_TRIGGERS = [
 const ALL_STAGES = ['pre_plan', 'post_plan', 'pre_apply'] as const
 const ALL_ENFORCEMENT_LEVELS = ['mandatory', 'advisory'] as const
 
-type Tab = 'configuration' | 'variables' | 'runs' | 'state' | 'state-graph' | 'cost' | 'architecture' | 'versions' | 'notifications' | 'run-tasks' | 'run-triggers' | 'sharing' | 'access'
+type Tab = 'configuration' | 'variables' | 'runs' | 'state' | 'state-graph' | 'cost' | 'architecture' | 'versions' | 'notifications' | 'run-tasks' | 'run-triggers' | 'inventory' | 'sharing' | 'access'
 
-const VALID_TABS: Set<string> = new Set(['configuration', 'variables', 'runs', 'state', 'state-graph', 'cost', 'architecture', 'versions', 'notifications', 'run-tasks', 'run-triggers', 'sharing', 'access'])
+const VALID_TABS: Set<string> = new Set(['configuration', 'variables', 'runs', 'state', 'state-graph', 'cost', 'architecture', 'versions', 'notifications', 'run-tasks', 'run-triggers', 'inventory', 'sharing', 'access'])
+
+// Views that read TERRAFORM state specifically, so they have nothing to show on
+// a Pulumi workspace and 404 if asked (#1568). Their tabs are absent there
+// rather than shown and broken, and a `?tab=` naming one falls back to
+// Configuration so a stale deep link renders a page instead of a blank pane.
+//
+// The state GRAPH is deliberately NOT in this set — it reads the engine-neutral
+// resource graph and works for both engines.
+const TERRAFORM_ONLY_TABS: Set<Tab> = new Set<Tab>(['cost', 'architecture'])
 
 
 /** Mode value -> i18n key. The API value is snake_case; the key is camel. */
@@ -285,6 +323,13 @@ function WorkspaceDetailContent() {
   // Shared mode labels live in the top-level `common` namespace because
   // the run page renders the same four values.
   const tMode = useTranslations('common.autoApplyMode')
+  // Root namespace, for the per-engine phase vocabulary (#1911). The runs tab
+  // names a phase in a dozen places — the buttons, the options heading, the
+  // type pills, the status pills — and all of them read from here so this page
+  // and the run page it links to can never disagree about one run.
+  const tPhase = useTranslations()
+  // The platform's own run-status words, shared with the workspace list.
+  const tStatus = useTranslations('status')
   const router = useRouter()
   const params = useParams()
   const searchParams = useSearchParams()
@@ -293,7 +338,7 @@ function WorkspaceDetailContent() {
   const vaultCheckUrl = `/api/terrapod/v1/workspaces/${workspaceId}/vault-reference-checks`
 
   const tabParam = searchParams.get('tab') || 'configuration'
-  const activeTab: Tab = VALID_TABS.has(tabParam) ? (tabParam as Tab) : 'configuration'
+  const requestedTab: Tab = VALID_TABS.has(tabParam) ? (tabParam as Tab) : 'configuration'
 
   function setActiveTab(tab: Tab) {
     router.replace(`?tab=${tab}`, { scroll: false })
@@ -303,6 +348,55 @@ function WorkspaceDetailContent() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [lastQueuedRunId, setLastQueuedRunId] = useState<string | null>(null)
+
+  // Settings and views that only mean something to Terraform are hidden for
+  // Pulumi rather than shown and ignored (#1555, #1568). `workspace` is null
+  // while loading, which reads as "not Pulumi" — harmless, because the page
+  // renders a spinner until it resolves.
+  const isPulumi = workspace?.attributes.engine === 'pulumi'
+  // The workspace's engine is authoritative for every run it holds, so one
+  // lookup serves the whole runs tab (#1911).
+  const phaseWord = (name: string) =>
+    engineWord(tPhase, workspace?.attributes.engine, name)
+  // The same lookup as a KEY, for the sites that need next-intl itself to do
+  // the work: rich text with tag chunks, and a string with an ICU placeholder.
+  // Both must go through `tPhase.rich`/`tPhase(key, values)` rather than
+  // post-processing `phaseWord`'s output, or the tags stop rendering and the
+  // placeholder stops being formatted in the reader's locale.
+  const phaseKeyFor = (name: string) =>
+    phaseKey(workspace?.attributes.engine, 'words', name)
+  // A run status that names a phase belongs to the engine; the rest (queued,
+  // errored, canceled…) are the platform's own.
+  const runStatusLabel = (status: string) =>
+    PHASE_STATUSES.has(status)
+      ? tPhase(phaseKey(workspace?.attributes.engine, 'runStatus', status))
+      : tStatus.has(status)
+        ? tStatus(status)
+        : status
+  // Resolved once here so the loaders, the SSE handler, the tab strip and the
+  // render sites all agree on which tab is showing.
+  // The Inventory tab is DATA-gated, not configuration-gated (#1967, #1968,
+  // #1969). A workspace with no hosts, no groups and no inventory settings has
+  // nothing to show, so the tab is simply absent — there is nothing for a
+  // terraform/tofu-only deployment to turn off, which is the mechanism rather
+  // than a flag (#1986).
+  //
+  // The probe lives with the panel because the three questions it asks are the
+  // panel's own; on any failure it answers false and the tab stays hidden, so a
+  // 403 from a role without `inventory:read` and a transport blip both mean "do
+  // not offer a surface this reader cannot use".
+  //
+  // A stale `?tab=inventory` on a workspace with no inventory falls back the
+  // same way a Terraform-only tab does on Pulumi: Configuration renders a page
+  // instead of a blank pane. The probe answers false on the first frame too,
+  // but the page shows a spinner until the workspace resolves, so the fallback
+  // only bites once the probe has had its chance.
+  const hasInventory = useInventoryPresence(workspaceId)
+  const activeTab: Tab =
+    (isPulumi && TERRAFORM_ONLY_TABS.has(requestedTab)) ||
+    (requestedTab === 'inventory' && !hasInventory)
+      ? 'configuration'
+      : requestedTab
 
   // Overview editing
   const [editing, setEditing] = useState(false)
@@ -329,6 +423,17 @@ function WorkspaceDetailContent() {
   const [newTriggerPrefix, setNewTriggerPrefix] = useState('')
   const [editDriftIgnoreRules, setEditDriftIgnoreRules] = useState<string[]>([])
   const [newDriftIgnoreRule, setNewDriftIgnoreRule] = useState('')
+  // Only the entries this workspace OWNS; `null` until the deployment
+  // catalogue has settled, because the partition is meaningless without it.
+  //
+  // The sentinel is load-bearing rather than tidiness. Partitioning against a
+  // catalogue that has not arrived yet classifies EVERY inherited entry as
+  // owned, and the next save would then write them all into the override
+  // column — the precise promotion this split exists to prevent. So nothing is
+  // seeded until the probe settles (on success or failure), the editor is not
+  // offered before then, and an unseeded save omits the attribute entirely,
+  // which the API treats as leave-alone.
+  const [editOidcAudiences, setEditOidcAudiences] = useState<OidcAudiences | null>(null)
   const [editWorkingDir, setEditWorkingDir] = useState('')
   const [editBindPlan, setEditBindPlan] = useState(false)
   const [editVcsConnectionId, setEditVcsConnectionId] = useState<string | null>(null)
@@ -367,7 +472,7 @@ function WorkspaceDetailContent() {
   const [showAddVar, setShowAddVar] = useState(false)
   const [varKey, setVarKey] = useState('')
   const [varValue, setVarValue] = useState('')
-  const [varCategory, setVarCategory] = useState('terraform')
+  const [varCategory, setVarCategory] = useState('native')
   const [varSensitive, setVarSensitive] = useState(false)
   const [varHcl, setVarHcl] = useState(false)
   // Git module-source auth builder (#1028): when the category is git_http_auth /
@@ -381,6 +486,11 @@ function WorkspaceDetailContent() {
   const [gitKnownHosts, setGitKnownHosts] = useState('')
   const [gitRewrite, setGitRewrite] = useState<'none' | 'to_https' | 'to_ssh'>('none')
   const isGitCat = varCategory === 'git_http_auth' || varCategory === 'git_ssh_auth'
+  /** The category as a person reads it, in this workspace's engine's words. */
+  const categoryLabel = (category: string, engine?: string) => {
+    const key = categoryKey(category, engine)
+    return key ? t(`variables.${key}`) : category
+  }
 
   // Vault value source (#1439): the variable holds a *reference*, resolved
   // server-side at run time. Discrete fields, never raw JSON.
@@ -399,6 +509,11 @@ function WorkspaceDetailContent() {
   // meeting a 422 on save, so it is not offered at all.
   const vaultOfferable =
     vaultAvailable && workspace?.attributes['execution-mode'] === 'agent'
+
+  // The deployment's audience catalogue: what this workspace's `oidc-audiences`
+  // is merged OVER, and the only way to tell an inherited entry from an
+  // override (#1901).
+  const oidcDefaults = useOidcAudienceDefaults()
 
   const [editVarSource, setEditVarSource] = useState<'static' | 'vault'>('static')
   // The whole stored reference, not just the fields on screen — so an edit
@@ -455,7 +570,7 @@ function WorkspaceDetailContent() {
   const [editingVarId, setEditingVarId] = useState<string | null>(null)
   const [editVarKey, setEditVarKey] = useState('')
   const [editVarValue, setEditVarValue] = useState('')
-  const [editVarCategory, setEditVarCategory] = useState('terraform')
+  const [editVarCategory, setEditVarCategory] = useState('native')
   const [editVarSensitive, setEditVarSensitive] = useState(false)
   const [editVarHcl, setEditVarHcl] = useState(false)
   const [savingVar, setSavingVar] = useState(false)
@@ -477,6 +592,7 @@ function WorkspaceDetailContent() {
   // Runner debug mode (#1764). A held pod keeps the run's credentials, so the
   // toggle is deliberate rather than a convenience — hence the touch confirm.
   const [savingDebugMode, setSavingDebugMode] = useState(false)
+  const [savingForkPlans, setSavingForkPlans] = useState(false)
 
   // Slack run notifications (#556). Local draft for the channel input,
   // autosaved on blur. Opt-in: empty channel = this workspace stays silent.
@@ -554,7 +670,7 @@ function WorkspaceDetailContent() {
       switch (key) {
         case 'id': return item.id
         case 'status': return item.attributes.status
-        case 'type': return item.attributes['is-destroy'] ? 'destroy' : item.attributes['plan-only'] ? 'plan only' : 'plan + apply'
+        case 'type': return (item.attributes['is-destroy'] ? 'destroy' : item.attributes['plan-only'] ? 'plan only' : 'plan + apply') + (item.attributes['save-plan'] ? ' (saved)' : '')
         case 'source': return item.attributes.source
         case 'created-by': return item.attributes['created-by'] || ''
         case 'created-at': return item.attributes['created-at']
@@ -610,7 +726,7 @@ function WorkspaceDetailContent() {
 
   const loadRuns = useCallback(async () => {
     try {
-      const res = await apiFetch(`/api/v2/workspaces/${workspaceId}/runs`)
+      const res = await apiFetch(`/api/v1/workspaces/${workspaceId}/runs`)
       if (!res.ok) throw new Error(await parseApiError(res, t('errors.loadRuns')))
       const data = await res.json()
       setRuns(data.data || [])
@@ -652,6 +768,24 @@ function WorkspaceDetailContent() {
     if (activeTab === 'run-triggers') loadRunTriggers()
   // eslint-disable-next-line react-hooks/exhaustive-deps -- loads are dispatched by the active tab; the loaders are hoisted function declarations recreated each render, so depending on them would re-fetch on every render
   }, [activeTab, workspace, loadRuns])
+
+  // Seed the owned half of `oidc-audiences` once the catalogue has settled
+  // (#1901). Deliberately NOT done where edit mode opens: the probe may still
+  // be in flight there, and partitioning against an absent catalogue marks
+  // every inherited entry as owned, which the next save would then write into
+  // the override column. Guarded on `=== null` so it seeds once per edit
+  // session and never clobbers what the operator has since typed.
+  useEffect(() => {
+    if (!editing || !workspace || !oidcDefaults.loaded) return
+    setEditOidcAudiences((current) =>
+      current === null
+        ? partitionOidcAudiences(
+            workspace.attributes['oidc-audiences'] || {},
+            oidcDefaults.audiences,
+          ).owned
+        : current,
+    )
+  }, [editing, workspace, oidcDefaults.loaded, oidcDefaults.audiences])
 
   // Load VCS refs when plan options panel opens on a VCS-connected workspace
   useEffect(() => {
@@ -709,7 +843,7 @@ function WorkspaceDetailContent() {
 
   async function loadVariables() {
     try {
-      setVariables(await fetchAllPages<Variable>(`/api/v2/workspaces/${workspaceId}/vars`))
+      setVariables(await fetchAllPages<Variable>(`/api/v1/workspaces/${workspaceId}/vars`))
     } catch (err) {
       setError(err instanceof Error ? err.message : t('errors.loadVariables'))
     } finally {
@@ -719,7 +853,7 @@ function WorkspaceDetailContent() {
 
   async function loadStateVersions() {
     try {
-      setStateVersions(await fetchAllPages<StateVersionItem>(`/api/v2/workspaces/${workspaceId}/state-versions`))
+      setStateVersions(await fetchAllPages<StateVersionItem>(`/api/v1/workspaces/${workspaceId}/state-versions`))
     } catch (err) {
       setError(err instanceof Error ? err.message : t('errors.loadStateVersions'))
     } finally {
@@ -729,7 +863,7 @@ function WorkspaceDetailContent() {
 
   async function downloadStateVersion(sv: StateVersionItem) {
     try {
-      const resp = await apiFetch(`/api/v2/state-versions/${sv.id}/download`)
+      const resp = await apiFetch(`/api/v1/state-versions/${sv.id}/download`)
       const blob = await resp.blob()
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
@@ -748,7 +882,7 @@ function WorkspaceDetailContent() {
     setCvDiffError('')
     try {
       const res = await apiFetch(
-        `/api/v2/workspaces/${workspaceId}/configuration-versions?page%5Bsize%5D=100`,
+        `/api/v1/workspaces/${workspaceId}/configuration-versions?page%5Bsize%5D=100`,
       )
       if (!res.ok) throw new Error(await parseApiError(res, t('errors.loadConfigurations')))
       const data = await res.json()
@@ -1092,6 +1226,7 @@ function WorkspaceDetailContent() {
     setNewTriggerPrefix('')
     setEditDriftIgnoreRules(workspace.attributes['drift-ignore-rules'] || [])
     setNewDriftIgnoreRule('')
+    setEditOidcAudiences(null)
     setEditWorkingDir(workspace.attributes['working-directory'] || '')
     setEditBindPlan(workspace.attributes['pulumi-bind-plan'] ?? false)
     setEditVcsConnectionId(workspace.attributes['vcs-connection-id'] || null)
@@ -1158,6 +1293,19 @@ function WorkspaceDetailContent() {
               'var-files': editVarFiles,
               'trigger-prefixes': editTriggerPrefixes,
               'drift-ignore-rules': editDriftIgnoreRules,
+              // Only the OWNED entries, never the merged map the read
+              // returned — sending the merge back would turn every inherited
+              // entry into an override, and an entry dropped from here falls
+              // back to the deployment's own value, which is the point.
+              //
+              // Blank-free but NOT trimmed: the server refuses a blank entry
+              // rather than dropping it (so an empty row left in the editor
+              // would 422 the whole save), while a kept audience is an opaque
+              // string stored byte-for-byte, so trimming one would store
+              // something other than what was typed.
+              ...(editOidcAudiences !== null
+                ? { 'oidc-audiences': sanitizeOidcAudiences(editOidcAudiences) }
+                : {}),
               'vcs-repo-url': editVcsRepoUrl,
               'vcs-branch': editVcsBranch,
               'vcs-workflow': editVcsWorkflow,
@@ -1201,8 +1349,9 @@ function WorkspaceDetailContent() {
     const action = workspace.attributes.locked ? 'unlock' : 'lock'
     if (!confirmTouchMutation(action === 'unlock' ? t('lock.unlockConfirm') : t('lock.lockConfirm'))) return
     try {
-      // lock/unlock are TFE V2 CLI-contract endpoints — only at /api/v2/.
-      const res = await apiFetch(`/api/v2/workspaces/${workspaceId}/actions/${action}`, {
+      // Natively, so the padlock works on every engine (#1911). The same
+      // paths are still served on /api/tfe/v2 for the CLI — they did not move.
+      const res = await apiFetch(`/api/v1/workspaces/${workspaceId}/actions/${action}`, {
         method: 'POST',
       })
       if (!res.ok) {
@@ -1292,6 +1441,40 @@ function WorkspaceDetailContent() {
       setError(err instanceof Error ? err.message : t('errors.updateDebugMode'))
     } finally {
       setSavingDebugMode(false)
+    }
+  }
+
+  // Speculative plans for pull requests opened from a fork
+  // (GHSA-gp5w-76rw-c452). A fork author has no write access and cannot
+  // merge, so the plan is the only way their code runs with this workspace's
+  // credentials — turning it ON is the direction that costs something, and
+  // the touch confirm guards that one.
+  async function handleForkPlansUpdate(next: boolean) {
+    if (!workspace) return
+    if (next && isTouch && !window.confirm(t('allowForkPrPlans.confirmEnable'))) return
+    setSavingForkPlans(true)
+    try {
+      // `/api/v1`, not the `/api/v2` this arrived from the 1.9 line carrying. The
+      // TFE surface serves only Terraform, so on a Pulumi workspace the toggle
+      // would 404 with nothing shown (#1905/#1910) — and unlike on 1.9, where the
+      // native spelling genuinely did not exist for this verb, main does serve
+      // `PATCH /api/v1/workspaces/{id}`. Checked against api_route_contract.json.
+      const res = await apiFetch(`/api/v1/workspaces/${workspaceId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/vnd.api+json' },
+        body: JSON.stringify({
+          data: { type: 'workspaces', attributes: { 'allow-fork-pr-plans': next } },
+        }),
+      })
+      if (!res.ok) {
+        throw new Error(await parseApiError(res, t('errors.updateForkPlans')))
+      }
+      const data = await res.json()
+      setWorkspace(data.data)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('errors.updateForkPlans'))
+    } finally {
+      setSavingForkPlans(false)
     }
   }
 
@@ -1390,7 +1573,7 @@ function WorkspaceDetailContent() {
     setCheckingDrift(true)
     setError('')
     try {
-      const res = await apiFetch(`/api/v2/runs`, {
+      const res = await apiFetch(`/api/v1/runs`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/vnd.api+json' },
         body: JSON.stringify({
@@ -1526,7 +1709,7 @@ function WorkspaceDetailContent() {
     setAddingVar(true)
     setError('')
     try {
-      const res = await apiFetch(`/api/v2/workspaces/${workspaceId}/vars`, {
+      const res = await apiFetch(`/api/v1/workspaces/${workspaceId}/vars`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/vnd.api+json' },
         body: JSON.stringify({
@@ -1553,7 +1736,7 @@ function WorkspaceDetailContent() {
       }
       setVarKey('')
       setVarValue('')
-      setVarCategory('terraform')
+      setVarCategory('native')
       setVarSensitive(false)
       setVarHcl(false)
       setGitSource('vcs_connection')
@@ -1578,7 +1761,7 @@ function WorkspaceDetailContent() {
     // Irreversible delete → confirm in both modes.
     if (!confirmDelete(t('variables.deleteConfirm', { key: variables.find(v => v.id === varId)?.attributes.key ?? '' }))) return
     try {
-      const res = await apiFetch(`/api/v2/workspaces/${workspaceId}/vars/${varId}`, { method: 'DELETE' })
+      const res = await apiFetch(`/api/v1/workspaces/${workspaceId}/vars/${varId}`, { method: 'DELETE' })
       if (!res.ok) throw new Error(await parseApiError(res, t('errors.deleteVariable')))
       await loadVariables()
     } catch (err) {
@@ -1599,8 +1782,8 @@ function WorkspaceDetailContent() {
     // immediately.
     if (isTouch) {
       const msg = planOnly
-        ? t('runs.queuePlanConfirm')
-        : t('runs.queueApplyConfirm')
+        ? phaseWord('queuePlanConfirm')
+        : phaseWord('queueApplyConfirm')
       if (!window.confirm(msg)) return
     }
     setQueueingPlan(true)
@@ -1616,10 +1799,13 @@ function WorkspaceDetailContent() {
       if (replaces.length) attrs['replace-addrs'] = replaces
       if (planRefreshOnly) attrs['refresh-only'] = true
       if (!planRefresh) attrs['refresh'] = false
-      if (planAllowEmpty) attrs['allow-empty-apply'] = true
+      // Never sent on a Pulumi workspace: the option has no Pulumi equivalent
+      // and the server stores it without ever reading it (#1911). The control
+      // is absent there, so this only guards a stale tick from an engine change.
+      if (planAllowEmpty && !isPulumi) attrs['allow-empty-apply'] = true
       if (vcsRef) attrs['vcs-ref'] = vcsRef
 
-      const res = await apiFetch(`/api/v2/runs`, {
+      const res = await apiFetch(`/api/v1/runs`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/vnd.api+json' },
         body: JSON.stringify({
@@ -1634,7 +1820,9 @@ function WorkspaceDetailContent() {
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
-        throw new Error(data.detail || t('errors.queuePlanStatus', { status: res.status }))
+        throw new Error(data.detail || tPhase(phaseKeyFor('errorsQueuePlanStatus'), {
+          status: res.status,
+        }))
       }
       const runData = await res.json().catch(() => null)
       const newRunId = runData?.data?.id as string | undefined
@@ -1651,7 +1839,7 @@ function WorkspaceDetailContent() {
       setVcsRef('')
       await loadRuns()
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('errors.queuePlan'))
+      setError(err instanceof Error ? err.message : phaseWord('errorsQueuePlan'))
     } finally {
       setQueueingPlan(false)
     }
@@ -1661,7 +1849,7 @@ function WorkspaceDetailContent() {
     setQueueingDestroy(true)
     setError('')
     try {
-      const res = await apiFetch(`/api/v2/runs`, {
+      const res = await apiFetch(`/api/v1/runs`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/vnd.api+json' },
         body: JSON.stringify({
@@ -1738,7 +1926,7 @@ function WorkspaceDetailContent() {
       } else if (editVarValue !== '') {
         attrs.value = editVarValue
       }
-      const res = await apiFetch(`/api/v2/workspaces/${workspaceId}/vars/${editingVarId}`, {
+      const res = await apiFetch(`/api/v1/workspaces/${workspaceId}/vars/${editingVarId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/vnd.api+json' },
         body: JSON.stringify({ data: { type: 'vars', attributes: attrs } }),
@@ -1859,8 +2047,22 @@ function WorkspaceDetailContent() {
   //   Automation = Run Tasks + Run Triggers
   // A group's `key` is its DEFAULT sub-view (what clicking the parent opens);
   // `members` are the `?tab=` values it owns. The URL stays the source of truth.
-  const insightsMembers: Tab[] = archEnabled ? ['cost', 'architecture'] : ['cost']
-  const tabGroups: { key: Tab; label: string; members: Tab[] }[] = [
+  //
+  // Insights is empty on a Pulumi workspace — both of its members read
+  // Terraform state — and a group with no members is dropped from the strip
+  // entirely (#1568). The engine test is deliberately independent of the
+  // `archEnabled` probe above: the engine filter answers 404 "Workspace not
+  // found", which that probe reads as "critic enabled", so relying on it would
+  // leave the tab visible and broken.
+  const insightsMembers: Tab[] = isPulumi
+    ? []
+    : archEnabled
+      ? ['cost', 'architecture']
+      : ['cost']
+  // Empty until this workspace actually has an inventory, which is what hides
+  // the tab from every workspace that does not (#1986).
+  const inventoryMembers: Tab[] = hasInventory ? ['inventory'] : []
+  const tabGroups: { key: Tab; label: string; members: Tab[] }[] = ([
     { key: 'configuration', label: t('tabs.configuration'), members: ['configuration'] },
     { key: 'variables', label: t('tabs.variables'), members: ['variables'] },
     { key: 'runs', label: t('tabs.runs'), members: ['runs'] },
@@ -1869,9 +2071,13 @@ function WorkspaceDetailContent() {
     { key: 'versions', label: t('tabs.versions'), members: ['versions'] },
     { key: 'notifications', label: t('tabs.notifications'), members: ['notifications'] },
     { key: 'run-tasks', label: t('tabs.automation'), members: ['run-tasks', 'run-triggers'] },
+    // Data-gated: the probe answers false until a row exists, and a
+    // group with no members is dropped from the strip entirely — the same
+    // mechanism Insights uses on a Pulumi workspace (#1967, #1968).
+    { key: 'inventory', label: t('tabs.inventory'), members: inventoryMembers },
     { key: 'sharing', label: t('tabs.sharing'), members: ['sharing'] },
     { key: 'access', label: t('tabs.access'), members: ['access'] },
-  ]
+  ] as { key: Tab; label: string; members: Tab[] }[]).filter((g) => g.members.length > 0)
   const activeGroup = tabGroups.find((g) => g.members.includes(activeTab)) ?? tabGroups[0]
   const subTabLabel = (tab: Tab): string =>
     ({
@@ -1964,9 +2170,16 @@ function WorkspaceDetailContent() {
 
   const attrs = workspace.attributes
   const perms = attrs.permissions || {} as WorkspacePermissions
-  // Settings that only mean something to Terraform are hidden for Pulumi rather
-  // than shown and ignored (#1555).
-  const isPulumi = attrs.engine === 'pulumi'
+
+  // `oidc-audiences` arrives MERGED, so provenance only exists by subtracting
+  // the deployment catalogue. Derived on every render rather than stored: the
+  // catalogue arrives asynchronously, and a value captured before it landed
+  // would show every entry as workspace-owned for ever. The edit state is
+  // seeded from `.owned` separately, when edit mode opens.
+  const oidcAudienceSplit = partitionOidcAudiences(
+    attrs['oidc-audiences'] || {},
+    oidcDefaults.audiences,
+  )
 
   // VCS polling is stalled when the most recent ATTEMPT is newer than the most
   // recent SUCCESS. Comparing the two needs no knowledge of the poll interval,
@@ -2471,10 +2684,14 @@ function WorkspaceDetailContent() {
                   <div className="sm:col-span-2 rounded border border-amber-700 bg-amber-900/30 p-3 text-xs text-amber-100">
                     <p className="font-medium">{t('vcsWorkflowWarning.title')}</p>
                     <p className="mt-1">
-                      {t.rich('vcsWorkflowWarning.rbac', { em: (chunks) => <em> {chunks}</em> })}
+                      {tPhase.rich(phaseKeyFor('vcsWorkflowWarningRbac'), {
+                        em: (chunks) => <em> {chunks}</em>,
+                      })}
                     </p>
                     <p className="mt-1">
-                      {t.rich('vcsWorkflowWarning.recommended', { strong: (chunks) => <strong>{chunks}</strong> })}
+                      {tPhase.rich(phaseKeyFor('vcsWorkflowWarningRecommended'), {
+                        strong: (chunks) => <strong>{chunks}</strong>,
+                      })}
                     </p>
                     <p className="mt-1">
                       {t.rich('vcsWorkflowWarning.credit', {
@@ -2486,7 +2703,7 @@ function WorkspaceDetailContent() {
                   </div>
                 )}
                 <div>
-                  <dt className="text-xs text-slate-500">{t('fields.autoMerge')}</dt>
+                  <dt className="text-xs text-slate-500">{phaseWord('fieldsAutoMerge')}</dt>
                   {editing ? (
                     <label className="mt-1 flex items-center gap-2">
                       <input
@@ -2757,6 +2974,44 @@ function WorkspaceDetailContent() {
                   )}
                 </div>
                 )}
+                <div className="sm:col-span-2">
+                  <dt className="text-xs text-slate-500 mb-1">{t('fields.oidcAudiences')}</dt>
+                  {editing && perms['can-update'] ? (
+                    <div className="space-y-2">
+                      <p className="text-xs text-slate-400">{t('fields.oidcAudiencesHint')}</p>
+                      {/* `value` is the owned set and `fallbacks` the catalogue
+                          for the keys in force, so an inherited entry is shown
+                          and offered for override rather than edited in place,
+                          and only the owned set is saved. */}
+                      {editOidcAudiences === null ? (
+                        <p className="text-xs text-slate-500">
+                          {t('fields.oidcAudiencesLoading')}
+                        </p>
+                      ) : (
+                        <OidcAudiencesEditor
+                          value={editOidcAudiences}
+                          fallbacks={oidcAudienceSplit.fallbacks}
+                          onChange={setEditOidcAudiences}
+                          inert={!oidcDefaults.issuerEnabled}
+                          audiencePlaceholder={t('fields.oidcAudiencesPlaceholder')}
+                          addAudienceLabel={t('fields.oidcAudiencesAdd')}
+                        />
+                      )}
+                    </div>
+                  ) : (
+                    <dd className="mt-1 text-sm text-slate-200" data-testid="oidc-audiences">
+                      {Object.keys(attrs['oidc-audiences'] || {}).length > 0 ? (
+                        <OidcAudiencesEditor
+                          value={oidcAudienceSplit.owned}
+                          fallbacks={oidcAudienceSplit.fallbacks}
+                          readOnly
+                        />
+                      ) : (
+                        <span className="text-slate-500">{t('fields.oidcAudiencesNone')}</span>
+                      )}
+                    </dd>
+                  )}
+                </div>
               </dl>
               {lockoutWarning && (
                 <div className="mt-4 p-3 bg-amber-900/30 border border-amber-700/50 rounded-lg">
@@ -2786,7 +3041,7 @@ function WorkspaceDetailContent() {
                 <div className="min-w-0">
                   <h3 className="text-sm font-medium text-slate-300">{t('lock.title')}</h3>
                   <p className="text-sm text-slate-400 mt-1">
-                    {attrs.locked ? t('lock.lockedDesc') : t('lock.unlockedDesc')}
+                    {attrs.locked ? phaseWord('lockLockedDesc') : t('lock.unlockedDesc')}
                   </p>
                   {attrs.locked && attrs['locked-by'] && (
                     <p className="text-sm text-slate-400 mt-1 break-words" data-testid="lock-holder">
@@ -2884,7 +3139,7 @@ function WorkspaceDetailContent() {
                       onClick={handleCheckDriftNow}
                       disabled={checkingDrift || attrs.locked || !attrs['drift-detection-enabled']}
                       className="px-3 py-1.5 rounded-lg text-sm font-medium bg-brand-600 hover:bg-brand-500 disabled:bg-brand-800 disabled:text-brand-400 text-white transition-colors"
-                      title={!attrs['drift-detection-enabled'] ? t('drift.checkNowTitleDisabled') : attrs.locked ? t('common.workspaceLocked') : t('drift.checkNowTitle')}
+                      title={!attrs['drift-detection-enabled'] ? t('drift.checkNowTitleDisabled') : attrs.locked ? t('common.workspaceLocked') : phaseWord('driftCheckNowTitle')}
                     >
                       {checkingDrift ? t('actions.queuing') : t('drift.checkNow')}
                     </button>
@@ -2896,9 +3151,9 @@ function WorkspaceDetailContent() {
             {/* Plan Expiry (#646) */}
             <div className="bg-slate-800/50 rounded-lg border border-slate-700/50 p-6">
               <div className="mb-4">
-                <h3 className="text-sm font-medium text-slate-300">{t('planExpiry.title')}</h3>
+                <h3 className="text-sm font-medium text-slate-300">{phaseWord('planExpiryTitle')}</h3>
                 <p className="text-xs text-slate-500 mt-1">
-                  {t('planExpiry.description')}
+                  {phaseWord('planExpiryDescription')}
                 </p>
               </div>
               <dl>
@@ -2924,9 +3179,9 @@ function WorkspaceDetailContent() {
             <div className="bg-slate-800/50 rounded-lg border border-slate-700/50 p-6">
               <div className="flex items-center justify-between mb-4">
                 <div>
-                  <h3 className="text-sm font-medium text-slate-300">{t('aiSummary.title')}</h3>
+                  <h3 className="text-sm font-medium text-slate-300">{phaseWord('aiSummaryTitle')}</h3>
                   <p className="text-xs text-slate-500 mt-1">
-                    {t('aiSummary.description')}
+                    {phaseWord('aiSummaryDescription')}
                   </p>
                 </div>
               </div>
@@ -3038,7 +3293,14 @@ function WorkspaceDetailContent() {
               </dl>
             </div>
 
-            {/* Security scanning (#1036) — exposed here by #1763 */}
+            {/* Security scanning (#1036) — exposed here by #1763.
+                Absent on a Pulumi workspace (#1911): Checkov and Trivy read a
+                Terraform-shaped plan document, which a Pulumi run does not
+                produce, so the API refuses anything but `off` (#1567). Rendering the
+                block anyway offered three settings whose only accepted value
+                was the one already shown — dead controls that 422 on use. Same
+                treatment as the Cost and Architecture tabs. */}
+            {!isPulumi && (
             <div className="bg-slate-800/50 rounded-lg border border-slate-700/50 p-6">
               <div className="flex items-center justify-between mb-4">
                 <div>
@@ -3175,6 +3437,7 @@ function WorkspaceDetailContent() {
                 </div>
               </dl>
             </div>
+            )}
 
             {/* Runner debug mode (#1764) */}
             <div className="bg-slate-800/50 rounded-lg border border-slate-700/50 p-6">
@@ -3226,11 +3489,65 @@ function WorkspaceDetailContent() {
               </dl>
             </div>
 
+            {/* Speculative plans on fork pull requests (GHSA-gp5w-76rw-c452) */}
+            <div className="bg-slate-800/50 rounded-lg border border-slate-700/50 p-6">
+              <div className="flex items-start justify-between gap-4 mb-4">
+                <div>
+                  <h3 className="text-sm font-medium text-slate-300">
+                    {t('allowForkPrPlans.title')}
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-1">
+                    {t('allowForkPrPlans.description')}
+                  </p>
+                </div>
+                {attrs['allow-fork-pr-plans'] && (
+                  <span
+                    data-testid="allow-fork-pr-plans-indicator"
+                    className="shrink-0 px-2 py-1 rounded text-xs font-medium bg-amber-900/40 text-amber-300 border border-amber-700/50"
+                  >
+                    {t('allowForkPrPlans.activeBadge')}
+                  </span>
+                )}
+              </div>
+              <dl>
+                <div>
+                  <dt className="text-xs text-slate-500">{t('allowForkPrPlans.label')}</dt>
+                  <dd className="mt-1">
+                    {perms['can-update'] ? (
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          aria-label={t('allowForkPrPlans.label')}
+                          checked={!!attrs['allow-fork-pr-plans']}
+                          onChange={(e) => handleForkPlansUpdate(e.target.checked)}
+                          disabled={savingForkPlans}
+                          className="rounded border-slate-600 bg-slate-700 text-brand-600 focus:ring-brand-500"
+                        />
+                        <span className="text-sm text-slate-200">
+                          {attrs['allow-fork-pr-plans'] ? t('common.enabled') : t('common.disabled')}
+                        </span>
+                      </label>
+                    ) : (
+                      <span className="text-sm text-slate-200">
+                        {attrs['allow-fork-pr-plans'] ? t('common.enabled') : t('common.disabled')}
+                      </span>
+                    )}
+                    <p className="text-xs text-slate-500 mt-1">
+                      {t('allowForkPrPlans.hint')}
+                      {savingForkPlans && (
+                        <span className="ms-2 text-brand-400">{t('actions.saving')}</span>
+                      )}
+                    </p>
+                  </dd>
+                </div>
+              </dl>
+            </div>
+
             {/* Slack notifications (#556) */}
             <div className="bg-slate-800/50 rounded-lg border border-slate-700 p-6">
               <h3 className="text-sm font-medium text-slate-200">{t('slack.title')}</h3>
               <p className="text-sm text-slate-400 mt-1">
-                {t('slack.description')}
+                {phaseWord('slackDescription')}
               </p>
               <dl className="mt-4">
                 <div>
@@ -3332,7 +3649,13 @@ function WorkspaceDetailContent() {
                   <div>
                     <label htmlFor="var-cat" className="block text-sm font-medium text-slate-300 mb-1">{t('variables.category')}</label>
                     <select id="var-cat" value={varCategory} onChange={(e) => { setVarCategory(e.target.value); if (e.target.value === 'git_http_auth') ensureVcsConnections() }} className="w-full px-3 py-2 border border-slate-600 rounded-lg bg-slate-700 text-slate-100 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent">
-                      <option value="terraform">Terraform</option>
+                      {/* One category for the engine's own parameters,
+                          whatever the workspace runs (#1898): Terraform input
+                          variables, Pulumi stack config, Ansible extra vars are
+                          one role with three deliveries, and the runner
+                          dispatches on the engine. An engine-specific option
+                          here would be the mechanism showing through. */}
+                      <option value="native">{t(`variables.${nativeCategoryKey(attrs.engine)}`)}</option>
                       <option value="env">{t('variables.categoryEnv')}</option>
                       <option value="git_http_auth">Git HTTPS credential</option>
                       <option value="git_ssh_auth">Git SSH credential</option>
@@ -3380,13 +3703,20 @@ function WorkspaceDetailContent() {
                         <input type="checkbox" checked={varSensitive} onChange={(e) => setVarSensitive(e.target.checked)} className="rounded border-slate-600 bg-slate-700 text-brand-600 focus:ring-brand-500" />
                         <span className="text-sm text-slate-300">{t('variables.sensitive')}</span>
                       </label>
-                      {/* Only terraform variables can be typed: an environment
-                          variable is a string by definition, so offering the flag
-                          there was always meaningless (#1435). */}
-                      {varCategory === 'terraform' && (
+                      {/* Only a native variable can be typed: an environment
+                          variable is a string by definition, so offering the
+                          flag there was always meaningless (#1435).
+
+                          Labelled "Structured", not "HCL": one flag, and what
+                          it means is the engine's (#1898). Terraform reads a
+                          raw HCL expression; Pulumi sets a nested config value
+                          rather than a literal dotted key. "HCL" named
+                          Terraform's mechanism on a control that is not
+                          Terraform's. */}
+                      {varCategory === 'native' && (
                         <label className="flex items-center gap-2 cursor-pointer">
                           <input type="checkbox" checked={varHcl} onChange={(e) => setVarHcl(e.target.checked)} className="rounded border-slate-600 bg-slate-700 text-brand-600 focus:ring-brand-500" />
-                          <span className="text-sm text-slate-300">HCL</span>
+                          <span className="text-sm text-slate-300">{t('variables.structured')}</span>
                         </label>
                       )}
                     </div>
@@ -3493,6 +3823,7 @@ function WorkspaceDetailContent() {
                             <VariableEditPanel
                               idPrefix={`edit-${v.id}`}
                               vaultCheckUrl={vaultCheckUrl}
+                              engine={attrs.engine}
                               state={editPanelState}
                               onChange={patchEditPanel}
                               vaultAvailable={vaultOfferable}
@@ -3513,11 +3844,13 @@ function WorkspaceDetailContent() {
                             : v.attributes.sensitive ? '***' : (v.attributes.value || <span className="text-slate-600 italic">{t('variables.emptyValue')}</span>)}
                           </td>
                           <td className="px-4 py-3 text-xs text-slate-400 hidden sm:table-cell">
-                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-                              v.attributes.category === 'terraform' ? 'bg-purple-900/50 text-purple-300' : 'bg-cyan-900/50 text-cyan-300'
-                            }`}>
-                              {v.attributes.category}
-                            </span>
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                                v.attributes.category === 'native' ? 'bg-purple-900/50 text-purple-300' : 'bg-cyan-900/50 text-cyan-300'
+                              }`}>
+                                {categoryLabel(v.attributes.category, attrs.engine)}
+                              </span>
+                            </div>
                           </td>
                           {perms['can-update-variable'] && (
                             <td className="px-4 py-3 text-end">
@@ -3544,6 +3877,7 @@ function WorkspaceDetailContent() {
                     {editingVarId === v.id ? (
                       <VariableEditPanel
                           idPrefix={`medit-${v.id}`}
+                          engine={attrs.engine}
                           vaultCheckUrl={vaultCheckUrl}
                           state={editPanelState}
                           onChange={patchEditPanel}
@@ -3559,9 +3893,9 @@ function WorkspaceDetailContent() {
                         <div className="flex items-start justify-between gap-2 mb-1.5">
                           <span className="text-sm font-mono font-medium text-slate-200 break-all">{v.attributes.key}</span>
                           <span className={`shrink-0 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-                            v.attributes.category === 'terraform' ? 'bg-purple-900/50 text-purple-300' : 'bg-cyan-900/50 text-cyan-300'
+                            v.attributes.category === 'native' ? 'bg-purple-900/50 text-purple-300' : 'bg-cyan-900/50 text-cyan-300'
                           }`}>
-                            {v.attributes.category}
+                            {categoryLabel(v.attributes.category, attrs.engine)}
                           </span>
                         </div>
                         <div className="mb-2 text-sm text-slate-400 font-mono break-all">
@@ -3610,7 +3944,7 @@ function WorkspaceDetailContent() {
                       onClick={() => setShowDestroyConfirm(true)}
                       disabled={queueingDestroy || attrs.locked}
                       className="px-4 py-2 rounded-lg text-sm font-medium bg-red-600/20 hover:bg-red-600/40 text-red-400 transition-colors"
-                      title={attrs.locked ? t('common.workspaceLocked') : t('runs.queueDestroyTitle')}
+                      title={attrs.locked ? t('common.workspaceLocked') : phaseWord('queueDestroyTitle')}
                     >
                       {t('runs.queueDestroy')}
                     </button>
@@ -3643,7 +3977,7 @@ function WorkspaceDetailContent() {
                     className="px-4 py-2 rounded-lg text-sm font-medium bg-brand-600 hover:bg-brand-500 disabled:bg-brand-800 disabled:text-brand-400 text-white transition-colors"
                     title={attrs.locked ? t('common.workspaceLocked') : undefined}
                   >
-                    {queueingPlan ? t('actions.queuing') : t('runs.queuePlan')}
+                    {queueingPlan ? t('actions.queuing') : phaseWord('queuePlan')}
                   </button>
                   {perms['can-queue-apply'] && (
                     <button
@@ -3657,17 +3991,17 @@ function WorkspaceDetailContent() {
                         attrs.locked
                           ? t('common.workspaceLocked')
                           : vcsRef
-                            ? t('runs.queueApplyRefBlocked')
-                            : t('runs.queueApplyTitle')
+                            ? phaseWord('queueApplyRefBlocked')
+                            : phaseWord('queueApplyTitle')
                       }
                     >
-                      {queueingPlan ? t('actions.queuing') : t('runs.queueRun')}
+                      {queueingPlan ? t('actions.queuing') : phaseWord('queueRun')}
                     </button>
                   )}
                 </div>
                 {showPlanOptions && (
                   <div className="mt-3 p-4 bg-slate-800/50 rounded-lg border border-slate-700/50">
-                    <h4 className="text-sm font-medium text-slate-300 mb-3">{t('runs.planOptions')}</h4>
+                    <h4 className="text-sm font-medium text-slate-300 mb-3">{phaseWord('planOptions')}</h4>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
                         <label className="block text-xs text-slate-400 mb-1">{t('runs.targetResources')} <span className="text-slate-500">{t('runs.commaSeparated')}</span></label>
@@ -3675,7 +4009,7 @@ function WorkspaceDetailContent() {
                           type="text"
                           value={planTargets}
                           onChange={e => setPlanTargets(e.target.value)}
-                          placeholder="e.g. aws_instance.web, aws_s3_bucket.data"
+                          placeholder={phaseWord('targetPlaceholder')}
                           className="w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded-lg text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500 font-mono"
                         />
                       </div>
@@ -3685,7 +4019,7 @@ function WorkspaceDetailContent() {
                           type="text"
                           value={planReplaces}
                           onChange={e => setPlanReplaces(e.target.value)}
-                          placeholder="e.g. aws_instance.web"
+                          placeholder={phaseWord('replacePlaceholder')}
                           className="w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded-lg text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500 font-mono"
                         />
                       </div>
@@ -3717,7 +4051,14 @@ function WorkspaceDetailContent() {
                         />
                         {t('runs.skipRefresh')}
                       </label>
-                      {!vcsRef && (
+                      {/* Terraform-only (#1911). `-allow-empty-apply` has no
+                          Pulumi equivalent: `PulumiRunOptions` carries no such
+                          field and the engine emits no env var for it, so a
+                          ticked box on a Pulumi workspace was stored on the run
+                          and then silently dropped. Target, replace and the two
+                          refresh flags DO reach Pulumi (as `--target`/
+                          `--replace` URNs and `--refresh`), so they stay. */}
+                      {!vcsRef && !isPulumi && (
                         <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
                           <input
                             type="checkbox"
@@ -3764,7 +4105,7 @@ function WorkspaceDetailContent() {
                         </div>
                         {vcsRef && (
                           <p className="mt-2 text-xs text-amber-400">
-                            {t('runs.nonDefaultRefNote')}
+                            {phaseWord('nonDefaultRefNote')}
                           </p>
                         )}
                       </div>
@@ -3815,27 +4156,45 @@ function WorkspaceDetailContent() {
                               </span>
                             ) : (
                               <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${statusColor(run.attributes.status)}`}>
-                                {run.attributes.status}
+                                {runStatusLabel(run.attributes.status)}
                               </span>
                             )
                           )}
                         </td>
                         <td className="px-4 py-3 hidden sm:table-cell">
-                          {run.attributes['is-destroy'] ? (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-900/50 text-red-300">
-                              {t('runs.typeDestroy')}
-                            </span>
-                          ) : run.attributes['plan-only'] ? (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-cyan-900/50 text-cyan-300">
-                              {t('runs.typePlanOnly')}
-                            </span>
-                          ) : (
-                            <span className="text-xs text-slate-500">{t('runs.typePlanApply')}</span>
-                          )}
+                          <span className="flex flex-wrap items-center gap-1">
+                            {run.attributes['is-destroy'] ? (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-900/50 text-red-300">
+                                {t('runs.typeDestroy')}
+                              </span>
+                            ) : run.attributes['plan-only'] ? (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-cyan-900/50 text-cyan-300">
+                                {phaseWord('badgePlanOnly')}
+                              </span>
+                            ) : (
+                              <span className="text-xs text-slate-500">{phaseWord('typePlanApply')}</span>
+                            )}
+                            {/* Additive, not another branch: a saved plan can also
+                                be a destroy, and "deferred" is the fact that
+                                explains the run list, so it must not be the one
+                                that loses. */}
+                            {run.attributes['save-plan'] && (
+                              <span
+                                className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-violet-900/50 text-violet-300"
+                                title={t('runs.typeSavedPlanHint')}
+                              >
+                                {t('runs.typeSavedPlan')}
+                              </span>
+                            )}
+                          </span>
                         </td>
                         <td className="px-4 py-3 hidden md:table-cell">
                           {run.attributes['plan-summary'] ? (
-                            <PlanSummaryBadges summary={run.attributes['plan-summary']} size="sm" />
+                            <PlanSummaryBadges
+                              summary={run.attributes['plan-summary']}
+                              size="sm"
+                              engine={workspace?.attributes.engine}
+                            />
                           ) : (
                             <span className="text-slate-600">&mdash;</span>
                           )}
@@ -3883,7 +4242,7 @@ function WorkspaceDetailContent() {
                             </span>
                           ) : (
                             <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${statusColor(run.attributes.status)}`}>
-                              {run.attributes.status}
+                              {runStatusLabel(run.attributes.status)}
                             </span>
                           )
                         )
@@ -3891,22 +4250,37 @@ function WorkspaceDetailContent() {
                       fields={[
                         {
                           label: t('runs.type'),
-                          value: run.attributes['is-destroy'] ? (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-900/50 text-red-300">
-                              {t('runs.typeDestroy')}
+                          value: (
+                            <span className="flex flex-wrap items-center gap-1">
+                              {run.attributes['is-destroy'] ? (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-900/50 text-red-300">
+                                  {t('runs.typeDestroy')}
+                                </span>
+                              ) : run.attributes['plan-only'] ? (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-cyan-900/50 text-cyan-300">
+                                  {phaseWord('badgePlanOnly')}
+                                </span>
+                              ) : (
+                                <span className="text-slate-400">{phaseWord('typePlanApply')}</span>
+                              )}
+                              {run.attributes['save-plan'] && (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-violet-900/50 text-violet-300">
+                                  {t('runs.typeSavedPlan')}
+                                </span>
+                              )}
                             </span>
-                          ) : run.attributes['plan-only'] ? (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-cyan-900/50 text-cyan-300">
-                              {t('runs.typePlanOnly')}
-                            </span>
-                          ) : (
-                            <span className="text-slate-400">{t('runs.typePlanApply')}</span>
                           ),
                         },
                         ...(run.attributes['plan-summary']
                           ? [{
                               label: t('runs.changes'),
-                              value: <PlanSummaryBadges summary={run.attributes['plan-summary']} size="sm" />,
+                              value: (
+                                <PlanSummaryBadges
+                                  summary={run.attributes['plan-summary']}
+                                  size="sm"
+                                  engine={workspace?.attributes.engine}
+                                />
+                              ),
                             }]
                           : []),
                         {
@@ -4193,6 +4567,11 @@ function WorkspaceDetailContent() {
                 </MobileCardList>
               </>
             )}
+
+            {/* Stack outputs (#1568) — the latest state's output values, for
+                both engines. Keyed on the state-version count so a new version
+                arriving over SSE re-reads them without a manual reload. */}
+            <StackOutputsPanel workspaceId={workspaceId} refreshKey={stateVersions.length} />
           </div>
         )}
 
@@ -4234,7 +4613,7 @@ function WorkspaceDetailContent() {
             {cvLoading ? (
               <LoadingSpinner />
             ) : cvs.length === 0 ? (
-              <EmptyState message={t('configurations.empty')} />
+              <EmptyState message={phaseWord('configurationsEmpty')} />
             ) : (
               <>
                 {/* Desktop (md+): the table with per-row compare checkboxes. */}
@@ -4715,7 +5094,7 @@ function WorkspaceDetailContent() {
               {trgLoading && <span className="text-xs text-slate-500">{t('actions.loadingLower')}</span>}
             </div>
             <p className="text-xs text-slate-500 mb-6">
-              {t('runTriggers.description')}
+              {phaseWord('runTriggersDescription')}
             </p>
 
             {/* Inbound — source workspaces that trigger runs HERE */}
@@ -4779,6 +5158,12 @@ function WorkspaceDetailContent() {
             </div>
           </div>
         )}
+
+        {/* Inventory Tab — the eight structures an ansible inventory has, each
+            editable per row (#1967, #1968, #1969). Rendered only when the
+            workspace actually has one; the panel owns its own data and its own
+            `?inv=` sub-view, so the page passes nothing but the id. */}
+        {activeTab === 'inventory' && <InventoryPanel workspaceId={workspaceId} />}
 
         {/* Sharing Tab — cross-workspace remote-state allowlist (#344, #349) */}
         {activeTab === 'access' && (

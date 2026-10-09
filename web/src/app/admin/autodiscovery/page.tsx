@@ -12,6 +12,9 @@ import { SortableHeader } from '@/components/sortable-header'
 import { LabelsEditor } from '@/components/labels-editor'
 import {
   StringListEditor,
+  OidcAudiencesEditor,
+  sanitizeOidcAudiences,
+  type OidcAudiences,
   RunTaskTemplatesEditor,
   NotificationTemplatesEditor,
   type RunTaskSpec,
@@ -19,6 +22,7 @@ import {
 } from '@/components/template-editors'
 import { getAuthState, isAdmin } from '@/lib/auth'
 import { apiFetch, fetchAllPages } from '@/lib/api'
+import { useOidcAudienceDefaults } from '@/lib/use-oidc-audience-defaults'
 import { useSortable } from '@/lib/use-sortable'
 import { useFormat } from '@/lib/format'
 
@@ -39,6 +43,7 @@ interface AutodiscoveryRule {
     'pulumi-bind-plan'?: boolean
     'agent-pool-id': string | null
     'terraform-version': string
+    'ansible-version'?: string
     'resource-cpu': string
     parallelism: number
     'resource-memory': string
@@ -48,6 +53,7 @@ interface AutodiscoveryRule {
     labels: Record<string, string>
     'owner-email': string
     'var-files': string[]
+    'oidc-audiences'?: OidcAudiences
     'execution-hook-templates'?: string[]
     'security-scan-enforcement'?: string
     'security-scan-engine'?: string
@@ -66,6 +72,7 @@ interface AutodiscoveryRule {
     'plan-expiry-seconds'?: number | null
     'slack-channel'?: string
     'debug-mode'?: boolean
+    'allow-fork-pr-plans'?: boolean
     'run-task-templates': RunTaskSpec[]
     'notification-templates': NotificationSpec[]
     'created-at': string
@@ -122,7 +129,14 @@ export default function AutodiscoveryPage() {
   const [executionMode, setExecutionMode] = useState<'agent'>('agent')
   const [agentPoolId, setAgentPoolId] = useState('')
   const [executionBackend, setExecutionBackend] = useState<'tofu' | 'terraform'>('tofu')
-  const [terraformVersion, setTerraformVersion] = useState('1.11')
+  const [terraformVersion, setTerraformVersion] = useState('1.13')
+  // Deliberately NOT pre-filled, unlike the engine version beside it. Empty is
+  // a real value here and means "inherit api.config.default_ansible_version"
+  // at run time (#2010, the semantics `engine_version_attr` documents), so
+  // pre-filling would pin every rule the UI creates to whatever the default
+  // happened to be the day it was created -- which is the thing that goes
+  // stale. An operator who wants a pin types one.
+  const [ansibleVersion, setAnsibleVersion] = useState('')
   const [resourceCpu, setResourceCpu] = useState('1')
   const [engine, setEngine] = useState('terraform')
   const [bindPlan, setBindPlan] = useState(false)
@@ -133,6 +147,15 @@ export default function AutodiscoveryPage() {
   const [labels, setLabels] = useState<Record<string, string>>({})
   const [ownerEmail, setOwnerEmail] = useState('')
   const [varFiles, setVarFiles] = useState<string[]>([])
+  // Only to tell the operator when the deployment publishes no issuer, so an
+  // entry added here could never be minted for. No partition on this surface:
+  // the value IS the override — unlike a workspace read, nothing is merged
+  // into it — so there is nothing to subtract and nothing to inherit.
+  const oidcDefaults = useOidcAudienceDefaults()
+  // Templated onto every workspace the rule creates (#1901), keyed on the
+  // provider configuration a token is for. Empty is the default and overrides
+  // nothing: those workspaces take the deployment's configured audiences.
+  const [oidcAudiences, setOidcAudiences] = useState<OidcAudiences>({})
   const [executionHookTemplates, setExecutionHookTemplates] = useState<string[]>([])
   // Templated onto every workspace the rule materialises (#1763).
   const [scanEnforcement, setScanEnforcement] = useState('advisory')
@@ -154,6 +177,7 @@ export default function AutodiscoveryPage() {
   // Runner debug mode (#1764). Off by default here as on a workspace: a rule
   // can materialise hundreds of workspaces, and a held pod keeps credentials.
   const [ruleDebugMode, setRuleDebugMode] = useState(false)
+  const [ruleAllowForkPrPlans, setRuleAllowForkPrPlans] = useState(false)
   const [runTaskTemplates, setRunTaskTemplates] = useState<RunTaskSpec[]>([])
   const [notificationTemplates, setNotificationTemplates] = useState<NotificationSpec[]>([])
   const [submitting, setSubmitting] = useState(false)
@@ -235,7 +259,8 @@ export default function AutodiscoveryPage() {
     setExecutionMode('agent')
     setAgentPoolId('')
     setExecutionBackend('tofu')
-    setTerraformVersion('1.11')
+    setTerraformVersion('1.13')
+    setAnsibleVersion('')
     setResourceCpu('1')
     setResourceMemory('2Gi')
     setAutoApplyMode('never')
@@ -243,6 +268,7 @@ export default function AutodiscoveryPage() {
     setLabels({})
     setOwnerEmail('')
     setVarFiles([])
+    setOidcAudiences({})
     setExecutionHookTemplates([])
     setScanEnforcement('advisory')
     setScanEngine('checkov')
@@ -283,6 +309,7 @@ export default function AutodiscoveryPage() {
     setAgentPoolId(a['agent-pool-id'] ? `apool-${a['agent-pool-id']}` : '')
     setExecutionBackend((a['execution-backend'] as 'tofu' | 'terraform') || 'tofu')
     setTerraformVersion(a['terraform-version'])
+    setAnsibleVersion(a['ansible-version'] || '')
     setResourceCpu(a['resource-cpu'])
     setParallelism(String(a.parallelism ?? 10))
     setEngine(a.engine || 'terraform')
@@ -294,6 +321,7 @@ export default function AutodiscoveryPage() {
     setLabels(a.labels || {})
     setOwnerEmail(a['owner-email'] || '')
     setVarFiles(a['var-files'] || [])
+    setOidcAudiences(a['oidc-audiences'] || {})
     setExecutionHookTemplates(a['execution-hook-templates'] || [])
     setScanEnforcement(a['security-scan-enforcement'] || 'advisory')
     setScanEngine(a['security-scan-engine'] || 'checkov')
@@ -312,6 +340,7 @@ export default function AutodiscoveryPage() {
     setPlanExpiry(a['plan-expiry-seconds'] ? String(a['plan-expiry-seconds']) : '')
     setRuleSlackChannel(a['slack-channel'] || '')
     setRuleDebugMode(a['debug-mode'] ?? false)
+    setRuleAllowForkPrPlans(a['allow-fork-pr-plans'] ?? false)
     setRunTaskTemplates(a['run-task-templates'] || [])
     setNotificationTemplates(a['notification-templates'] || [])
     setShowForm(true)
@@ -341,6 +370,7 @@ export default function AutodiscoveryPage() {
       'execution-backend': executionBackend,
       'agent-pool-id': agentPoolId || null,
       'engine-version': terraformVersion,
+      'ansible-version': ansibleVersion.trim(),
       'resource-cpu': resourceCpu,
       'parallelism': Number(parallelism),
       engine,
@@ -351,6 +381,10 @@ export default function AutodiscoveryPage() {
       labels,
       'owner-email': ownerEmail,
       'var-files': varFiles.map(s => s.trim()).filter(Boolean),
+      // Blank audience rows are refused rather than dropped, and so is a
+      // provider whose list came out empty, so an empty row left in the editor
+      // would otherwise 422 the whole rule.
+      'oidc-audiences': sanitizeOidcAudiences(oidcAudiences),
       'execution-hook-templates': executionHookTemplates.map(s => s.trim()).filter(Boolean),
       'security-scan-enforcement': scanEnforcement,
       'security-scan-engine': scanEngine,
@@ -369,6 +403,7 @@ export default function AutodiscoveryPage() {
       'plan-expiry-seconds': planExpiry.trim() ? Number(planExpiry) : null,
       'slack-channel': ruleSlackChannel.trim(),
       'debug-mode': ruleDebugMode,
+      'allow-fork-pr-plans': ruleAllowForkPrPlans,
       'run-task-templates': runTaskTemplates,
       'notification-templates': notificationTemplates,
     }
@@ -696,6 +731,20 @@ export default function AutodiscoveryPage() {
                   />
                 </div>
                 <div>
+                  <label
+                    className="block text-sm text-slate-300 mb-1"
+                    title={tWs('fields.ansibleVersionTitle')}
+                  >
+                    {tWs('fields.ansibleVersion')}
+                  </label>
+                  <input
+                    value={ansibleVersion}
+                    onChange={e => setAnsibleVersion(e.target.value)}
+                    placeholder={tWs('fields.ansibleVersionPlaceholder')}
+                    className="w-full bg-slate-950 border border-slate-700 rounded px-3 py-2 text-sm"
+                  />
+                </div>
+                <div>
                   <label className="block text-sm text-slate-300 mb-1">{t('form.cpuRequest')}</label>
                   <input
                     value={resourceCpu}
@@ -817,6 +866,17 @@ export default function AutodiscoveryPage() {
                   addLabel={t('form.addVarFile')}
                 />
               </div>
+              <div className="mt-4 pt-4 border-t border-slate-800">
+                <label className="block text-sm text-slate-300 mb-1">{t('form.oidcAudiences')}</label>
+                <p className="text-xs text-slate-500 mb-2">{t('form.oidcAudiencesHint')}</p>
+                <OidcAudiencesEditor
+                  value={oidcAudiences}
+                  inert={!oidcDefaults.issuerEnabled}
+                  onChange={setOidcAudiences}
+                  audiencePlaceholder={tWs('fields.oidcAudiencesPlaceholder')}
+                  addAudienceLabel={tWs('fields.oidcAudiencesAdd')}
+                />
+              </div>
               {/* The rest of the templated workspace settings (#1763) */}
               <div className="mt-4 pt-4 border-t border-slate-800">
                 <label className="block text-sm text-slate-300 mb-1">{t('form.execution')}</label>
@@ -936,6 +996,29 @@ export default function AutodiscoveryPage() {
                       </span>
                     </label>
                     <p className="text-xs text-slate-500 mt-1">{t('form.debugModeHint')}</p>
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="ad-allow-fork-pr-plans"
+                      className="block text-xs text-slate-500 mb-1"
+                    >
+                      {tWs('allowForkPrPlans.label')}
+                    </label>
+                    <label className="flex items-center gap-2 mt-2">
+                      <input
+                        id="ad-allow-fork-pr-plans"
+                        type="checkbox"
+                        checked={ruleAllowForkPrPlans}
+                        onChange={(e) => setRuleAllowForkPrPlans(e.target.checked)}
+                        className="rounded border-slate-600 bg-slate-700 text-brand-600 focus:ring-brand-500"
+                      />
+                      <span className="text-sm text-slate-200">
+                        {ruleAllowForkPrPlans ? tWs('common.enabled') : tWs('common.disabled')}
+                      </span>
+                    </label>
+                    <p className="text-xs text-slate-500 mt-1">
+                      {t('form.allowForkPrPlansHint')}
+                    </p>
                   </div>
                 </div>
                 <div className="mt-3">

@@ -13,6 +13,7 @@ import json
 
 import pytest
 
+from terrapod.services import agent_pool_service
 from tests.integration.conftest import AUTH, admin_user, set_auth, set_listener_auth
 
 pytestmark = pytest.mark.integration
@@ -203,6 +204,32 @@ async def _report_job_status(
     assert resp.status_code == 200, resp.text
 
 
+async def _push_state_version(client, ws_id: str, *, serial: int) -> None:
+    """Push a state version straight at the workspace, as a local-execution
+    `tofu apply` does. Moves the state under a run without driving a second full
+    apply through the runner."""
+    import hashlib
+
+    body = f'{{"serial": {serial}, "lineage": "savedplan-lineage"}}'.encode()
+    resp = await client.post(
+        f"/api/v2/workspaces/{ws_id}/state-versions",
+        json={
+            "data": {
+                "type": "state-versions",
+                "attributes": {
+                    "serial": serial,
+                    "lineage": "savedplan-lineage",
+                    "md5": hashlib.md5(body).hexdigest(),
+                },
+            }
+        },
+        headers=AUTH,
+    )
+    assert resp.status_code == 201, resp.text
+    upload = resp.json()["data"]["attributes"]["hosted-state-upload-url"]
+    assert (await client.put(upload, content=body)).status_code in (200, 204)
+
+
 async def _get_run(client, run_id: str) -> dict:
     """Get a run by ID, return data dict."""
     resp = await client.get(f"/api/v2/runs/{run_id}", headers=AUTH)
@@ -353,6 +380,66 @@ class TestListenerJoinFlow:
         assert "ca_certificate" in result
         assert result["certificate"].startswith("-----BEGIN CERTIFICATE-----")
 
+    async def test_a_re_join_into_the_same_pool_still_refreshes_the_certificate(self, app, client):
+        """The legitimate case, and the reason the re-join path exists at all:
+        a listener restarting keeps its id and gets a fresh certificate."""
+        set_auth(app, admin_user())
+        pool_id = await _create_pool(client, name="rejoin-same-pool")
+        raw_token = await _create_pool_token(client, pool_id)
+
+        first = await _join_listener(client, pool_id, raw_token, name="steady-listener")
+        again = await _join_listener(client, pool_id, raw_token, name="steady-listener")
+
+        assert again["listener_id"] == first["listener_id"], "the identity was not kept"
+        assert again["certificate"] != first["certificate"], "no fresh certificate"
+
+    async def test_a_re_join_from_another_pool_is_refused(self, app, client):
+        """Listener names share one global namespace, so a join token for pool B
+        could re-join under a name held in pool A — and the re-join branch
+        rewrote that record's `pool_id`. The victim's listener, still
+        heartbeating under the same id, would then claim pool B's runs and
+        execute them on the victim's cluster with the victim's credentials.
+        Certificate auth cannot catch it: it reads `pool_id` from the Redis hash
+        rather than from the certificate's own pool SAN."""
+        set_auth(app, admin_user())
+        victim_pool = await _create_pool(client, name="victim-pool")
+        attacker_pool = await _create_pool(client, name="attacker-pool")
+        victim_token = await _create_pool_token(client, victim_pool)
+        attacker_token = await _create_pool_token(client, attacker_pool)
+
+        joined = await _join_listener(client, victim_pool, victim_token, name="shared-name")
+
+        resp = await client.post(
+            f"/api/terrapod/v1/agent-pools/{attacker_pool}/listeners/join",
+            json={"join_token": attacker_token, "name": "shared-name"},
+        )
+        assert resp.status_code == 409, resp.text
+        assert "different agent pool" in resp.json()["detail"]
+
+        # And the victim's record is untouched — not merely un-moved, but still
+        # carrying the same id, so its certificate keeps working.
+        listener = await agent_pool_service.get_listener_by_name("shared-name")
+        assert listener is not None
+        assert listener["id"] == joined["listener_id"]
+        assert listener["pool_id"] == victim_pool.removeprefix("apool-")
+
+    async def test_the_refusal_covers_the_pool_less_join_endpoint_too(self, app, client):
+        """`POST /agent-pools/join` resolves the pool from the token, so it is a
+        second door to the same code. Both map the refusal to 409."""
+        set_auth(app, admin_user())
+        victim_pool = await _create_pool(client, name="victim-pool-2")
+        attacker_pool = await _create_pool(client, name="attacker-pool-2")
+        victim_token = await _create_pool_token(client, victim_pool)
+        attacker_token = await _create_pool_token(client, attacker_pool)
+
+        await _join_listener(client, victim_pool, victim_token, name="shared-name-2")
+
+        resp = await client.post(
+            "/api/terrapod/v1/agent-pools/join",
+            json={"join_token": attacker_token, "name": "shared-name-2"},
+        )
+        assert resp.status_code == 409, resp.text
+
 
 class TestClaimRun:
     async def test_claim_queued_run(self, app, client, setup):
@@ -376,15 +463,20 @@ class TestClaimRun:
         assert await _claim_run(client, listener_id) is None
 
     async def test_claim_run_delivers_vars_payload(self, app, client, setup):
-        """next_run returns terraform-vars carrying the typed flag under BOTH
-        names (never `sensitive`), plus env-vars.
+        """next_run returns the native-variable list carrying the typed flag
+        under BOTH names, plus `sensitive`, plus env-vars.
 
-        The runner consumes it to render terrapod.auto.tfvars (raw expression
-        vs quoted string). Sensitivity is NOT part of the runner contract — all
-        terraform vars, sensitive or not, are delivered uniformly via the per-run
-        vars Secret — so `sensitive` must not leak into this payload, and the
-        sensitive value IS delivered (the runner needs it; the Secret, not
-        masking, is what protects it).
+        The value of a sensitive variable IS delivered — the runner needs it,
+        and what protects it is the per-run Secret, not masking. For a Terraform
+        run the flag then changes nothing: every value is written into
+        terrapod.auto.tfvars the same way, so delivery there is uniform,
+        sensitive or not.
+
+        The flag rides along anyway because a second delivery can honour it
+        (#1898): a Pulumi run turns it into `pulumi config set --secret`, which
+        makes Pulumi's own engine render the value as `[secret]` in previews and
+        state. One list for every engine; each uses what it can and ignores the
+        rest.
         """
         pool_id, listener_id = setup
         ws_id = await _create_remote_workspace(client, pool_id, "vars-payload-ws")
@@ -410,6 +502,8 @@ class TestClaimRun:
             )
             assert resp.status_code == 201, resp.text
 
+        # Written under the TFE-compatible name, which is what this surface
+        # takes and what every existing client sends (#1898).
         await _add_var("ports", "[80, 443]", "terraform", structured=True)
         await _add_var("secret", "s3cr3t", "terraform", sensitive=True)
         await _add_var("MY_ENV", "envval", "env")
@@ -426,10 +520,12 @@ class TestClaimRun:
             assert "hcl" in v
             assert "structured" in v
             assert v["hcl"] == v["structured"]
-            assert "sensitive" not in v  # dead field removed
         assert tvars["ports"]["hcl"] is True
         assert tvars["secret"]["hcl"] is False
         assert tvars["secret"]["value"] == "s3cr3t"  # sensitive value delivered
+        # Carried, not masked, and only where it was set.
+        assert tvars["secret"]["sensitive"] is True
+        assert tvars["ports"]["sensitive"] is False
 
         env = {v["key"]: v for v in data["attributes"]["env-vars"]}
         assert env["MY_ENV"]["value"] == "envval"
@@ -1059,6 +1155,202 @@ async def _plan_then_upload_json(client, listener_id: str, ws_id: str, plan_json
         await _upload_artifact(client, run_id, "plan-json-output", plan_json, runner_token)
     ) == 204
     return await _get_run(client, run_id)
+
+
+class TestSavedPlanRuns:
+    """`terraform plan -out=FILE` then `terraform apply FILE` (#1903).
+
+    A saved-plan run is apply-capable but its apply is **deferred**: it plans
+    immediately without taking the workspace's single apply slot, and takes it
+    only when the operator confirms. That deferral is the entire difference
+    between it and an ordinary run awaiting confirmation, and it is expressed in
+    the dispatcher's SQL gate and in `confirm_run` — so it is proven here,
+    against real Postgres through the real dispatcher, and not in a mocked test
+    that could only assert a helper was called.
+    """
+
+    async def test_a_saved_plan_does_not_hold_the_workspace(self, app, client, setup):
+        """The whole point of `-out`: hold a plan file, not the workspace.
+
+        An ordinary run awaiting confirmation blocks the next one from even
+        planning. A saved plan must not, or an operator who reached for `-out`
+        precisely to avoid holding the workspace gets the workspace held.
+        """
+        pool_id, listener_id = setup
+        ws_id = await _create_remote_workspace(client, pool_id, "savedplan-free")
+
+        saved = await _create_run(client, ws_id, **{"save-plan": True})
+        await _run_plan_lifecycle(client, listener_id, saved["id"])
+        assert (await _get_run(client, saved["id"]))["attributes"]["status"] == "planned"
+
+        # An ordinary run queues behind it and IS claimable — the gate that
+        # would hold it for an ordinary `planned` run does not see this one.
+        other = await _create_run(client, ws_id, message="ordinary")
+        result = await _claim_run(client, listener_id)
+        assert result is not None, (
+            "a saved plan awaiting confirmation blocked the next run from planning — "
+            "it is holding the workspace, which is the one thing it must not do"
+        )
+        assert result[0]["id"] == other["id"]
+
+    async def test_a_saved_plan_plans_while_another_run_waits(self, app, client, setup):
+        """The other direction: a saved plan is not itself held by the gate.
+
+        `-out` is a request to plan now. A saved plan queued behind an ordinary
+        planned run must still get its plan, or the file it promises never
+        arrives.
+        """
+        pool_id, listener_id = setup
+        ws_id = await _create_remote_workspace(client, pool_id, "savedplan-planning")
+
+        # An ordinary run reaches `planned` and holds the workspace.
+        ordinary = await _create_run(client, ws_id)
+        await _run_plan_lifecycle(client, listener_id, ordinary["id"])
+        assert (await _get_run(client, ordinary["id"]))["attributes"]["status"] == "planned"
+
+        saved = await _create_run(client, ws_id, **{"save-plan": True})
+        result = await _claim_run(client, listener_id)
+        assert result is not None and result[0]["id"] == saved["id"], (
+            "the saved plan was held by the ordinary run's slot — `-out` asks to "
+            "plan now, and deferring the apply is what buys that"
+        )
+
+    async def test_a_held_plan_file_is_not_superseded(self, app, client, setup):
+        """An ordinary newer run discards an older `planned` run. It must not
+        discard a saved plan: someone is holding that file, and invalidating it
+        because a colleague queued a run is the surprise this feature removes.
+        What DOES invalidate it is the state moving, which
+        `test_a_saved_plan_still_goes_stale_when_state_moves` pins.
+        """
+        pool_id, listener_id = setup
+        ws_id = await _create_remote_workspace(client, pool_id, "savedplan-nosupersede")
+
+        saved = await _create_run(client, ws_id, **{"save-plan": True})
+        await _run_plan_lifecycle(client, listener_id, saved["id"])
+        assert (await _get_run(client, saved["id"]))["attributes"]["status"] == "planned"
+
+        await _create_run(client, ws_id, message="newer ordinary run")
+
+        after = await _get_run(client, saved["id"])
+        assert after["attributes"]["status"] == "planned", (
+            f"the saved plan was {after['attributes']['status']} — a newer run "
+            "discarded a plan file someone is holding"
+        )
+
+    async def test_a_saved_plan_does_not_supersede_others(self, app, client, setup):
+        """And it does not throw its weight the other way either: until it is
+        confirmed it is not the workspace's desired state, so it discards
+        nobody."""
+        pool_id, listener_id = setup
+        ws_id = await _create_remote_workspace(client, pool_id, "savedplan-notsuperseder")
+
+        ordinary = await _create_run(client, ws_id)
+        await _run_plan_lifecycle(client, listener_id, ordinary["id"])
+        assert (await _get_run(client, ordinary["id"]))["attributes"]["status"] == "planned"
+
+        await _create_run(client, ws_id, **{"save-plan": True}, message="saved")
+        assert (await _get_run(client, ordinary["id"]))["attributes"]["status"] == "planned"
+
+    async def test_applying_a_saved_plan_takes_the_slot_it_deferred(self, app, client, setup):
+        """Confirm is where the deferred apply begins, so confirm is where the
+        serialization it skipped applies. On a free workspace it simply
+        succeeds — and once confirmed it holds the slot like any other apply.
+        """
+        pool_id, listener_id = setup
+        ws_id = await _create_remote_workspace(client, pool_id, "savedplan-confirm")
+
+        saved = await _create_run(client, ws_id, **{"save-plan": True})
+        await _run_plan_lifecycle(client, listener_id, saved["id"])
+
+        resp = await client.post(f"/api/v2/runs/{saved['id']}/actions/apply", headers=AUTH)
+        assert resp.status_code == 200, resp.text
+        assert (await _get_run(client, saved["id"]))["attributes"]["status"] == "confirmed"
+
+        # Now it DOES hold the workspace: an ordinary run queued behind it is
+        # gated, exactly as it would be behind any other confirmed apply.
+        await _create_run(client, ws_id, message="behind the confirmed saved plan")
+        result = await _claim_run(client, listener_id)
+        assert result is not None and result[1] == "apply", (
+            "expected the confirmed saved plan's own apply, not another run's plan"
+        )
+        assert result[0]["id"] == saved["id"]
+
+    async def test_confirm_is_refused_while_another_run_holds_the_workspace(
+        self, app, client, setup
+    ):
+        """Deferring the slot means it may be taken by the time you want it.
+
+        Refused rather than queued or superseded: queueing would make
+        `terraform apply FILE` block silently on somebody else's run, and
+        superseding would discard their planned run to make room for a plan made
+        before theirs. The error names the run in the way.
+        """
+        pool_id, listener_id = setup
+        ws_id = await _create_remote_workspace(client, pool_id, "savedplan-contended")
+
+        saved = await _create_run(client, ws_id, **{"save-plan": True})
+        await _run_plan_lifecycle(client, listener_id, saved["id"])
+
+        # An ordinary run now plans and takes the slot.
+        ordinary = await _create_run(client, ws_id, message="ordinary")
+        await _run_plan_lifecycle(client, listener_id, ordinary["id"])
+        assert (await _get_run(client, ordinary["id"]))["attributes"]["status"] == "planned"
+
+        resp = await client.post(f"/api/v2/runs/{saved['id']}/actions/apply", headers=AUTH)
+        assert resp.status_code == 409, resp.text
+        detail = resp.json()["detail"]
+        assert "awaiting confirmation" in detail or "applying" in detail, detail
+        assert ordinary["id"].removeprefix("run-")[:8] in detail, (
+            f"the refusal should name the run in the way, got: {detail}"
+        )
+
+    async def test_a_saved_plan_still_goes_stale_when_state_moves(self, app, client, setup):
+        """The guard that makes deferral safe.
+
+        A saved plan is exempt from supersede, so the state-serial check is the
+        only thing left stopping an operator applying a plan built against state
+        that has since moved. Folding the deferral into `_is_supersedeable_kind`
+        would have made saved plans the one run kind that never notices — this
+        is the test that would have caught it.
+
+        The state is moved by pushing a version directly rather than by a second
+        apply, because that is the case deferral actually creates: a colleague
+        running `tofu apply` from their own machine while you hold a plan file.
+        """
+        pool_id, listener_id = setup
+        ws_id = await _create_remote_workspace(client, pool_id, "savedplan-stale")
+
+        # A baseline: the saved plan must be built against SOME state, or there
+        # is no serial to have moved and the guard correctly does nothing.
+        await _push_state_version(client, ws_id, serial=1)
+
+        saved = await _create_run(client, ws_id, **{"save-plan": True})
+        await _run_plan_lifecycle(client, listener_id, saved["id"])
+        assert (await _get_run(client, saved["id"]))["attributes"]["status"] == "planned"
+
+        # Somebody else's apply lands underneath it.
+        await _push_state_version(client, ws_id, serial=2)
+
+        resp = await client.post(f"/api/v2/runs/{saved['id']}/actions/apply", headers=AUTH)
+        assert resp.status_code == 409, resp.text
+        after = await _get_run(client, saved["id"])
+        assert after["attributes"]["status"] == "discarded", (
+            "a saved plan built against state that has since moved was still "
+            "applicable — the one guard that makes deferring the apply safe"
+        )
+        assert "state changed since plan" in (after["attributes"]["discard-reason"] or "")
+
+    async def test_save_plan_round_trips(self, app, client, setup):
+        """A CLI reading the run back sees what it asked for."""
+        pool_id, _ = setup
+        ws_id = await _create_remote_workspace(client, pool_id, "savedplan-roundtrip")
+
+        saved = await _create_run(client, ws_id, **{"save-plan": True})
+        assert saved["attributes"]["save-plan"] is True
+        assert (await _get_run(client, saved["id"]))["attributes"]["save-plan"] is True
+
+        ordinary = await _create_run(client, ws_id, **{"plan-only": True})
+        assert ordinary["attributes"]["save-plan"] is False
 
 
 class TestConditionalAutoApplyOrchestration:

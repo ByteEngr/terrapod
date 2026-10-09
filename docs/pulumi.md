@@ -27,6 +27,20 @@ recovers Pulumi's `{org}/{project}/{stack}` without growing a "project" concept
 of its own. The organization is always `default`, as everywhere else in
 Terrapod.
 
+**The project half must match `name:` in `Pulumi.yaml`.** Pulumi resolves a
+stack as `{org}/{project}/{stack}` and takes the project from the program's own
+`Pulumi.yaml`, so a workspace called `billing::dev` in front of a program named
+`payments` is refused outright:
+
+```
+error: provided project name "billing" doesn't match Pulumi.yaml
+```
+
+Nothing checks this before the run, so it surfaces at `pulumi preview` after a
+Job has started. It applies to autodiscovered workspaces too, where the project
+half comes from the *directory* — a directory whose name differs from the
+program's is the same mismatch.
+
 A stack can be created by hand, or discovered. **Autodiscovery understands
 Pulumi**: a rule with `engine: pulumi` watches a monorepo for
 `Pulumi.<stack>.yaml` files and creates a workspace per stack, so one directory
@@ -70,6 +84,125 @@ for a Pulumi run at the same four points, around the preview and the update. A
 hook that exits non-zero fails the run, so a `pre_apply` hook that refuses means
 nothing is applied.
 
+### Stack configuration
+
+A Pulumi program reads its settings from Pulumi's stack config, and a workspace
+supplies them with its ordinary variables — the ones in the **`native`**
+category, which is the same category a Terraform workspace's input variables are
+in. There is no Pulumi-specific category, because there is no separate thing to
+name: every engine has exactly one channel for "the parameters the platform
+supplies to this run", and only the *delivery* differs. So a variable is set the
+same way here as anywhere (see [Variables](api-reference.md#variables)),
+encrypted at rest, deliverable from a variable set, and able to take its value
+from [OpenBao (or HashiCorp Vault)](vault.md) at run time.
+
+The TFE-compatible surface calls this category `terraform` and always will — a
+`tofu`/`terraform` client holds that name as a constant. So `category =
+"terraform"` in the provider, in `tfci`, or in an `/api/v2` request is the right
+thing to write on a Pulumi workspace too; it is the same category under the name
+that surface uses.
+
+There is no tfvars file to render into, because Pulumi has none: config is a
+flat key/value namespace the program reads at will, and nothing declares it in
+advance. So Terrapod delivers it the way Pulumi's own users do — `pulumi config
+set` against the selected stack, run before anything reads it. That happens
+after the stack is selected and before the `pre_plan` hook, so a hook that
+inspects `pulumi config` sees what the run will actually use rather than only
+what the repository committed. The preview and the update run in different pods,
+so it happens once in each, exactly as dependency installation does.
+
+This is the agent-mode path. A `pulumi up` from your own machine uses the config
+in your own checkout; a workspace's variables are not delivered to it.
+
+**Keys pass through verbatim, and nothing is prefixed.** A variable keyed
+`region` is set as `region`, and one keyed `aws:region` as `aws:region`. The
+runner already executes in the project directory, so the CLI namespaces an
+unqualified key to the project named in `Pulumi.yaml` itself — `region` becomes
+`myproject:region` unaided — while the explicit `namespace:key` form, which is
+how provider config such as `aws:region` is written, survives untouched.
+Terrapod transforms neither, because a transformation here is a thing that can
+be wrong.
+
+Set `structured` on the variable and the key is set with `--path`, so
+`outer.inner` writes a nested value rather than a literal dotted key. It is the
+same flag that makes a Terraform variable a raw HCL expression rather than a
+string: one flag, whose meaning is the engine's.
+
+A value never reaches a command line. Pulumi takes it on stdin, so the run log
+carries the key and the flags only — the same mechanism-rather-than-redaction
+guarantee [private module source auth](module-auth.md) holds, and for the same
+reason: the runner streams its output to the API and the UI. The value arrives
+byte-for-byte, including one that genuinely ends in a newline, which is what
+keeps a PEM key intact.
+
+#### A sensitive value becomes a real Pulumi secret
+
+A variable marked `sensitive` is set with `--secret`. The value
+is then encrypted by the stack's own secrets provider — in agent mode, the one
+Terrapod's service backend holds — and Pulumi's *engine* renders it as
+`[secret]` in the preview a reviewer reads, in the event log, and in any state it
+reaches. Delivered as ordinary config it would sit in plaintext in the stack
+config file and in the preview output, which is the wrong thing to arrive at by
+omission.
+
+Two things it does **not** buy:
+
+- **The masking is Pulumi's, not Terrapod redacting the log.** It covers what
+  the engine prints about the value. A program that reads the value and prints
+  it itself has printed it.
+- **It does not change how Terrapod holds the variable.** That is the ordinary
+  sensitive-variable path — encrypted at rest, never returned by the API.
+
+A stack whose secrets provider has been moved to a passphrase or cloud KMS
+cannot run on an agent at all, secrets or not; see
+[`docs/pulumi-cli-surface.md`](pulumi-cli-surface.md).
+
+#### Merging with a committed `Pulumi.<stack>.yaml`
+
+`pulumi config set` edits the stack's config file in place, so the merge is **per
+key, and Terrapod's value wins**. Given this in the repository:
+
+```yaml
+# Pulumi.dev.yaml
+config:
+  myproject:replicas: "2"
+  myproject:tier: standard
+```
+
+and one workspace variable keyed `replicas` with the value `5` — unqualified, so
+the CLI namespaces it to `myproject:replicas` — the run sees:
+
+| Key | Value | Where it came from |
+|---|---|---|
+| `myproject:replicas` | `5` | The workspace, overwriting the committed `2` |
+| `myproject:tier` | `standard` | The repository. The workspace sets no such key, so the committed one survives untouched |
+
+That is the right way round because a value held in Terrapod is rotatable,
+RBAC'd and audited, and a committed one is none of those.
+
+**A config failure fails the run.** If a key cannot be set, the run stops there
+rather than dropping the entry with a warning. A program running without config
+someone set deliberately is doing something nobody asked for: `config.get` with
+a default would quietly take the default, and only `config.require` would
+complain at all.
+
+#### What Terrapod cannot tell you about config
+
+**Pulumi reports nothing about config that was set and never read.** There is no
+unused-config signal in the CLI or the engine — `pulumi config` has no
+subcommand for it — so Terrapod cannot tell you that a key your program never
+looks at is doing nothing. Nor can it tell you the opposite, that a key the
+program requires was not supplied, until the run asks for it and fails.
+
+Terrapod once reported something adjacent and narrower: whether a variable sat
+in a category the workspace's engine reads at all. That signal is gone, and its
+absence is the fix rather than a loss. It existed because there was a
+Pulumi-specific category and a Terraform-specific one, so a variable could be
+stored in a category nothing would ever read — and the warning was the
+consolation prize for a shape that should not have existed. With one category
+for every engine's parameters, a native variable is always read by whatever
+engine runs, and there is nothing left to warn about.
+
 ### Which Pulumi version a run uses
 
 The workspace pins it, in the same `engine-version` attribute a Terraform
@@ -95,6 +228,45 @@ With the Pulumi engine switched off, none of this is reachable — asking the
 cache to list Pulumi versions is refused rather than answered, so a
 Terraform-only deployment makes no requests on Pulumi's behalf and warms no
 Pulumi binary.
+
+### Where a program's providers come from
+
+A Pulumi program needs two things from the network: its language dependencies,
+below, and its **provider plugins**. Both come from Terrapod.
+
+Plugin downloads are pointed at Terrapod's package cache with
+`PULUMI_PLUGIN_DOWNLOAD_URL_OVERRIDES`, which is set for every run and matches
+every provider — an anchored pattern that failed to match would not error, it
+would silently fall back to `get.pulumi.com`, so a deployment with egress would
+keep working while a sealed one hung on a download nobody could see.
+
+**Pin your provider versions.** An unversioned reference makes Pulumi ask its
+plugin host for the newest release, and a plugin host reached over HTTP cannot
+answer that question:
+
+```
+error: internal error loading package "random": could not find latest version
+for provider random: GetLatestVersion is not supported for plugins from http sources
+```
+
+A program that resolves "latest" on a laptop therefore fails here, and pinning
+is the fix — which is what you want in a platform anyway, since it is the
+difference between a run that is reproducible and one that is not. In a language
+SDK the version is in the dependency manifest; in Pulumi YAML it is
+`options.version` on the resource:
+
+```yaml
+resources:
+  greeting:
+    type: random:RandomPet
+    options:
+      version: "4.21.2"
+```
+
+The credential is carried by a loopback shim inside the Job, not by the CLI —
+the same arrangement Go's module downloads use, and for the same two reasons:
+the client will not send one, and Pulumi prints the URL it fetched from in its
+own warnings, which the runner streams to the API and the UI.
 
 ### What language a program can be written in
 
@@ -185,12 +357,135 @@ zero-change run, and lets conditional auto-apply judge a preview. The digest
 deliberately carries no resource state — Pulumi's events include every
 resource's old and new values, which is where a stack's secrets are.
 
+### Where an agent run's state lives
+
+An agent-mode run points the CLI at Terrapod's own Pulumi service surface — the
+same surface a local `pulumi login` against Terrapod talks to — and drives the
+ordinary update lifecycle against it: begin, checkpoint, complete. The Job holds
+no backend of its own, and the runner is never handed the whole deployment with
+its secrets opened — the service seals and opens them a value at a time, as it
+does for a laptop.
+
+**State is written continuously and published once.** Pulumi checkpoints all the
+way through an update, and each checkpoint is stored durably the moment it
+arrives — nothing is buffered in the Job waiting for the end. What is deferred is
+*publication*: a checkpoint is held against its update and becomes a state
+version only when the update ends, so one update leaves one state version behind
+whatever its status, exactly as one Terraform apply does. An update that changed
+nothing leaves none, and a preview never checkpoints at all.
+
+Publication is deferred so that a reader never sees a half-applied state. That
+matters because another stack's `StackReference` resolves against Terrapod, and
+would otherwise build on outputs that are about to change.
+
+Two things follow that a backend private to the Job could not offer:
+
+- **A repository that commits `secure:` config values works.** Those values are
+  sealed by the service, and the CLI opens them through it.
+- **`StackReference` reads work across stacks**, authorized by the producer
+  workspace's remote-state consumer allowlist — the same grant that authorizes
+  `terraform_remote_state`. See [Remote state](remote-state.md).
+
+## A `pulumi up` from your own machine shows in run history
+
+When you `pulumi login` against Terrapod and run `pulumi up` from your own
+machine, the update becomes a run in the workspace's history: who ran it, when,
+what came of it, and the state version it produced.
+
+This is more than the Terraform path gives you, and the reason is the protocol
+rather than a preference. Pulumi's CLI drives its backend through a
+begin/checkpoint/complete lifecycle, so Terrapod knows when your update starts
+and when it ends. Terraform in local mode tells Terrapod nothing until it
+pushes the finished state, so there is no run to record — only a state version.
+
+Three things follow that are worth knowing:
+
+- **Previews are not recorded.** A `pulumi preview` changes nothing, writes no
+  state version, and cannot checkpoint. A preview also runs constantly while
+  you are working, so recording each one would bury the updates in noise.
+- **The run holds the workspace while it runs.** It is an apply in progress, so
+  Terrapod treats it as one: an agent run will not start against the stack
+  meanwhile, and drift checks are skipped until it finishes. That is the same
+  serialisation a Terraform CLI apply already gets from the workspace lock.
+- **If your CLI dies, the run ends with it.** There is no Kubernetes Job behind
+  this run, so what tells Terrapod you are still there is the update's lease,
+  which your CLI renews as it works. When the lease lapses the run is marked
+  errored and the stack is released — by the same sweep that already promotes
+  an abandoned update's last checkpoint.
+
+## What the workspace shows about a stack's state
+
+A Pulumi workspace's state views work from the deployment Terrapod stores, so
+the state tab shows the stack's resources and its outputs.
+
+- **The resource graph** is built from the deployment's URNs: one node per
+  resource, wired by each resource's `dependencies` and by its `parent` where
+  that parent is a real resource. The root `pulumi:pulumi:Stack` is not drawn —
+  it is the stack itself rather than infrastructure, and since everything in the
+  stack parents to it, drawing it would produce a single hub every other node
+  points at.
+- **Stack outputs** are shown with secrets masked: an output sealed by the
+  stack's secrets provider is reported as present without being revealed, which
+  is the same treatment a sensitive Terraform output gets.
+- **`pulumi stack ls` reports real resource counts**, recorded when each state
+  version is written rather than by reading every stack's whole deployment to
+  print one number.
+
+**Cost estimation and the AI run summary work on a Pulumi run.** A preview's
+steps are translated into the shape the pricing engine reads, so a previewed
+resource is priced wherever its type maps to one the sheet knows, and the
+summary is given the preview as a preview — it talks about URNs and updates
+rather than hunting for a Terraform plan's `resource_changes`. Resources whose
+Pulumi type has no Terraform equivalent are reported unpriced rather than
+guessed at.
+
+**The AI architecture critique is still not shown on a Pulumi workspace.** It
+reasons over Terraform state, which a Pulumi deployment is not, so the tab is
+absent rather than present-and-failing.
+
+
+## Drift detection
+
+Drift detection works on a Pulumi workspace the same way it does on a Terraform
+one: enable it per workspace, and Terrapod queues a plan-only run on the
+interval, then sets the workspace's drift status from what that run found.
+
+The check is **`pulumi preview --refresh`**. The refresh is the whole point:
+`pulumi preview` on its own compares your program against the state Pulumi has
+stored, so a resource someone changed in the cloud console still matches that
+stored state and the preview reports nothing. `--refresh` reads each resource
+back from its provider first, so the comparison is against the world. Refresh is
+already Terrapod's default for every run, so a drift run gets it without asking.
+
+`--expect-no-changes` is deliberately not used, though it is the more obvious
+flag. It makes the CLI exit non-zero when anything differs, which would file
+every drifted workspace as an **errored** run rather than a **drifted** one, and
+the badge exists to tell those apart. The preview's own change report is the
+signal instead.
+
+Two consequences worth knowing:
+
+- **Drift-ignore rules do not apply to Pulumi workspaces**, and the field is
+  hidden on them. The rules are globs over Terraform attribute paths
+  (`aws_instance.web.tags.LastScanned`), and a Pulumi preview produces no such
+  document — so a rule written there would silently match nothing. Until they
+  are defined in URN terms, a Pulumi workspace reports drift unfiltered.
+- **Refresh noise counts as drift.** On Terraform, a provider that rewrites a
+  timestamp on every read is what drift-ignore rules exist to suppress; without
+  them, a Pulumi stack whose provider does that reads as permanently drifted.
+  If that is your stack, the honest answer today is to leave drift detection off
+  on it rather than to learn to ignore the badge.
+
 ## Where Pulumi is not coerced, and why
 
-- **State never lives in Terrapod's Pulumi service during an agent run.** The
-  stack is imported into the Job, worked on against a file backend, and handed
-  back once at the end — exactly as a Terraform run downloads and uploads its
-  state. The service surface (`pulumi login`) is for local-mode use.
+- **A Pulumi agent apply is coupled to API availability; a Terraform one is
+  not.** Pulumi has no defer-writes mode: the CLI checkpoints to its backend as
+  it goes, so an interruption in the middle of an apply can fail an update that a
+  Terraform run — holding `terraform.tfstate` in the Job and pushing it once at
+  the end — would have survived. That is a characteristic of Pulumi rather than
+  something Terrapod chooses, and it is accepted rather than worked around: the
+  alternative, a second state path private to the Job, cost more than it bought.
+  A Pulumi agent apply wants a stable path to the API.
 - **OPA policy sets apply; security scanning does not yet.** A preview produces
   no Terraform plan JSON, so Terrapod builds an OPA input from the engine event
   log instead: each resource's operation, type, URN, declared inputs and changed
@@ -201,14 +496,32 @@ resource's old and new values, which is where a stack's secrets are.
   Checkov and Trivy still read plan JSON, so scanning is refused on a Pulumi
   workspace rather than holding every apply for a result that cannot arrive
   (#1569); the run says so in `meta.not-evaluated-reason`.
+- **Per-workspace cloud identity works, and mints every target rather than a
+  discovered subset.** A Terraform run enumerates its provider configurations
+  with a static `graph` walk and is minted only the ones it uses. There is no
+  equivalent for Pulumi: a program is arbitrary code and its provider instances
+  are built at runtime, so nothing can be walked before `preview` — and
+  `preview` is what needs the credentials. (`pulumi stack graph` reads an
+  existing stack's state, not the program, so it is empty on a first run and
+  never names aliased instances.) So a Pulumi run receives a token for every
+  target its workspace resolves. The cloud-side trust policy is the gate either
+  way, which is what makes the widening acceptable; to narrow it, narrow the
+  workspace's own `oidc_audiences`. See
+  [`docs/cloud-identity.md`](cloud-identity.md#pulumi-every-identity-because-none-can-be-discovered).
 
 ## See also
 
 - [`docs/pulumi-cli-surface.md`](pulumi-cli-surface.md) — the slice of Pulumi's
-  service protocol Terrapod implements, for `pulumi login` against it.
+  service protocol Terrapod implements, which serves both `pulumi login` from a
+  laptop and the CLI inside a runner Job.
+- [`docs/remote-state.md`](remote-state.md) — the consumer allowlist that
+  authorizes a `StackReference` between two stacks.
 - [`docs/policies.md`](policies.md) and
   [`docs/security-scanning.md`](security-scanning.md) — the gates, and what they
   currently do on a Pulumi workspace.
+- [`docs/cloud-identity.md`](cloud-identity.md#pulumi-provider-configuration) —
+  per-workspace OIDC federation, and the Pulumi provider arguments that read the
+  delivered token files.
 - [`docs/autodiscovery.md`](autodiscovery.md) — discovering stacks from a
   monorepo, and how the rename/delete lifecycle reasons per stack rather than
   per directory.

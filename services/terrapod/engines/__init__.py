@@ -80,6 +80,28 @@ class EngineStrategy(Protocol):
     #: failure than not gating at all.
     evaluates_ai_policy: bool
 
+    #: Whether a run of this engine is cost-estimated (#1569). The engine is
+    #: what decides, not the deployment's `cost_estimation.enabled`, because
+    #: the answer is about whether this engine's plan can be priced at all —
+    #: an engine that describes no resources (Ansible has no separable plan)
+    #: has nothing to price, and instructing its runner to try would spend a
+    #: pricesheet download on producing an empty estimate that reads as "this
+    #: change costs nothing".
+    estimates_cost: bool
+
+    #: Whether the architecture critic may reason over this engine's state
+    #: (#1911). The critic compacts a Terraform **state v4** document into a
+    #: resource graph and grounds its findings in a cost estimate built the same
+    #: way, so an engine whose state is not that document must answer False.
+    #:
+    #: This one fails the way `honours_drift_ignore_rules` does, not the way the
+    #: gates do: `build_graph_from_state` handed a Pulumi deployment does not
+    #: raise -- it finds no `mode`/`name`/`instances` and returns an EMPTY graph.
+    #: The critic would then describe an architecture of nothing, in confident
+    #: prose, and present it to an operator as a review of their stack. A wrong
+    #: answer that reads as a right one, which is worse than no critique.
+    critiques_architecture: bool
+
     #: Whether `drift_ignore_rules` may be applied to this engine's drift run
     #: (#1561). The rules are globs over Terraform attribute PATHS, matched by
     #: `drift_ignore_classifier` against `resource_changes`/`resource_drift` in
@@ -91,31 +113,35 @@ class EngineStrategy(Protocol):
     #: fallbacks fire, because nothing errored.
     honours_drift_ignore_rules: bool
 
+    #: Whether this engine can tell the platform which provider configurations a
+    #: run uses, before the run executes (#2006). Terraform can: `graph` is a
+    #: static walk of the configuration, so the cloud-identity phase enumerates
+    #: the provider configurations and prunes the ones nothing references.
+    #:
+    #: Pulumi cannot, and the reason is structural rather than a missing feature:
+    #: a Pulumi program is arbitrary code and provider instances are constructed
+    #: at runtime, so there is nothing to walk before the program runs -- and the
+    #: thing that would run it, `preview`, is precisely what needs the
+    #: credentials. `pulumi stack graph` reads an existing stack's STATE, not the
+    #: program, so it cannot answer on a first run and never enumerates aliased
+    #: instances the program builds.
+    #:
+    #: False therefore means "mint every identity this workspace resolves",
+    #: which is a widening and is deliberate: Terrapod keeps no central
+    #: restriction on which targets a workspace may mint for, and the cloud-side
+    #: trust policy is the gate. Discovery was always described as a filter
+    #: rather than the source of truth -- an engine that cannot discover simply
+    #: does not get the filter.
+    #:
+    #: **Read by the API, not the runner.** The runner image does not ship
+    #: `terrapod.engines` (see `Dockerfile.runner`), and the API has the better
+    #: answer anyway: it reads the engine off the workspace row rather than
+    #: trusting a runner's claim about which engine it is.
+    discovers_provider_configurations: bool
+
     def build_job_spec(self, **kwargs: Any) -> dict:
         """Build the Kubernetes Job spec for one phase of a run."""
         ...
-
-
-def engine_enabled(engine: str) -> bool:
-    """Whether an engine is offered by this deployment (#1429).
-
-    Defined here rather than in `services/engine_gating.py` because the listener
-    image ships `engines/` and no `services/` — so a gate living there could not
-    be consulted by the strategy registry, and the registry is where gating a
-    *strategy* has to happen. `engine_gating` imports this rather than declaring
-    a second copy, so there is one answer to "is this engine on".
-
-    Terraform is always enabled: it is not an optional engine, it is what
-    Terrapod is.
-    """
-    if engine == DEFAULT_ENGINE:
-        return True
-    from terrapod.config import settings
-
-    config = getattr(settings.engines, engine, None)
-    if config is None:
-        raise ValueError(f"unknown engine: {engine}")
-    return bool(config.enabled)
 
 
 def strategy_for(engine: str | None) -> EngineStrategy:
@@ -127,14 +153,6 @@ def strategy_for(engine: str | None) -> EngineStrategy:
     """
     key = (engine or DEFAULT_ENGINE).strip().lower()
     strategy = _REGISTRY.get(key)
-    if strategy is not None and not engine_enabled(key):
-        # Distinguished from "unknown" deliberately. An operator who turned the
-        # engine off wants to be told that, not that Terrapod has never heard of
-        # it — the two have completely different fixes.
-        raise ValueError(
-            f"engine {key!r} is not enabled on this deployment "
-            f"(set engines.{key}.enabled to turn it on)"
-        )
     if strategy is None:
         # Deliberately not a silent fallback. An unknown engine means a row was
         # written by a newer replica mid-rollout, or by hand; running it as
@@ -172,6 +190,35 @@ def evaluates_ai_policy(engine: str | None) -> bool:
     return True if strategy is None else strategy.evaluates_ai_policy
 
 
+def estimates_cost(engine: str | None) -> bool:
+    """Whether a run of this engine is cost-estimated (#1569).
+
+    **An unknown engine answers False**, with the three gate predicates above —
+    which answer True — and with `honours_drift_ignore_rules`, which does not.
+    The direction is set by what the wrong answer costs, not by consistency:
+    those three are gates, so answering True keeps them failing closed. Here
+    the wrong answer is a NUMBER shown to an operator. A plan from an engine
+    nobody can vouch for prices nothing, and an estimate of nothing is
+    indistinguishable from a change that is genuinely free. Saying "not
+    estimated" is the honest answer for a row we cannot read.
+    """
+    strategy = _REGISTRY.get((engine or DEFAULT_ENGINE).strip().lower())
+    return False if strategy is None else strategy.estimates_cost
+
+
+def critiques_architecture(engine: str | None) -> bool:
+    """Whether the architecture critic may reason over this engine's state (#1911).
+
+    **An unknown engine answers False**, for the same reason as `estimates_cost`:
+    the wrong answer here is not a held apply, it is a confident description of a
+    stack shown to an operator. A state document nobody can vouch for compacts to
+    an empty graph, and a critique of an empty graph is indistinguishable from a
+    critique of a simple system.
+    """
+    strategy = _REGISTRY.get((engine or DEFAULT_ENGINE).strip().lower())
+    return False if strategy is None else strategy.critiques_architecture
+
+
 def honours_drift_ignore_rules(engine: str | None) -> bool:
     """Whether a drift run of this engine may be filtered by `drift_ignore_rules`.
 
@@ -187,13 +234,34 @@ def honours_drift_ignore_rules(engine: str | None) -> bool:
     return False if strategy is None else strategy.honours_drift_ignore_rules
 
 
+def discovers_provider_configurations(engine: str | None) -> bool:
+    """Whether this engine can enumerate its run's provider configurations.
+
+    **An unknown engine answers True**, which is the conservative direction
+    here even though it is the noisier one. True sends the runner to the
+    engine's graph command; for an engine nobody has vouched for that command
+    does not exist, so discovery reports `failed` and the mint is refused with a
+    409 -- loud, and only for a workspace that actually holds identity, because
+    the endpoint answers 204 on an empty mapping before it looks at the outcome.
+
+    Answering False instead would hand an unvouched-for engine a token for every
+    identity the workspace resolves, on the strength of a registry entry nobody
+    has reviewed. Between a run that fails with a reason and a run that quietly
+    gets more credentials than anyone chose, #1442 settles it: the failure mode
+    of this credential is escalation, not absence.
+    """
+    strategy = _REGISTRY.get((engine or DEFAULT_ENGINE).strip().lower())
+    return True if strategy is None else strategy.discovers_provider_configurations
+
+
 def known_engines() -> tuple[str, ...]:
     """Every engine this deployment can run, for validation and error messages.
 
-    Filtered by the gate, so a gated-off engine is absent rather than listed and
-    then refused — the same rule the surfaces follow.
+    Every registered engine, unconditionally. There is no on/off switch to filter
+    by (#1986): the platform offers what it can run, and a deployment that uses
+    only terraform/tofu simply never names another one.
     """
-    return tuple(sorted(name for name in _REGISTRY if engine_enabled(name)))
+    return tuple(sorted(_REGISTRY))
 
 
 def _build_registry() -> dict[str, EngineStrategy]:

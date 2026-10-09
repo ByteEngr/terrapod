@@ -1,9 +1,16 @@
-"""The run-artifact endpoints a Pulumi agent run hands its stack over through (#1576).
+"""The run-artifact endpoints a Pulumi agent run once handed its stack over through.
 
-Agent runs keep the stack in a file backend inside the Job and never use
-Terrapod as a live Pulumi backend. These two endpoints are the whole exchange:
-the deployment comes in with its secrets opened, and goes back once after an
-update, to be sealed and stored as the next state version.
+Two endpoints, and they were the whole exchange under #1576: the deployment came
+out with its secrets opened for the Job's own file backend to import, and went
+back once after an update, to be sealed and stored as the next state version.
+
+**No agent run calls them any more (#1881).** The runner drives Terrapod's Pulumi
+service surface directly and its state is checkpointed there, so nothing in a Job
+fetches or uploads a deployment. The routes are kept because retiring an API
+surface is its own decision rather than a side effect of moving the runner's
+state, and because a runner image may lag the API by two minors — so the callers
+that remain are exactly the ones a change here would break. They are tested as
+the contract they still are.
 """
 
 from __future__ import annotations
@@ -19,12 +26,13 @@ from httpx import ASGITransport, AsyncClient
 
 from terrapod.api.app import create_application as create_app
 from terrapod.api.dependencies import AuthenticatedUser, get_current_user
-from terrapod.config import settings
 from terrapod.db.models import Run, StateVersion, Workspace
 from terrapod.db.session import get_db
 from terrapod.services.pulumi_state_service import SECRET_SIG, SECRET_SIG_KEY
 
-pytestmark = pytest.mark.asyncio
+#: Applied per class rather than to the module: the one plain function at the
+#: bottom is synchronous, and a module-wide asyncio mark warns about it.
+_ASYNC = pytest.mark.asyncio
 
 _BASE = "http://test"
 _MOD = "terrapod.api.routers.run_artifacts"
@@ -118,8 +126,6 @@ class _Harness:
 
     def __enter__(self) -> _Harness:
         self._stack = ExitStack()
-        # The routes are mounted only with the Pulumi engine on (#1429).
-        self._stack.enter_context(patch.object(settings.engines.pulumi, "enabled", True))
         for target in (
             patch("terrapod.api.app.init_storage", new_callable=AsyncMock),
             patch("terrapod.api.app.init_redis"),
@@ -149,6 +155,8 @@ class _Harness:
 
 
 class TestDownload:
+    pytestmark = _ASYNC
+
     async def test_a_new_stack_answers_null_not_404(self) -> None:
         """For a runner, a failed download read as "no state" would propose
         creating every resource that already exists — so emptiness is a 200."""
@@ -202,6 +210,8 @@ def _stored_payload(h: _Harness) -> dict:
 
 
 class TestUpload:
+    pytestmark = _ASYNC
+
     async def test_the_stack_is_sealed_and_stored_as_the_next_version(self) -> None:
         run = _run()
         with _Harness(run, _ws(run), latest=_sv(4), stored=STORED) as h:
@@ -285,9 +295,20 @@ class TestUpload:
         assert resp.status_code == 400
 
 
-def test_the_serial_header_matches_the_runners() -> None:
-    """The runner image ships no `api/` package, so the name is written twice."""
-    from terrapod.api.routers.run_artifacts import PULUMI_STATE_SERIAL_HEADER as api_side
-    from terrapod.runner.phases.state import PULUMI_STATE_SERIAL_HEADER as runner_side
+def test_the_serial_header_keeps_its_wire_name() -> None:
+    """Pinned to the literal, because the runner side of the pin is gone.
 
-    assert api_side == runner_side
+    This used to assert the API's constant equalled the runner's copy of it,
+    which was written out separately because the runner image ships no `api/`
+    package to import. Since #1881 the runner does not participate at all — it
+    drives the Pulumi service surface and its state is checkpointed there — so
+    there is no second constant to compare against.
+
+    The header still has to keep its name. These routes are deliberately kept
+    (retiring an API surface is its own decision), and the clients that would
+    read them are runner images old enough to predate #1881 — which, under the
+    N-2 skew guarantee, is exactly the population a rename would break.
+    """
+    from terrapod.api.routers.run_artifacts import PULUMI_STATE_SERIAL_HEADER
+
+    assert PULUMI_STATE_SERIAL_HEADER == "X-Terrapod-State-Serial"

@@ -11,6 +11,7 @@ Endpoints:
 
 import asyncio
 import json
+import uuid
 
 import httpx
 from fastapi import APIRouter, Body, Depends, HTTPException, Path, Request, Response, status
@@ -22,6 +23,7 @@ from terrapod.api.dependencies import AuthenticatedUser, get_current_user, requi
 from terrapod.api.errors import vcs_unavailable
 from terrapod.auth import capabilities as cap
 from terrapod.auth.capabilities import has_capability
+from terrapod.db.models import Workspace
 from terrapod.db.session import get_db
 from terrapod.logging_config import get_logger
 from terrapod.services.workspace_rbac_service import (
@@ -37,19 +39,104 @@ logger = get_logger(__name__)
 # so FastAPI doesn't match "workspace-events" as a workspace_id parameter.
 
 
+#: How long a per-connection readability decision is reused before it is
+#: resolved again. The stream outlives a role change, so an answer cached for the
+#: life of the connection would keep delivering a workspace after the grant that
+#: allowed it was revoked — and would never deliver one newly granted. Short
+#: enough that a permission change is felt in seconds; long enough that a busy
+#: fleet does not resolve the same workspace on every event.
+_READABLE_CACHE_TTL = 30.0
+
+
+class _ReadableWorkspaces:
+    """Per-subscriber "may this principal read workspace X" decisions.
+
+    One instance per SSE connection. It exists because the alternative shapes
+    are both wrong: resolving on every event means a DB round trip per message
+    on a busy fleet, and resolving once at subscribe time freezes the answer for
+    a connection that may be open for hours.
+
+    A workspace that has disappeared, or any resolution failure, is **not
+    readable** — a stream whose filter fails open is a stream with no filter.
+    """
+
+    def __init__(self, user: AuthenticatedUser) -> None:
+        self._user = user
+        self._decisions: dict[str, tuple[bool, float]] = {}
+
+    async def allows(self, workspace_id: str | None) -> bool:
+        if not workspace_id:
+            # Every publisher on this channel sets `workspace_id`, so this is a
+            # malformed or future payload. It cannot be scoped, so it is dropped.
+            return False
+
+        now = asyncio.get_running_loop().time()
+        cached = self._decisions.get(workspace_id)
+        if cached is not None and cached[1] > now:
+            return cached[0]
+
+        allowed = await self._resolve(workspace_id)
+        self._decisions[workspace_id] = (allowed, now + _READABLE_CACHE_TTL)
+        return allowed
+
+    async def _resolve(self, workspace_id: str) -> bool:
+        """Resolve one decision on its own short-lived DB session.
+
+        Never `Depends(get_db)` here — an SSE handler holding a pooled session
+        for the life of the stream exhausts the pool, which is why the auth path
+        beside it is `authenticate_request` rather than the usual dependency.
+        """
+        from terrapod.db.session import get_db_session
+
+        try:
+            ws_uuid = uuid.UUID(str(workspace_id))
+        except ValueError:
+            return False
+
+        try:
+            async with get_db_session() as db:
+                ws = await db.get(Workspace, ws_uuid)
+                if ws is None:
+                    return False
+                caps = await resolve_workspace_capabilities_for(db, self._user, ws)
+                return has_capability(caps, cap.WORKSPACE_READ)
+        except Exception:
+            # Fail closed, and say so — a filter that leaks on a transient
+            # database error is a filter that leaks whenever it matters.
+            logger.warning(
+                "workspace_list_event_filter_failed",
+                workspace_id=str(workspace_id),
+                exc_info=True,
+            )
+            return False
+
+
 @router.get("/workspace-events")
 async def workspace_list_events(
     request: Request,
 ) -> EventSourceResponse:
     """Stream workspace list events via SSE for real-time updates.
 
-    Any authenticated user can subscribe. Uses short-lived DB session
-    for auth, then releases before SSE streaming.
+    Any authenticated user can subscribe, but **each event is filtered against
+    the subscriber's own `workspace:read`** (GHSA-mc7f-xmq4-jgvw). The channel is
+    one global Redis channel carrying every workspace's id and coarse status, so
+    before the filter any authenticated user learned of the existence and state
+    of every workspace in the deployment, RBAC notwithstanding.
+
+    Filtering here rather than at the publisher is deliberate: there is one
+    channel and N subscribers with different grants, so the decision belongs to
+    the reader. It costs the UI nothing — the workspace list page reloads on any
+    event and ignores the payload, so a dropped event is a reload that would
+    have found nothing changed.
+
+    Uses a short-lived DB session for auth, then releases it before streaming;
+    each filter decision takes its own, briefly (see `_ReadableWorkspaces`).
     """
     from terrapod.api.dependencies import authenticate_request
     from terrapod.redis.client import WORKSPACE_LIST_EVENTS_CHANNEL, subscribe_channel
 
-    await authenticate_request(request)
+    user = await authenticate_request(request)
+    readable = _ReadableWorkspaces(user)
 
     pubsub = await subscribe_channel(WORKSPACE_LIST_EVENTS_CHANNEL)
 
@@ -64,6 +151,8 @@ async def workspace_list_events(
                     if isinstance(data, bytes):
                         data = data.decode()
                     payload = json.loads(data)
+                    if not await readable.allows(payload.get("workspace_id")):
+                        continue
                     yield {
                         "event": payload.get("event", "update"),
                         "data": json.dumps(payload),
@@ -80,6 +169,7 @@ async def workspace_list_events(
 
 @router.get("/workspaces/{workspace_id}/vcs-refs")
 async def list_vcs_refs(
+    request: Request,
     workspace_id: str = Path(...),
     user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -97,7 +187,7 @@ async def list_vcs_refs(
         _resolve_branch,
     )
 
-    ws = await _get_workspace_by_id(workspace_id, db)
+    ws = await _get_workspace_by_id(workspace_id, db, request=request)
     caps = await resolve_workspace_capabilities_for(db, user, ws)
     if not has_capability(caps, cap.WORKSPACE_READ):
         raise HTTPException(
@@ -111,6 +201,25 @@ async def list_vcs_refs(
     conn = await db.get(VCSConnection, ws.vcs_connection_id)
     if not conn or conn.status != "active":
         raise HTTPException(status_code=422, detail="VCS connection is not active")
+
+    # GHSA-v8g7-pqrj-8mcm named this endpoint specifically: it answers "which
+    # branches and tags does this repository have" at workspace-READ, which makes it
+    # a private-repository oracle for anything the connection's credential can
+    # reach. The connection gate on create and PATCH is what stops an unentitled
+    # workspace existing; this is what stops an allowlisted connection being read
+    # through for a repository it is not scoped to.
+    from terrapod.services.vcs_connection_rbac import (
+        repository_allowed,
+        repository_refusal_detail,
+    )
+
+    if not repository_allowed(conn, ws.vcs_repo_url):
+        raise HTTPException(
+            status_code=403,
+            detail=repository_refusal_detail(
+                conn.id, ws.vcs_repo_url, list(conn.allowed_repositories or [])
+            ),
+        )
 
     parsed = _parse_repo_url(conn, ws.vcs_repo_url)
     if not parsed:
@@ -138,6 +247,7 @@ async def list_vcs_refs(
 
 @router.post("/workspaces/{workspace_id}/actions/dismiss-drift")
 async def dismiss_drift(
+    request: Request,
     workspace_id: str = Path(...),
     user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -156,7 +266,7 @@ async def dismiss_drift(
     """
     from terrapod.api.routers.tfe_v2 import _get_workspace_by_id
 
-    ws = await _get_workspace_by_id(workspace_id, db)
+    ws = await _get_workspace_by_id(workspace_id, db, request=request)
     caps = await resolve_workspace_capabilities_for(db, user, ws)
     if not has_capability(caps, cap.DRIFT_DISMISS):
         raise HTTPException(
@@ -235,6 +345,31 @@ async def show_state_graph(
     )
 
 
+@router.get("/workspaces/{workspace_id}/state-outputs")
+async def show_state_outputs(
+    workspace_id: str = Path(...),
+    user: AuthenticatedUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """A workspace's current state outputs, secrets masked (#1568).
+
+    Terrapod-native and engine-aware: a Pulumi stack's outputs live on the root
+    `pulumi:pulumi:Stack` resource inside its deployment, a Terraform state's at
+    the top level. Both are read here so the workspace has one place to show
+    them, which it has never had for either engine.
+
+    A sensitive value is reported as present but not revealed. Gated on
+    `state:read`, the same trust as the state graph, because both are derived
+    from the secret-bearing state blob.
+    """
+    from terrapod.services import state_graph_service
+
+    outputs = await state_graph_service.derive_state_outputs(db, user, workspace_id)
+    return JSONResponse(
+        content={"data": {"id": "state-outputs", "type": "state-outputs", "attributes": outputs}}
+    )
+
+
 # ── AI architecture critic (#1036 Part 2 / #963) ─────────────────────────────
 # State-based, whole-system critique. Read is gated on `state:read` (same trust
 # as the state-graph — derived from the secret-bearing state). The critique is
@@ -272,12 +407,17 @@ def _critique_json(c, *, translated_fields: dict | None = None, translated: bool
 
 
 async def _resolve_workspace_state_read(
-    db: AsyncSession, user: AuthenticatedUser, workspace_id: str
+    db: AsyncSession, user: AuthenticatedUser, workspace_id: str, request: Request
 ):
-    """Resolve the workspace and enforce ``state:read``; return the Workspace."""
+    """Resolve the workspace and enforce ``state:read``; return the Workspace.
+
+    Takes the request only to hand it to the shared loader: this router is native
+    and must serve every engine, and the loader reads an absent request as the
+    compatibility surface (#1911).
+    """
     from terrapod.api.routers.tfe_v2 import _get_workspace_by_id
 
-    ws = await _get_workspace_by_id(workspace_id, db)
+    ws = await _get_workspace_by_id(workspace_id, db, request=request)
     caps = await resolve_workspace_capabilities_for(db, user, ws)
     if not has_capability(caps, cap.STATE_READ):
         raise HTTPException(
@@ -313,7 +453,7 @@ async def get_architecture_critique(
     if not settings.ai_architecture.enabled:
         raise HTTPException(status_code=404, detail="architecture critic not enabled")
 
-    ws = await _resolve_workspace_state_read(db, user, workspace_id)
+    ws = await _resolve_workspace_state_read(db, user, workspace_id, request)
     sv = (
         await db.execute(
             select(StateVersion)
@@ -355,6 +495,7 @@ async def get_architecture_critique(
 
 @router.post("/workspaces/{workspace_id}/architecture-critique/regenerate")
 async def regenerate_architecture_critique(
+    request: Request,
     workspace_id: str = Path(...),
     user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -370,7 +511,7 @@ async def regenerate_architecture_critique(
     if not settings.ai_architecture.enabled:
         raise HTTPException(status_code=404, detail="architecture critic not enabled")
 
-    await _resolve_workspace_state_read(db, user, workspace_id)
+    await _resolve_workspace_state_read(db, user, workspace_id, request)
 
     from terrapod.services.scheduler import enqueue_trigger
 
@@ -439,7 +580,7 @@ async def list_architecture_critique_messages(
 
     if not settings.ai_architecture.enabled:
         raise HTTPException(status_code=404, detail="architecture critic not enabled")
-    ws = await _resolve_workspace_state_read(db, user, workspace_id)
+    ws = await _resolve_workspace_state_read(db, user, workspace_id, request)
     critique = await critic.current_critique_for_workspace(db, ws.id)
     if critique is None:
         raise HTTPException(status_code=404, detail="no critique for current state")
@@ -470,7 +611,7 @@ async def post_architecture_critique_message(
 
     if not settings.ai_architecture.enabled:
         raise HTTPException(status_code=404, detail="architecture critic not enabled")
-    ws = await _resolve_workspace_state_read(db, user, workspace_id)
+    ws = await _resolve_workspace_state_read(db, user, workspace_id, request)
 
     try:
         body = await request.json()
@@ -523,11 +664,10 @@ async def create_workspace(
     whose `stack init` used to create one implicitly (#1535). A CLI creating a
     platform resource means no RBAC review and no record of where it came from.
 
-    `engine` is validated against `known_engines()`, which is already filtered by
-    the engine gate — so an engine this deployment has turned off is *absent*
-    from the list rather than listed and then refused, and the error names what
-    is actually available. Omitting it yields Terraform, which is what every
-    existing caller sends, so this stays additive.
+    `engine` is validated against `known_engines()`, which is every engine this
+    build contains — there is no on/off switch to filter it (#1986), so a name
+    that is absent is one Terrapod cannot run at all. Omitting it yields
+    Terraform, which is what every existing caller sends, so this stays additive.
     """
     from terrapod.api.routers.tfe_v2 import _create_workspace_impl
     from terrapod.engines import DEFAULT_ENGINE, known_engines
@@ -537,19 +677,19 @@ async def create_workspace(
 
     available = known_engines()
     if engine not in available:
-        # One message for "never heard of it" and "turned off" would send an
-        # operator to the wrong fix, so say which engines this deployment offers
-        # and let the difference be visible.
+        # There is no setting to point at any more (#1986): an engine Terrapod
+        # can run is always listed, so an unlisted name is one this build does
+        # not contain — a typo, or a row written by a newer replica.
         raise HTTPException(
             status_code=422,
             detail=(
                 f"engine must be one of: {', '.join(available)} "
-                f"(got {engine!r}; an engine that is installed but disabled is "
-                f"not listed — enable it with engines.{engine}.enabled)"
+                f"(got {engine!r}, which this Terrapod cannot run)"
             ),
         )
 
-    return await _create_workspace_impl(body, user, db, engine=engine)
+    # Native surface only — this router is never mounted under /api/tfe/v2.
+    return await _create_workspace_impl(body, user, db, engine=engine, tfe=False)
 
 
 # ── workspace read, update and list (native surface, every engine) ───────────
@@ -675,7 +815,11 @@ async def show_workspace(
     latest = await _latest_runs_any_engine([ws.id], db)
     return JSONResponse(
         content=_workspace_json(
-            ws, caps, latest_run=latest.get(ws.id), live_pool_ids=await _resolve_live_pools([ws])
+            ws,
+            caps,
+            latest_run=latest.get(ws.id),
+            live_pool_ids=await _resolve_live_pools([ws]),
+            tfe=False,
         )
     )
 
@@ -703,7 +847,7 @@ async def update_workspace(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Requires '{cap.WORKSPACE_SETTINGS}' capability on workspace",
         )
-    return await tfe_v2.update_workspace(ws, caps, body, user, db)
+    return await tfe_v2.update_workspace(ws, caps, body, user, db, tfe=False)
 
 
 @router.delete("/workspaces/{workspace_id}")

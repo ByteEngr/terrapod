@@ -16,11 +16,30 @@ the update runs:
 Previews take no lock: they write no state, and taking one made concurrent
 previews collide.
 
+**An agent run's update does not take this lock either, although since #1881 it
+drives the same surface.** It would refuse itself — the check is "a run on this
+workspace is applying", and that run is the one asking — and it does not need
+to: the dispatcher already permits one apply-capable run per workspace, and
+`confirm_run` already refuses on a manual lock. What an agent update does take
+is the Redis stack mutex, which is what stops a local `pulumi up` starting
+alongside it. So the workspace lock stays what it is on the Terraform path: the
+CLI/manual lock, never something run activity sets.
+
 **Why a sweep.** The update's lease lives in Redis with a TTL, and an update
 whose CLI dies simply stops renewing it. The workspace lock is a database row
 and has no TTL, so something has to notice the lease is gone and release the
 row. `sweep_abandoned_updates` is that something, run periodically by the
 scheduler.
+
+**Why more than a sweep.** The sweep infers death from a lapsed lease, which for
+a local CLI is the best available signal — nothing else knows the process is
+gone. An agent run is different: the listener reports its Job's outcome and the
+reconciler acts on it, so Terrapod *knows* the run is over rather than inferring
+it from silence. `handle_run_ended` ends that run's update at that moment
+instead of leaving it to the next sweep cycle (#1882). The difference is
+latency, not correctness — the sweep already promotes every abandoned
+checkpoint — but the workspace lock is what holds the next apply back, so the
+delay shows up as a stack that will not start.
 
 The lock id names the update (`pulumi-update:<id>`), so releasing is always
 conditional on the lock still being this update's. An operator can still clear
@@ -46,6 +65,9 @@ LEASE_TTL_SECONDS = 30 * 60
 
 #: Every workspace lock a Pulumi update takes starts with this.
 LOCK_ID_PREFIX = "pulumi-update:"
+
+#: The triggered task that ends an agent run's update once the run is over.
+RUN_ENDED_TRIGGER = "pulumi_run_ended"
 
 #: Run statuses in which an agent apply is changing, or about to change, state.
 _APPLYING = ("confirmed", "applying")
@@ -95,6 +117,24 @@ async def _publish(workspace_id: uuid.UUID, *, locked: bool) -> None:
         logger.debug("Failed to publish workspace_lock_change", workspace_id=str(workspace_id))
 
 
+def _lock_row(workspace_id: uuid.UUID):  # type: ignore[no-untyped-def]
+    """The workspace row, locked `FOR UPDATE OF workspaces`.
+
+    **`of=` is load-bearing, and its absence was a live 500.** `Workspace` eagerly
+    joins `vcs_connection` (`lazy="joined"`) on a nullable foreign key, so the ORM
+    renders a LEFT OUTER JOIN — and Postgres refuses a bare `FOR UPDATE` over one:
+
+        FOR UPDATE cannot be applied to the nullable side of an outer join
+
+    Naming the entity locks only the `workspaces` row, which is the row these
+    functions actually contend for, and leaves the join alone.
+
+    This is the one place the lock row is read, so both the taker and the releaser
+    are fixed by it and neither can drift back.
+    """
+    return select(Workspace).where(Workspace.id == workspace_id).with_for_update(of=Workspace)
+
+
 async def take_workspace_lock(db: AsyncSession, workspace_id: uuid.UUID, update_id: str) -> None:
     """Lock the workspace for a local update, or raise `LockRefused` saying why.
 
@@ -121,9 +161,7 @@ async def take_workspace_lock(db: AsyncSession, workspace_id: uuid.UUID, update_
             "update again"
         )
 
-    ws = (
-        await db.execute(select(Workspace).where(Workspace.id == workspace_id).with_for_update())
-    ).scalar_one_or_none()
+    ws = (await db.execute(_lock_row(workspace_id))).scalar_one_or_none()
     if ws is None:
         raise LockRefused("the stack's workspace no longer exists")
     if ws.locked:
@@ -151,9 +189,7 @@ async def release_workspace_lock(db: AsyncSession, workspace_id: uuid.UUID, upda
     Returns whether it did. A lock that has since been force-unlocked, or taken
     by something else, is left alone.
     """
-    ws = (
-        await db.execute(select(Workspace).where(Workspace.id == workspace_id).with_for_update())
-    ).scalar_one_or_none()
+    ws = (await db.execute(_lock_row(workspace_id))).scalar_one_or_none()
     if ws is None or ws.lock_id != lock_id_for(update_id):
         await db.rollback()
         return False
@@ -167,6 +203,101 @@ async def release_workspace_lock(db: AsyncSession, workspace_id: uuid.UUID, upda
         "pulumi_update_released_workspace", workspace_id=str(workspace_id), update_id=update_id
     )
     return True
+
+
+def decode_record(raw: dict | None) -> dict[str, str]:
+    """A Redis hash as plain strings, whichever way the client returned it."""
+    return {
+        (k.decode() if isinstance(k, bytes) else str(k)): (
+            v.decode() if isinstance(v, bytes) else str(v)
+        )
+        for k, v in (raw or {}).items()
+    }
+
+
+async def handle_run_ended(payload: dict) -> None:
+    """End the update an agent run left behind, now that the run is over (#1882).
+
+    Registered as a triggered task when the Pulumi engine is on, and enqueued
+    from `run_service.transition_run` for every terminal state — cancelled,
+    OOM-killed, node preempted, errored by the reconciler, and applied too,
+    since a CLI that died just after its last checkpoint leaves exactly the same
+    residue as one that was killed.
+
+    **Which update is this run's.** The stack mutex names the update in flight
+    on the stack, and the update's record says which run began it (`run_id`,
+    written by `_begin_update` for a runner token). Both have to agree before
+    anything is released: a local `pulumi up` may perfectly well hold this stack
+    — it is refused only while an agent run is *applying*, so one that began
+    before this run reached that point is legitimate — and releasing its lock
+    would let a second update start alongside it. An update record that has
+    already lapsed is left alone too: that is precisely the sweep's case, and it
+    can promote what we no longer have the identity to claim.
+
+    A preview is found by neither, because it takes no mutex and no lock. It
+    leaves only its own record, which blocks nothing and expires on its own.
+
+    **Ordering.** The last checkpoint becomes a state version *before* anything
+    is released, for the reason the sweep gives: releasing first would leave the
+    checkpoint held against an update nothing will ever look at again. So on any
+    failure here nothing has been let go and the sweep, unchanged, is still the
+    backstop — which is also what makes this safe to race against it. While the
+    record still exists the sweep skips this update entirely; once we delete it
+    the checkpoint object is already gone, so a sweep arriving afterwards
+    promotes nothing and exactly one state version is written.
+    """
+    from terrapod.db.session import get_db_session
+    from terrapod.redis.client import get_redis_client
+    from terrapod.services.pulumi_checkpoint_service import promote_checkpoint
+
+    run_id = payload.get("run_id")
+    workspace_id = payload.get("workspace_id")
+    if not run_id or not workspace_id:
+        return
+
+    redis = get_redis_client()
+    update_id = text_of(await redis.get(stack_lock_key(workspace_id)))
+    if not update_id:
+        return
+    record = decode_record(await redis.hgetall(update_key(update_id)))
+    if not record or record.get("run_id") != str(run_id):
+        return
+
+    async with get_db_session() as db:
+        ws = (
+            await db.execute(select(Workspace).where(Workspace.id == uuid.UUID(workspace_id)))
+        ).scalar_one_or_none()
+        if ws is None:
+            return
+        try:
+            await promote_checkpoint(db, ws, update_id)
+        except Exception:  # noqa: BLE001 — the sweep retries; nothing is released yet
+            await db.rollback()
+            logger.warning(
+                "pulumi_run_ended_checkpoint_not_promoted",
+                workspace_id=workspace_id,
+                update_id=update_id,
+                run_id=run_id,
+                exc_info=True,
+            )
+            return
+
+        await redis.delete(update_key(update_id))
+        # Release only if this update still holds it, exactly as `complete_update`
+        # does: a lapsed lease may already have been replaced by a newer update,
+        # and deleting that one's lock would let a third start alongside it.
+        if text_of(await redis.get(stack_lock_key(workspace_id))) == update_id:
+            await redis.delete(stack_lock_key(workspace_id))
+        released = await release_workspace_lock(db, ws.id, update_id)
+
+    logger.info(
+        "pulumi_run_ended_update_released",
+        workspace_id=workspace_id,
+        update_id=update_id,
+        run_id=run_id,
+        kind=record.get("kind"),
+        workspace_lock_released=released,
+    )
 
 
 async def sweep_abandoned_updates() -> int:
@@ -222,4 +353,52 @@ async def sweep_abandoned_updates() -> int:
                     workspace_id=str(workspace_id),
                     update_id=update_id,
                 )
+            await _end_abandoned_cli_run(db, workspace_id, update_id)
     return released
+
+
+async def _end_abandoned_cli_run(db: AsyncSession, workspace_id: uuid.UUID, update_id: str) -> None:
+    """Error the CLI run of an update whose lease lapsed (#1563).
+
+    **This is the liveness signal for a CLI-driven run.** Terrapod supervises an
+    agent run through its Kubernetes Job; a `pulumi up` on a laptop has no Job,
+    so the reconciler is told to leave those runs alone and the lease takes its
+    place. When the lease lapses the CLI is gone, and the run it left behind has
+    to be ended here or it stays `applying` for ever — holding the workspace
+    against every later apply-capable run, and suppressing drift checks.
+
+    The run is found by workspace rather than read from the update record,
+    because the record's expiry is the very thing that brought us here. That is
+    sound: the stack mutex admits one update at a time, so a workspace has at
+    most one live CLI run.
+    """
+    from terrapod.services import run_service
+
+    run = (
+        (
+            await db.execute(
+                select(Run).where(
+                    Run.workspace_id == workspace_id,
+                    Run.source.in_(run_service.EXTERNALLY_EXECUTED_SOURCES),
+                    Run.status.notin_(run_service.TERMINAL_STATES),
+                )
+            )
+        )
+        .scalars()
+        .first()
+    )
+    if run is None:
+        return
+    await run_service.transition_run(
+        db,
+        run,
+        "errored",
+        error_message="the CLI stopped renewing this update's lease, so it was abandoned",
+    )
+    await db.commit()
+    logger.info(
+        "pulumi_abandoned_cli_run_ended",
+        workspace_id=str(workspace_id),
+        update_id=update_id,
+        run_id=str(run.id),
+    )

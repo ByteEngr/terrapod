@@ -27,6 +27,7 @@
     "account": "Account",
     "apiTokens": "API-tokens",
     "sessions": "Sessies",
+    "slackLinks": "Slack-koppelingen",
     "logOut": "Afmelden",
     "menu": "Menu",
     "openMenu": "Menu openen",
@@ -70,7 +71,6 @@
       "agentPool": "Agent-pool",
       "none": "Geen",
       "autoApply": "Automatisch toepassen",
-      "autoApplyModeHint": "never: wacht altijd op een mens. always: pas elk geslaagd plan toe. create / create/update: pas alleen plannen toe die tot die acties beperkt zijn — nooit een verwijdering of een vervanging.",
       "enabled": "Ingeschakeld",
       "workingDirectory": "Werkmap",
       "workingDirectoryPlaceholder": "bijv. environments/dev",
@@ -372,6 +372,22 @@
         "load": "Kan sessies niet laden",
         "revoke": "Kan sessies niet intrekken ({status})",
         "revokeGeneric": "Kan sessies niet intrekken"
+      }
+    },
+    "slackLinks": {
+      "title": "Slack-koppelingen",
+      "description": "Slack-accounts die namens jou kunnen handelen. Een gekoppeld Slack-account kan runs goedkeuren en verwerpen met jouw rechten, dus trek alles in wat je niet herkent.",
+      "empty": "Er is geen Slack-account aan je gekoppeld.",
+      "revoke": "Intrekken",
+      "confirmRevoke": "De koppeling voor Slack-gebruiker {user} intrekken? Dat account kan dan niet langer namens jou handelen vanuit Slack.",
+      "columns": {
+        "slackUser": "Slack-gebruiker",
+        "team": "Slack-team",
+        "linkedAt": "Gekoppeld"
+      },
+      "errors": {
+        "load": "Je Slack-koppelingen konden niet worden geladen.",
+        "revoke": "Die Slack-koppeling kon niet worden ingetrokken."
       }
     }
   },
@@ -761,7 +777,9 @@
       "setAssignmentStatus": "Kan toewijzing niet instellen ({status})",
       "deleteAssignment": "Kan toewijzing niet verwijderen",
       "conflictingLabelKeys": "{keys} heeft meer dan één waarde. Een labelregel houdt één waarde per sleutel, dus de laatste zou de eerdere stilzwijgend vervangen. Meerdere waarden per sleutel worden door de API ondersteund maar zijn hier nog niet in te stellen."
-    }
+    },
+    "pinnedToSubject": "Vastgezet",
+    "pinnedToSubjectTitle": "Vastgezet op IdP-subject {subject}"
   },
   "adminVcs": {
     "title": "VCS-verbindingen",
@@ -774,6 +792,23 @@
       "delete": "Verwijderen"
     },
     "confirmDelete": "Deze VCS-verbinding verwijderen? Workspaces die deze gebruiken verliezen hun VCS-integratie. Dit kan niet ongedaan worden gemaakt.",
+    "access": {
+      "heading": "Wie deze verbinding mag gebruiken",
+      "intro": "Deze drie instellingen bepalen welke workspaces naar deze verbinding mogen verwijzen. De referentie zelf blijft alleen-schrijven.",
+      "ownerEmail": "E-mail van de eigenaar",
+      "ownerEmailHint": "De eigenaar mag deze verbinding altijd gebruiken. Laat leeg om de verbinding zonder eigenaar te laten.",
+      "labels": "Toegangslabels",
+      "labelsHint": "Een rol waarvan de regels op deze labels passen, mag een workspace naar deze verbinding laten verwijzen.",
+      "allowedRepositories": "Toegestane repository''s",
+      "allowedRepositoriesHint": "Glob-patronen die worden vergeleken met de repository die een workspace wil gebruiken.",
+      "addPattern": "Patroon toevoegen",
+      "anyRepositoryWarning": "Er zijn geen patronen vermeld, dus deze verbinding mag naar elke repository verwijzen.",
+      "restricted": "{count, plural, one {Er is # patroon vermeld} other {Er zijn # patronen vermeld}}, dus een repository die op geen enkele daarvan past, wordt geweigerd.",
+      "ownedBy": "Eigendom van {email}",
+      "unowned": "Er is geen eigenaar ingesteld",
+      "anyRepositorySummary": "Elke repository is toegestaan",
+      "repositoryCount": "Beperkt tot {count, plural, one {# repository} other {# repository''s}}"
+    },
     "form": {
       "name": "Naam",
       "namePattern": "Alleen letters, cijfers, koppeltekens en underscores. Moet met een letter of cijfer beginnen.",
@@ -922,7 +957,6 @@
       "varKey": "Sleutel",
       "varValue": "Waarde",
       "varCategory": "Categorie",
-      "categoryTerraform": "Terraform",
       "categoryEnv": "Omgeving",
       "sensitive": "Gevoelig",
       "sensAbbr": "Gev.",
@@ -988,7 +1022,9 @@
       "valueSource": "Waardebron",
       "valueSourceStatic": "Waarde invoeren",
       "valueSourceVault": "Uit OpenBao/Vault lezen",
-      "vaultHint": "Terrapod leest het geheim tijdens de run uit OpenBao (of HashiCorp Vault). Hier wordt niets opgeslagen."
+      "vaultHint": "Terrapod leest het geheim tijdens de run uit OpenBao (of HashiCorp Vault). Hier wordt niets opgeslagen.",
+      "categoryNative": "Native",
+      "structured": "Gestructureerd"
     }
   },
   "adminAutodiscovery": {
@@ -1076,7 +1112,10 @@
       "terragruntVersion": "Terragrunt-versie",
       "noExpiry": "Geen verval",
       "addDriftIgnoreRule": "Regel toevoegen",
-      "debugModeHint": "Pods van mislukte runners openhouden op de werkruimten die deze regel aanmaakt. Standaard uit — een opengehouden pod behoudt de referenties van die werkruimte."
+      "debugModeHint": "Pods van mislukte runners openhouden op de werkruimten die deze regel aanmaakt. Standaard uit — een opengehouden pod behoudt de referenties van die werkruimte.",
+      "allowForkPrPlansHint": "Geldt voor elke werkruimte die deze regel aanmaakt. Standaard uit: een pull request uit een fork krijgt geen speculatief plan, omdat daarbij de code van de auteur met de referenties van de werkruimte zou draaien.",
+      "oidcAudiences": "Audiences van de uitvoeringsidentiteit (overgenomen door aangemaakte workspaces)",
+      "oidcAudiencesHint": "Audience-overschrijvingen die worden toegepast op elke werkruimte die deze regel aanmaakt, met als sleutel de providerconfiguratie waarvoor een token geldt — aws, of aws.west voor een configuratie met alias. Laat leeg en die werkruimten nemen de eigen configuratie van het deployment over."
     },
     "table": {
       "name": "Naam",
@@ -1270,7 +1309,8 @@
       "cancel": "Annuleren",
       "working": "Bezig...",
       "previewDryRun": "Voorbeeld (proefdraaien)",
-      "applyChanges": "Wijzigingen toepassen"
+      "applyChanges": "Wijzigingen toepassen",
+      "setOidcAudiences": "OIDC-audiences van de uitvoeringsidentiteit instellen (vervangt de map op elke overeengekomen workspace)"
     },
     "diff": {
       "colWorkspace": "Workspace",
@@ -1919,12 +1959,24 @@
       "always": "altijd",
       "create": "aanmaken",
       "createUpdate": "aanmaken/bijwerken"
+    },
+    "oidcAudiences": {
+      "addProvider": "Providerconfiguratie toevoegen",
+      "audiences": "Audiences",
+      "badgeInherited": "Standaard van deployment",
+      "badgeOwned": "Werkruimte",
+      "issuerDisabled": "Dit deployment publiceert geen OpenID Connect-issuer, dus niets wat hier is geconfigureerd kan effect hebben.",
+      "override": "Overschrijven",
+      "overrideAria": "Audiences voor {provider} in deze werkruimte overschrijven",
+      "providerDuplicate": "Voor deze providerconfiguratie bestaat al een vermelding.",
+      "providerInvalid": "Een providernaam bevat geen spaties en maximaal één punt — aws of aws.west.",
+      "providerPlaceholder": "aws of aws.west",
+      "removeProviderAria": "Providerconfiguratie {provider} verwijderen"
     }
   },
   "planSummary": {
     "aiGenerated": "Door AI gegenereerd",
     "heading": {
-      "planSummary": "Plansamenvatting",
       "failureAnalysis": "Foutanalyse"
     },
     "errors": {
@@ -1933,13 +1985,11 @@
     "regenerate": {
       "label": "Opnieuw genereren",
       "queueing": "In wachtrij zetten…",
-      "tooltip": "De AI-samenvatting opnieuw uitvoeren tegen dezelfde plan-inputs",
       "ariaLabel": "AI-samenvatting opnieuw genereren",
       "confirm": "De AI-analyse opnieuw genereren? Hiermee wordt het model opnieuw uitgevoerd.",
       "error": "Kan niet opnieuw genereren: <mono>{detail}</mono>"
     },
     "pending": {
-      "summarisingPlan": "Plan samenvatten…",
       "analysingFailure": "Fout analyseren…"
     },
     "skipped": {
@@ -1963,7 +2013,6 @@
     "badges": {
       "noChanges": "Geen wijzigingen",
       "noChangesLower": "geen wijzigingen",
-      "noChangesTitle": "Plan rapporteerde geen resourcewijzigingen",
       "toAdd": "{count, plural, one {# toe te voegen} other {# toe te voegen}}",
       "toChange": "{count, plural, one {# te wijzigen} other {# te wijzigen}}",
       "toDestroy": "{count, plural, one {# te vernietigen} other {# te vernietigen}}",
@@ -1973,7 +2022,6 @@
     "chat": {
       "heading": "Vervolgvraag",
       "sharedThreadNote": "Eén gedeelde thread, zichtbaar voor iedereen met leestoegang tot de workspace.",
-      "placeholder": "Stel een vervolgvraag over dit plan… (⌘/Ctrl + Enter om te verzenden)",
       "send": "Verzenden",
       "thinking": "Bezig met nadenken…",
       "you": "U",
@@ -1997,7 +2045,6 @@
     "workspaceFallback": "workspace",
     "backTo": "Terug naar {name}",
     "errorHeading": "Fout",
-    "discardedHeading": "Verworpen — opnieuw plannen vereist",
     "common": {
       "yes": "Ja",
       "no": "Nee"
@@ -2051,14 +2098,13 @@
     },
     "badge": {
       "destroy": "vernietigen",
-      "planOnly": "alleen plan"
+      "savedPlan": "opgeslagen plan",
+      "savedPlanHint": "Toepassen uitgesteld: deze run bezet de workspace pas wanneer het opgeslagen plan wordt toegepast."
     },
     "actions": {
       "retryShort": "Opnieuw",
       "retryFull": "Uitvoering opnieuw proberen",
       "retrying": "Bezig met opnieuw proberen…",
-      "confirmShort": "Toepassen",
-      "confirmFull": "Bevestigen & toepassen",
       "confirming": "Bezig met bevestigen…",
       "discard": "Verwerpen",
       "discarding": "Bezig met verwerpen…",
@@ -2068,8 +2114,6 @@
       "queuing": "In wachtrij zetten…"
     },
     "confirm": {
-      "apply": "Deze uitvoering toepassen? Hiermee wordt het plan toegepast en infrastructuur gewijzigd.",
-      "discard": "Dit plan verwerpen?",
       "cancel": "Deze uitvoering annuleren?",
       "retry": "Deze uitvoering opnieuw proberen?"
     },
@@ -2092,20 +2136,19 @@
       "impactFull": "Impactgrafiek",
       "cost": "Kosten",
       "costFull": "Kostenraming",
-      "planLabel": "Plan<log>-logboek</log>",
-      "applyLabel": "Apply<log>-logboek</log>",
-      "planFull": "Plan-logboek",
-      "applyFull": "Apply-logboek",
       "details": "Details",
       "security": "Beveiliging",
       "securityFull": "Beveiligingsscan"
     },
     "banner": {
       "destroy": "Dit is een <strong>destroy</strong>-uitvoering — alle beheerde resources worden vernietigd bij toepassing.",
-      "planOnlyCli": "Dit is een uitvoering met <strong>alleen plan</strong>, gestart vanuit de CLI op een VCS-verbonden workspace. Apply is niet beschikbaar voor via CLI geüploade code — alleen VCS-beheerde code kan worden toegepast.",
       "moduleOverridesPrefix": "Deze uitvoering gebruikt <strong>module-overschrijvingen</strong>",
       "moduleOverridesFromPr": "uit PR #{number}",
       "moduleOverridesSuffix": "worden opgehaald uit de PR-branch in plaats van uit de gepubliceerde registryversie."
+    },
+    "bindPlan": {
+      "bound": "Vastgelegd op dit preview: de update past precies het hier getoonde plan toe, en alles wat sindsdien is veranderd laat de update mislukken in plaats van te worden toegepast.",
+      "unbound": "Niet vastgelegd op dit preview: de update bepaalt zelf zijn wijzigingen wanneer die draait, zoals een gewone pulumi up doet, dus wat er wordt toegepast kan afwijken van wat hier wordt getoond."
     },
     "cards": {
       "changes": "Wijzigingen",
@@ -2117,7 +2160,6 @@
     },
     "changes": {
       "noChanges": "Geen wijzigingen",
-      "planning": "Bezig met plannen…",
       "toAdd": "toe te voegen",
       "toChange": "te wijzigen",
       "toDestroy": "te vernietigen",
@@ -2154,7 +2196,6 @@
       "executionBackend": "Uitvoeringsbackend",
       "source": "Bron",
       "autoApply": "Automatisch toepassen",
-      "planOnly": "Alleen plan",
       "triggeredBy": "Geactiveerd door",
       "created": "Aangemaakt",
       "commit": "Commit",
@@ -2170,11 +2211,7 @@
     "timeline": {
       "heading": "Tijdlijn",
       "queued": "In wachtrij",
-      "planningStarted": "Plannen gestart",
-      "planComplete": "Plan voltooid",
       "confirmed": "Bevestigd",
-      "applyingStarted": "Toepassen gestart",
-      "applied": "Toegepast",
       "errored": "Mislukt",
       "canceled": "Geannuleerd",
       "discarded": "Verworpen"
@@ -2198,12 +2235,8 @@
       "followOffTitle": "De live tail volgen",
       "end": "Einde",
       "endTitle": "Naar het einde van het logboek springen",
-      "planEmpty": "Nog geen planuitvoer beschikbaar.",
-      "applyEmpty": "Nog geen applyuitvoer beschikbaar.",
       "index": {
         "label": "Ga naar",
-        "title": "Ga naar een resourcewijziging of naar de plansamenvatting",
-        "summary": "Plansamenvatting",
         "action": {
           "create": "aanmaken",
           "update": "bijwerken",
@@ -2215,13 +2248,11 @@
           "error": "fout",
           "warning": "waarschuwing"
         }
-      },
-      "applySkippedNoChanges": "Er is niets toegepast: het plan bevatte geen wijzigingen, dus er was niets toe te passen."
+      }
     },
     "policyPanel": {
       "heading": "Beleidscontroles",
       "passedCount": "{passed}/{total} geslaagd",
-      "blockedMessage": "Deze uitvoering wordt <strong>geblokkeerd door een verplichte beleidsset</strong>. Ze wordt niet toegepast totdat de fout is opgelost of een beheerder ze overschrijft.",
       "overriding": "Bezig met overschrijven...",
       "overrideContinue": "Overschrijven & doorgaan",
       "overrideFailed": "Overschrijven mislukt",
@@ -2261,7 +2292,6 @@
       "unpricedHint": "Niets in de prijsgegevens kwam overeen met deze — een niet-toegewezen type, een resource zonder directe kosten of een provider die nog niet wordt ondersteund.",
       "indicative": "Ramingen zijn indicatief; de werkelijke kosten hangen af van gebruik, regio, verplichtingen en kortingen.",
       "asOfState": "vanaf status v{serial}",
-      "noState": "Nog geen kosten — verschijnt na de eerste toepassing.",
       "usageBand": "{dimension}: {typical} {unit} typisch (bereik {low}–{high})",
       "usageBandCost": "{dimension}: {costTypical}/mnd typisch — {costLow}–{costHigh} over {low}–{high} {unit}"
     },
@@ -2348,7 +2378,6 @@
       "passed": "Geen beleidscriteria kwamen overeen.",
       "overriding": "Bezig met overschrijven...",
       "overrideContinue": "Overschrijven & doorgaan",
-      "overrideConfirm": "De AI-beleidspoort overschrijven en deze uitvoering laten toepassen ondanks het oordeel?",
       "overrideFailed": "Overschrijven mislukt",
       "overrideFailedStatus": "Overschrijven mislukt ({status})",
       "overriddenBy": "overschreven door {by}"
@@ -2407,9 +2436,6 @@
       "translatedNote": "Bij weergave vertaald vanuit het origineel."
     },
     "drift": {
-      "remediate": "Plan + apply",
-      "remediateTitle": "Een plan + apply-run in de wachtrij zetten om de infrastructuur weer met de configuratie in lijn te brengen",
-      "remediateConfirm": "Een plan + apply-run voor deze workspace in de wachtrij zetten?",
       "remediateMessage": "In wachtrij gezet vanuit een afwijkingscontrole",
       "remediateFailed": "Kon de herstelrun niet in de wachtrij zetten"
     }
@@ -2469,6 +2495,7 @@
       "architecture": "Architectuur",
       "insights": "Inzichten",
       "automation": "Automatisering",
+      "inventory": "Inventaris",
       "access": "Toegang"
     },
     "lifecycle": {
@@ -2501,6 +2528,9 @@
       "version": "Versie",
       "versionPlaceholder": "bijv. 1.11 of 1.11.5",
       "versionTitle": "Versie in het formaat X.Y of X.Y.Z (bijv. 1.11 of 1.11.5)",
+      "ansibleVersion": "Ansible-versie",
+      "ansibleVersionPlaceholder": "bijv. 2.21.5",
+      "ansibleVersionTitle": "De ansible-core-versie voor deze workspace. Laat leeg om de standaard van de deployment te volgen.",
       "terragruntEnabledAgent": "Ingeschakeld (agentmodus)",
       "terragruntEnabledVersion": "Ingeschakeld (v{version})",
       "terragruntVersionPlaceholder": "bijv. 1.0",
@@ -2541,12 +2571,16 @@
       "engineTerraform": "Terraform",
       "nameTitlePulumi": "Twee delen gescheiden door '::' — project::stack. Alleen letters, cijfers, koppeltekens en underscores; elk deel moet met een letter of cijfer beginnen.",
       "bindPlan": "Update vastleggen op de goedgekeurde preview",
-      "bindPlanHelp": "Als dit aan staat, past de update precies het plan toe dat de preview heeft opgeslagen, zodat alles wat sinds de preview is veranderd de update laat mislukken in plaats van te worden toegepast. Dit steunt op Pulumi-updateplannen, die nog experimenteel zijn. Als dit uit staat, bepaalt de update zelf zijn wijzigingen, zoals een gewone pulumi up doet. <docs>Hoe Pulumi-runs werken</docs>"
+      "bindPlanHelp": "Als dit aan staat, past de update precies het plan toe dat de preview heeft opgeslagen, zodat alles wat sinds de preview is veranderd de update laat mislukken in plaats van te worden toegepast. Dit steunt op Pulumi-updateplannen, die nog experimenteel zijn. Als dit uit staat, bepaalt de update zelf zijn wijzigingen, zoals een gewone pulumi up doet. <docs>Hoe Pulumi-runs werken</docs>",
+      "oidcAudiences": "Audiences van de uitvoeringsidentiteit",
+      "oidcAudiencesAdd": "Audience toevoegen",
+      "oidcAudiencesHint": "Terrapod geeft voor elke providerconfiguratie die een uitvoering gebruikt een kortlevend OpenID Connect-token uit en schrijft het naar een bestand dat de uitvoering kan lezen. Geef een vermelding de provider als sleutel zoals je configuratie die noemt — aws, of aws.west voor een configuratie met alias — en noem de audiences die dat doel accepteert. Elke vermelding overschrijft de eigen configuratie van het deployment voor die provider; verwijder hem en die provider valt terug op de audiences van het deployment. Een audience is een ondoorzichtige tekenreeks die het federatiedoel heeft gekozen, dus hij wordt precies zo opgeslagen als je hem typt.",
+      "oidcAudiencesLoading": "De in het deployment geconfigureerde audiences worden gecontroleerd …",
+      "oidcAudiencesNone": "Geen (uitvoeringen gebruiken de eigen identiteit van de agent-pool)",
+      "oidcAudiencesPlaceholder": "bijv. sts.amazonaws.com"
     },
     "vcsWorkflowWarning": {
       "title": "Autorisatie gedelegeerd aan uw VCS-repository.",
-      "rbac": "Iedereen die de PR kan samenvoegen, kan toepassen. Branch-beschermingsregels (vereiste beoordelingen, statuscontroles, goedkeuring van code-eigenaar) worden de poort. Terrapod-rol-/label-RBAC is in deze modus<em>niet</em> van toepassing op comment-gestuurde acties.",
-      "recommended": "<strong>Aanbevolen:</strong> vereis lineaire geschiedenis (rebase/squash vóór samenvoegen) zodat de commit die u toepast de commit is die landt.",
       "credit": "Met dank: deze workflow is gemodelleerd naar <atlantis>Atlantis</atlantis>. Atlantis blijft de juiste tool voor teams die alleen PR-comment-gestuurde applies willen en geen platform-UI."
     },
     "vcsPolling": {
@@ -2562,7 +2596,6 @@
     },
     "lock": {
       "title": "Vergrendelingsstatus",
-      "lockedDesc": "Deze workspace is vergrendeld. Er kunnen geen plannen of applies worden uitgevoerd.",
       "unlockedDesc": "Deze workspace is ontgrendeld en klaar voor uitvoeringen.",
       "lock": "Vergrendelen",
       "unlock": "Ontgrendelen",
@@ -2584,7 +2617,6 @@
       "dismissTitle": "Wis de gerapporteerde driftstatus. De volgende geplande controle vult deze opnieuw op basis van de werkelijkheid.",
       "lastChecked": "Laatst gecontroleerd",
       "checkNow": "Nu controleren",
-      "checkNowTitle": "Zet een uitvoering met alleen plan in de wachtrij om op drift te controleren",
       "checkNowTitleDisabled": "Schakel eerst driftdetectie in"
     },
     "intervals": {
@@ -2598,13 +2630,10 @@
       "7days": "7 dagen"
     },
     "planExpiry": {
-      "title": "Planverval",
-      "description": "Verwerp een onbevestigd plan automatisch zodra het ouder is dan dit, zodat een verouderd plan niet kan worden toegepast op een veranderde wereld. Standaard uit; het plan moet dan opnieuw worden uitgevoerd. (Alleen van toepassing op apply-capabele uitvoeringen.)",
       "expireAfter": "Verloopt na"
     },
     "aiSummary": {
       "title": "AI-plansamenvatting",
-      "description": "Automatische, door LLM gegenereerde wijzigingssamenvatting, risicobeoordeling en foutanalyse bij elke uitkomst van de planfase voor deze workspace.",
       "mode": "Modus",
       "modeDefault": "Standaard van deployment volgen",
       "modeEnabled": "Altijd samenvatten",
@@ -2619,7 +2648,6 @@
     },
     "slack": {
       "title": "Slack-notificaties",
-      "description": "Meld deze workspace aan voor Slack-uitvoeringsnotificaties — goedkeuringsverzoeken, applies, fouten en drift. Laat het kanaal leeg en deze workspace blijft stil (er is geen deployment-brede fan-out). Vereist dat de Slack-app door een beheerder is ingeschakeld.",
       "channel": "Kanaal",
       "channelPlaceholder": "#deploys of een kanaal-ID (bijv. C0123ABCD)",
       "notSet": "Niet ingesteld — stil.",
@@ -2694,20 +2722,18 @@
       "vaultFileEncoding": "Codering",
       "vaultFileEncodingNone": "Zoals opgeslagen in OpenBao/Vault",
       "vaultFileEncodingBase64": "Base64 decoderen",
-      "vaultFileEncodingHint": "Decodeert het veld voordat het wordt geschreven. Het resultaat moet tekst zijn; binaire bestanden worden niet ondersteund."
+      "vaultFileEncodingHint": "Decodeert het veld voordat het wordt geschreven. Het resultaat moet tekst zijn; binaire bestanden worden niet ondersteund.",
+      "categoryNative": "Native",
+      "structured": "Gestructureerd",
+      "categoryTerraform": "Terraform",
+      "categoryPulumiConfig": "Pulumi-configuratie"
     },
     "runs": {
       "options": "Opties",
       "hideOptions": "Opties verbergen",
       "queueDestroy": "Vernietigen",
-      "queueDestroyTitle": "Zet een destroy-plan in de wachtrij",
       "destroyAllConfirm": "Alle resources vernietigen?",
       "confirmDestroy": "Vernietigen bevestigen",
-      "queuePlan": "Plan",
-      "queueRun": "Plan + apply",
-      "queuePlanConfirm": "Een speculatief plan voor deze workspace in de wachtrij zetten?",
-      "queueApplyConfirm": "Een plan + apply-uitvoering in de wachtrij zetten? Dit kan infrastructuur wijzigen.",
-      "planOptions": "Planopties",
       "targetResources": "Doelresources",
       "replaceResources": "Resources vervangen",
       "commaSeparated": "(kommagescheiden)",
@@ -2718,7 +2744,6 @@
       "branch": "Branch",
       "tag": "Tag",
       "defaultBranch": "Standaard ({branch})",
-      "nonDefaultRefNote": "Niet-standaard ref geselecteerd — uitvoering is alleen plan",
       "empty": "Nog geen uitvoeringen voor deze workspace.",
       "runId": "Uitvoerings-ID",
       "status": "Status",
@@ -2729,13 +2754,11 @@
       "created": "Aangemaakt",
       "needsConfirm": "bevestiging vereist",
       "typeDestroy": "vernietigen",
-      "typePlanOnly": "alleen plan",
-      "typePlanApply": "plan + apply",
       "sourceModuleTest": "moduletest",
       "sourceModulePublish": "modulepublicatie",
-      "queueApplyTitle": "Een plan + apply-run in de wachtrij zetten",
-      "queueApplyRefBlocked": "Apply is niet beschikbaar zolang een branch, tag of commit is geselecteerd — die runs zijn altijd alleen plan",
-      "awaitingDecision": "wacht op beslissing"
+      "awaitingDecision": "wacht op beslissing",
+      "typeSavedPlan": "opgeslagen plan",
+      "typeSavedPlanHint": "Toepassen uitgesteld: deze run bezet de workspace pas wanneer het opgeslagen plan wordt toegepast."
     },
     "state": {
       "deleteConfirm": "State-versie #{serial} verwijderen? Dit kan niet ongedaan worden gemaakt.",
@@ -2752,12 +2775,18 @@
       "runner": "runner",
       "latest": "nieuwste"
     },
+    "stateOutputs": {
+      "title": "Outputs",
+      "fromSerial": "Serienummer #{serial}",
+      "empty": "Deze state declareert geen outputs.",
+      "sensitive": "Gevoelig",
+      "loadFailed": "Kan de outputs van deze workspace niet laden."
+    },
     "configurations": {
       "description": "Geüploade bronarchieven voor deze workspace, nieuwste eerst. Kies twee rijen om te vergelijken.",
       "selectedCount": "{count}/2 geselecteerd",
       "compare": "Vergelijken",
       "comparing": "Bezig met vergelijken…",
-      "empty": "Nog geen configuratieversies. Ze verschijnen hier zodra een `terraform plan` uploadt of een VCS-push een uitvoering activeert.",
       "id": "ID",
       "source": "Bron",
       "status": "Status",
@@ -2819,7 +2848,6 @@
     },
     "runTriggers": {
       "title": "Run-triggers",
-      "description": "Wanneer een bronworkspace een apply voltooit, krijgen downstream-workspaces automatisch een nieuwe uitvoering in de wachtrij. Tot 20 bronworkspaces per bestemming.",
       "inboundHeading": "Bronworkspaces die hier uitvoeringen activeren",
       "inboundEmpty": "Geen bronworkspaces activeren uitvoeringen op deze workspace.",
       "pickerPlaceholder": "Zoek workspaces om als bron toe te voegen…",
@@ -2827,6 +2855,173 @@
       "outboundEmpty": "Deze workspace activeert geen uitvoeringen op een andere workspace.",
       "destinationNote": "(bestemming; verwijder daar)",
       "removeConfirm": "Deze run-trigger verwijderen?"
+    },
+    "inventory": {
+      "scope": {
+        "heading": "Inventaris",
+        "body": "De hosts en groepen die deze workspace bevat, en waartoe ansible ze oplost. Elke regel is hier te bewerken; een playbook erop uitvoeren is nog niet beschikbaar."
+      },
+      "nav": {
+        "label": "Inventarisonderdelen",
+        "hosts": "Hosts",
+        "groups": "Groepen",
+        "vars": "Variabelen",
+        "resolved": "Opgelost",
+        "settings": "Instellingen"
+      },
+      "actions": {
+        "save": "Opslaan",
+        "saving": "Bezig met opslaan…",
+        "cancel": "Annuleren",
+        "edit": "Bewerken",
+        "delete": "Verwijderen",
+        "remove": "Ontkoppelen",
+        "add": "Toevoegen",
+        "adding": "Bezig met toevoegen…",
+        "rename": "Naam wijzigen"
+      },
+      "hosts": {
+        "heading": "Hosts",
+        "body": "Eén regel per host. Open een host om zijn variabelen en de groepen waartoe hij behoort te bewerken.",
+        "empty": "Nog geen hosts.",
+        "colName": "Host",
+        "colGroups": "Groepen",
+        "colVars": "Variabelen",
+        "newLabel": "Naam van de nieuwe host",
+        "newPlaceholder": "web-1",
+        "add": "Host toevoegen",
+        "confirmDelete": "De host {name} verwijderen? Zijn variabelen en zijn groepslidmaatschappen verdwijnen mee.",
+        "renameLabel": "Hostnaam"
+      },
+      "groups": {
+        "heading": "Groepen",
+        "body": "Eén regel per groep. Open een groep om haar variabelen, haar lid-hosts en de groepen die erin genest zijn te bewerken.",
+        "empty": "Nog geen groepen.",
+        "colName": "Groep",
+        "colMembers": "Hosts",
+        "colChildren": "Subgroepen",
+        "colVars": "Variabelen",
+        "newLabel": "Naam van de nieuwe groep",
+        "newPlaceholder": "web",
+        "add": "Groep toevoegen",
+        "confirmDelete": "De groep {name} verwijderen? Haar variabelen en haar lidmaatschappen verdwijnen mee; de hosts zelf blijven.",
+        "renameLabel": "Groepsnaam"
+      },
+      "vars": {
+        "actions": "Acties",
+        "key": "Sleutel",
+        "keyPlaceholder": "ansible_user",
+        "value": "Waarde",
+        "structured": "Gestructureerd",
+        "sensitive": "Gevoelig",
+        "structuredHelp": "Een lijst, getal of object is een gestructureerde waarde: vink Gestructureerd aan en schrijf de literale broncode in de waarde. Een gevoelige waarde wordt nooit teruggelezen — het veld toont in plaats daarvan een masker.",
+        "structuredBadge": "gestructureerd",
+        "sensitiveKeep": "Laat dit leeg om de opgeslagen waarde te behouden.",
+        "empty": "Hier staan geen variabelen.",
+        "add": "Variabele toevoegen",
+        "confirmDelete": "De variabele {key} verwijderen?"
+      },
+      "hostDetail": {
+        "heading": "Host {name}",
+        "body": "Alles wat deze ene host bevat.",
+        "back": "Terug naar hosts",
+        "gone": "Die host bestaat niet meer.",
+        "vars": "Hostvariabelen",
+        "varsBody": "Variabelen die alleen voor deze host gelden. Ze krijgen voorrang boven een groepsvariabele met dezelfde naam.",
+        "memberships": "Groepen",
+        "membershipsBody": "De groepen waartoe deze host behoort. Een lidmaatschap is een koppeling, dus als je er hier een weghaalt, blijven zowel de host als de groep bestaan.",
+        "membershipsEmpty": "Deze host zit in geen enkele groep, dus ansible plaatst hem in ungrouped.",
+        "addGroup": "Aan groep toevoegen",
+        "addGroupLabel": "Kies een groep",
+        "removeGroupAria": "Deze host ontkoppelen van {name}",
+        "confirmRemoveGroup": "Deze host uit {name} halen?"
+      },
+      "groupDetail": {
+        "heading": "Groep {name}",
+        "body": "Alles wat deze ene groep bevat.",
+        "back": "Terug naar groepen",
+        "gone": "Die groep bestaat niet meer.",
+        "vars": "Groepsvariabelen",
+        "varsBody": "Variabelen die gelden voor elke host in deze groep, direct of via nesting.",
+        "members": "Lid-hosts",
+        "membersBody": "De hosts die direct in deze groep zitten. Een host die alleen via een geneste groep wordt bereikt, staat hier niet.",
+        "membersEmpty": "Geen hosts direct in deze groep.",
+        "addHost": "Host toevoegen",
+        "addHostLabel": "Kies een host",
+        "removeHostAria": "{name} ontkoppelen van deze groep",
+        "confirmRemoveHost": "{name} uit deze groep halen?",
+        "children": "Subgroepen",
+        "childrenBody": "Groepen die in deze zijn genest. Hun hosts zijn ook lid van deze groep, en de variabelen van deze groep bereiken ze.",
+        "childrenEmpty": "Er is geen groep in deze genest.",
+        "addChild": "Subgroep toevoegen",
+        "addChildLabel": "Kies een groep om te nesten",
+        "removeChildAria": "{name} uit de subgroepen van deze groep halen",
+        "confirmRemoveChild": "{name} niet langer in deze groep nesten?",
+        "parents": "Bovenliggende groepen",
+        "parentsBody": "De groepen waarin deze is genest. Een groep kan meerdere bovenliggende groepen hebben.",
+        "parentsEmpty": "Deze groep is in niets genest.",
+        "addParent": "Bovenliggende groep toevoegen",
+        "addParentLabel": "Kies een bovenliggende groep",
+        "removeParentAria": "Deze groep ontkoppelen van {name}",
+        "confirmRemoveParent": "Deze groep niet langer in {name} nesten?"
+      },
+      "globalVars": {
+        "heading": "Inventarisvariabelen",
+        "body": "Variabelen die voor elke host gelden — de group_vars/all van ansible. Een groeps- of hostvariabele met dezelfde naam krijgt voorrang boven een die hier is ingesteld."
+      },
+      "resolved": {
+        "heading": "Opgeloste hosts",
+        "body": "Wat ansible van de regels maakt: elke host met de variabelen die hij uiteindelijk draagt, na de samenvoeging en de voorrangsregels.",
+        "hosts": "Hosts",
+        "groups": "Groepen",
+        "liveNote": "Dit is live. Elke bron hier is statisch, dus het lezen lost de regels zelf op — er is niets om te verversen.",
+        "noHosts": "Niets is tot een host opgelost.",
+        "noVars": "geen variabelen",
+        "groupsHeading": "Groepslidmaatschap",
+        "directOnly": "Alleen direct lidmaatschap, precies zoals ansible het rapporteert: een groep waarvan alle hosts via een geneste groep binnenkomen, toont er geen van zichzelf. De nesting staat hieronder.",
+        "noGroups": "Geen groepen opgelost.",
+        "noDirectMembers": "geen directe hosts",
+        "nestingHeading": "Groepsnesting",
+        "nestingBody": "Welke groepen in welke zitten. Een limit op een bovenliggende groep bereikt elke host daaronder.",
+        "noNesting": "Er is geen groep genest.",
+        "limitHeading": "Wat zou een limit selecteren?",
+        "limitBody": "Breid een ansible --limit-patroon uit op deze inventaris en zie precies welke hosts het selecteert voordat er iets wordt uitgevoerd. Ansible doet de uitbreiding, dus een groep, een uitsluiting en een ~regex gedragen zich precies zoals tijdens de uitvoering.",
+        "limitLabel": "Limit-patroon",
+        "limitPlaceholder": "web:!web-2",
+        "limitApply": "Limit toepassen",
+        "limitClear": "Wissen",
+        "limitApplied": "Beperkt tot {limit}. Alles hieronder is wat dat patroon selecteert."
+      },
+      "settings": {
+        "heading": "Instellingen",
+        "body": "Of de regels die hier staan meetellen, en de repository waaruit ook een inventaris wordt gelezen.",
+        "absent": "Geen instellingen, wat de standaard is: de hosts en groepen die hier staan zijn de hele inventaris.",
+        "includePlatform": "De hosts en groepen gebruiken die hier staan",
+        "includePlatformHelp": "Standaard aan. Zet het uit om alleen uit de repository op te lossen; de regels blijven staan, maar vallen buiten het antwoord.",
+        "included": "ja",
+        "excluded": "nee",
+        "vcsConnection": "VCS-verbinding",
+        "vcsNone": "Geen",
+        "field": {
+          "repo-url": "Repository",
+          "branch": "Branch",
+          "working-directory": "Map"
+        },
+        "branchHelp": "Laat leeg om de standaardbranch van de repository te volgen.",
+        "ignorePaths": "Genegeerde paden",
+        "ignorePathsHelp": "Eén glob per regel. Alles wat overeenkomt blijft buiten de inventaris die uit de repository wordt gelezen.",
+        "unset": "niet ingesteld",
+        "create": "Instellingen toevoegen",
+        "clear": "Instellingen wissen",
+        "confirmClear": "Deze instellingen wissen? De koppeling met de repository verdwijnt mee; de hosts en groepen die hier staan blijven."
+      },
+      "errors": {
+        "load": "Kan de inventaris niet laden",
+        "save": "Opslaan mislukt",
+        "delete": "Verwijderen mislukt",
+        "resolved": "Kan de inventaris niet oplossen",
+        "settings": "Kan de inventarisinstellingen niet opslaan"
+      }
     },
     "sharing": {
       "title": "Remote state delen",
@@ -2896,8 +3091,6 @@
       "addVariableStatus": "Kan variabele niet toevoegen ({status})",
       "deleteVariable": "Kan variabele niet verwijderen",
       "updateVariable": "Kan variabele niet bijwerken",
-      "queuePlan": "Kan plan niet in wachtrij zetten",
-      "queuePlanStatus": "Kan plan niet in wachtrij zetten ({status})",
       "queueDestroy": "Kan destroy niet in wachtrij zetten",
       "queueDestroyStatus": "Kan destroy niet in wachtrij zetten ({status})",
       "createNotification": "Kan notificatie niet aanmaken",
@@ -2914,7 +3107,8 @@
       "uploadState": "Kan state niet uploaden",
       "uploadStateFile": "Kan state-bestand niet uploaden",
       "updateSecurityScan": "Bijwerken van de beveiligingsscan is mislukt",
-      "updateDebugMode": "Bijwerken van de foutopsporingsmodus mislukt"
+      "updateDebugMode": "Bijwerken van de foutopsporingsmodus mislukt",
+      "updateForkPlans": "Bijwerken van plannen voor pull requests uit forks mislukt"
     },
     "subtabs": {
       "state": "State",
@@ -2967,6 +3161,14 @@
       "bannerTitle": "Foutopsporingsmodus staat aan voor deze werkruimte",
       "bannerBody": "De pod van een mislukte uitvoering wordt voor inspectie opengehouden in plaats van af te sluiten, en behoudt zolang de referenties en ontsleutelde variabelen van deze werkruimte. Zet de foutopsporingsmodus uit zodra je klaar bent met onderzoeken.",
       "confirmEnable": "Foutopsporingsmodus aanzetten? De pod van een mislukte uitvoering wordt opengehouden met de referenties en ontsleutelde variabelen van deze werkruimte totdat het venster verloopt of je de pod verwijdert."
+    },
+    "allowForkPrPlans": {
+      "title": "Plannen op pull requests uit forks",
+      "description": "Of een pull request die vanuit een fork is geopend een speculatief plan krijgt. Standaard uit, omdat dat plan de code van de forkauteur draait met de referenties van deze werkruimte.",
+      "label": "Pull requests uit forks plannen",
+      "hint": "Een uitvoering krijgt de omgevingsvariabelen van deze werkruimte, gevoelige waarden, alle via Vault opgehaalde secrets en de cloudidentiteit van de job. Wie een pull request vanuit een fork opent heeft geen schrijfrechten en kan niet mergen, dus een speculatief plan is de enige weg waarlangs hun code bij die referenties komt. Zet dit aan voor een werkruimte waarin niets te halen valt — bijvoorbeeld een openbare modulerepository die bijdragen uit de community aanneemt. Pull requests vanuit branches in de repository zelf zijn hierdoor niet geraakt en krijgen altijd een plan.",
+      "activeBadge": "Aan",
+      "confirmEnable": "Pull requests die vanuit een fork zijn geopend plannen? De code van hun auteurs draait met de referenties en ontsleutelde variabelen van deze werkruimte, zonder dat iemand dat eerst goedkeurt."
     }
   },
   "graphs": {
@@ -3189,11 +3391,14 @@
     "unknown": "onbekend",
     "confirm": {
       "prompt": "Dit Slack-account koppelen aan <em>uw</em> Terrapod-identiteit? Elke toekomstige Slack-actie (goedkeuren/verwerpen) wordt uitgevoerd als deze Terrapod-gebruiker met diens rechten.",
+      "slackName": "Slack-account",
       "slackUser": "Slack-gebruiker",
       "slackTeam": "Slack-team",
       "terrapodAccount": "Terrapod-account",
       "warning": "Ga alleen verder als u deze koppeling zojuist zelf vanuit Slack hebt gestart. Als dat niet zo is, sluit dit tabblad en koppel niet — hiermee wordt het bovenstaande Slack-account aan <em>uw</em> Terrapod-identiteit gebonden.",
-      "button": "Bevestigen & koppelen"
+      "button": "Bevestigen & koppelen",
+      "namesUnavailable": "Terrapod kon de naam van dit Slack-account niet opzoeken. Controleer de ID's hierboven en ga alleen verder als je deze koppeling zelf vanuit Slack hebt gestart.",
+      "nameIsSelfChosen": "De handle is uniek in de Slack-werkruimte; de weergavenaam eronder kiest de eigenaar zelf — ga dus op de handle af."
     },
     "success": {
       "message": "Uw Slack-account is nu gekoppeld aan Terrapod.",
@@ -3416,7 +3621,77 @@
       },
       "status": {
         "planning": "Bezig met plannen",
-        "applying": "Bezig met toepassen"
+        "applying": "Bezig met toepassen",
+        "planned": "Gepland",
+        "applied": "Toegepast"
+      },
+      "words": {
+        "actionConfirmFull": "Bevestigen & toepassen",
+        "actionConfirmShort": "Toepassen",
+        "activityApplied": "Apply voltooid",
+        "activityConfirmed": "Apply starten",
+        "activityDiscarded": "Plan verworpen",
+        "activityPlannedComplete": "Plan voltooid",
+        "activityPlannedConfirmable": "Wachten tot u bevestigt & toepast",
+        "activityPlannedSpeculative": "Speculatief plan voltooid",
+        "aiPolicyOverrideConfirm": "De AI-beleidspoort overschrijven en deze uitvoering laten toepassen ondanks het oordeel?",
+        "aiSummaryDescription": "Automatische, door LLM gegenereerde wijzigingssamenvatting, risicobeoordeling en foutanalyse bij elke uitkomst van de planfase voor deze workspace.",
+        "aiSummaryTitle": "AI-plansamenvatting",
+        "badgePlanOnly": "alleen plan",
+        "bannerPlanOnlyCli": "Dit is een uitvoering met <strong>alleen plan</strong>, gestart vanuit de CLI op een VCS-verbonden workspace. Apply is niet beschikbaar voor via CLI geüploade code — alleen VCS-beheerde code kan worden toegepast.",
+        "changesPlanning": "Bezig met plannen…",
+        "configurationsEmpty": "Nog geen configuratieversies. Ze verschijnen hier zodra een `terraform plan` uploadt of een VCS-push een uitvoering activeert.",
+        "confirmApply": "Deze uitvoering toepassen? Hiermee wordt het plan toegepast en infrastructuur gewijzigd.",
+        "confirmDiscard": "Dit plan verwerpen?",
+        "costNoState": "Nog geen kosten — verschijnt na de eerste toepassing.",
+        "detailsPlanOnly": "Alleen plan",
+        "discardedHeading": "Verworpen — opnieuw plannen vereist",
+        "driftCheckNowTitle": "Zet een uitvoering met alleen plan in de wachtrij om op drift te controleren",
+        "driftRemediate": "Plan + apply",
+        "driftRemediateConfirm": "Een plan + apply-run voor deze workspace in de wachtrij zetten?",
+        "driftRemediateTitle": "Een plan + apply-run in de wachtrij zetten om de infrastructuur weer met de configuratie in lijn te brengen",
+        "errorsQueuePlan": "Kan plan niet in wachtrij zetten",
+        "errorsQueuePlanStatus": "Kan plan niet in wachtrij zetten ({status})",
+        "fieldsAutoMerge": "Automatisch samenvoegen na apply",
+        "formAutoApplyModeHint": "never: wacht altijd op een mens. always: pas elk geslaagd plan toe. create / create/update: pas alleen plannen toe die tot die acties beperkt zijn — nooit een verwijdering of een vervanging.",
+        "lockLockedDesc": "Deze workspace is vergrendeld. Er kunnen geen plannen of applies worden uitgevoerd.",
+        "logApplyEmpty": "Nog geen applyuitvoer beschikbaar.",
+        "logApplySkipped": "Er is niets toegepast: het plan bevatte geen wijzigingen, dus er was niets toe te passen.",
+        "logIndexSummary": "Plansamenvatting",
+        "logIndexTitle": "Ga naar een resourcewijziging of naar de plansamenvatting",
+        "logPlanEmpty": "Nog geen planuitvoer beschikbaar.",
+        "nonDefaultRefNote": "Niet-standaard ref geselecteerd — uitvoering is alleen plan",
+        "planExpiryDescription": "Verwerp een onbevestigd plan automatisch zodra het ouder is dan dit, zodat een verouderd plan niet kan worden toegepast op een veranderde wereld. Standaard uit; het plan moet dan opnieuw worden uitgevoerd. (Alleen van toepassing op apply-capabele uitvoeringen.)",
+        "planExpiryTitle": "Planverval",
+        "planOptions": "Planopties",
+        "planSummaryChatPlaceholder": "Stel een vervolgvraag over dit plan… (⌘/Ctrl + Enter om te verzenden)",
+        "planSummaryHeading": "Plansamenvatting",
+        "planSummaryNoChangesTitle": "Plan rapporteerde geen resourcewijzigingen",
+        "planSummaryRegenerateTooltip": "De AI-samenvatting opnieuw uitvoeren tegen dezelfde plan-inputs",
+        "planSummarySummarising": "Plan samenvatten…",
+        "policyBlockedMessage": "Deze uitvoering wordt <strong>geblokkeerd door een verplichte beleidsset</strong>. Ze wordt niet toegepast totdat de fout is opgelost of een beheerder ze overschrijft.",
+        "queueApplyConfirm": "Een plan + apply-uitvoering in de wachtrij zetten? Dit kan infrastructuur wijzigen.",
+        "queueApplyRefBlocked": "Apply is niet beschikbaar zolang een branch, tag of commit is geselecteerd — die runs zijn altijd alleen plan",
+        "queueApplyTitle": "Een plan + apply-run in de wachtrij zetten",
+        "queueDestroyTitle": "Zet een destroy-plan in de wachtrij",
+        "queuePlan": "Plan",
+        "queuePlanConfirm": "Een speculatief plan voor deze workspace in de wachtrij zetten?",
+        "queueRun": "Plan + apply",
+        "replacePlaceholder": "e.g. aws_instance.web",
+        "runTriggersDescription": "Wanneer een bronworkspace een apply voltooit, krijgen downstream-workspaces automatisch een nieuwe uitvoering in de wachtrij. Tot 20 bronworkspaces per bestemming.",
+        "tabApplyFull": "Apply-logboek",
+        "tabApplyLabel": "Apply<log>logboek</log>",
+        "tabPlanFull": "Plan-logboek",
+        "tabPlanLabel": "Plan<log>logboek</log>",
+        "targetPlaceholder": "e.g. aws_instance.web, aws_s3_bucket.data",
+        "timelineApplied": "Toegepast",
+        "timelineApplyingStarted": "Toepassen gestart",
+        "timelinePlanComplete": "Plan voltooid",
+        "timelinePlanningStarted": "Plannen gestart",
+        "typePlanApply": "plan + apply",
+        "vcsWorkflowWarningRbac": "Iedereen die de PR kan samenvoegen, kan toepassen. Branch-beschermingsregels (vereiste beoordelingen, statuscontroles, goedkeuring van code-eigenaar) worden de poort. Terrapod-rol-/label-RBAC is in deze modus<em>niet</em> van toepassing op comment-gestuurde acties.",
+        "vcsWorkflowWarningRecommended": "<strong>Aanbevolen:</strong> vereis lineaire geschiedenis (rebase/squash vóór samenvoegen) zodat de commit die u toepast de commit is die landt.",
+        "slackDescription": "Meld deze workspace aan voor Slack-uitvoeringsnotificaties — goedkeuringsverzoeken, applies, fouten en drift. Laat het kanaal leeg en deze workspace blijft stil (er is geen deployment-brede fan-out). Vereist dat de Slack-app door een beheerder is ingeschakeld."
       }
     },
     "pulumi": {
@@ -3425,14 +3700,84 @@
         "applying": "pulumi up uitvoeren"
       },
       "runStatus": {
-        "planning": "Bezig met previewnen",
+        "planning": "Bezig met previewen",
         "planned": "Gepreviewd",
-        "applying": "Bezig met toepassen",
-        "applied": "Toegepast"
+        "applying": "Bezig met bijwerken",
+        "applied": "Bijgewerkt"
       },
       "status": {
-        "planning": "Bezig met previewnen",
-        "applying": "Bezig met toepassen"
+        "planning": "Bezig met previewen",
+        "applying": "Bezig met bijwerken",
+        "planned": "Gepreviewd",
+        "applied": "Bijgewerkt"
+      },
+      "words": {
+        "actionConfirmFull": "Bevestigen & bijwerken",
+        "actionConfirmShort": "Bijwerken",
+        "activityApplied": "Bijwerken voltooid",
+        "activityConfirmed": "Bijwerken starten",
+        "activityDiscarded": "Preview verworpen",
+        "activityPlannedComplete": "Preview voltooid",
+        "activityPlannedConfirmable": "Wachten tot u bevestigt & bijwerkt",
+        "activityPlannedSpeculative": "Speculatief preview voltooid",
+        "aiPolicyOverrideConfirm": "De AI-beleidspoort overschrijven en deze uitvoering laten bijwerken ondanks het oordeel?",
+        "aiSummaryDescription": "Automatische, door LLM gegenereerde wijzigingssamenvatting, risicobeoordeling en foutanalyse bij elke uitkomst van de previewfase voor deze workspace.",
+        "aiSummaryTitle": "AI-previewsamenvatting",
+        "badgePlanOnly": "alleen preview",
+        "bannerPlanOnlyCli": "Dit is een uitvoering met <strong>alleen preview</strong>, gestart vanuit de CLI op een VCS-verbonden workspace. Update is niet beschikbaar voor via CLI geüploade code — alleen VCS-beheerde code kan worden bijgewerkt.",
+        "changesPlanning": "Bezig met previewen…",
+        "configurationsEmpty": "Nog geen configuratieversies. Ze verschijnen hier zodra een VCS-push een uitvoering activeert.",
+        "confirmApply": "Deze uitvoering bijwerken? Hiermee wordt het preview doorgevoerd en infrastructuur gewijzigd.",
+        "confirmDiscard": "Dit preview verwerpen?",
+        "costNoState": "Nog geen kosten — verschijnt na de eerste update.",
+        "detailsPlanOnly": "Alleen preview",
+        "discardedHeading": "Verworpen — opnieuw previewen vereist",
+        "driftCheckNowTitle": "Zet een uitvoering met alleen preview in de wachtrij om op drift te controleren",
+        "driftRemediate": "Preview + update",
+        "driftRemediateConfirm": "Een preview + update-run voor deze workspace in de wachtrij zetten?",
+        "driftRemediateTitle": "Een preview + update-run in de wachtrij zetten om de infrastructuur weer met de configuratie in lijn te brengen",
+        "errorsQueuePlan": "Kan preview niet in wachtrij zetten",
+        "errorsQueuePlanStatus": "Kan preview niet in wachtrij zetten ({status})",
+        "fieldsAutoMerge": "Automatisch samenvoegen na bijwerken",
+        "formAutoApplyModeHint": "never: wacht altijd op een mens. always: voer een update uit bij elk geslaagd preview. create / create/update: voer alleen een update uit vanuit previews die tot die acties beperkt zijn — nooit een verwijdering of een vervanging.",
+        "lockLockedDesc": "Deze workspace is vergrendeld. Er kunnen geen previews of updates worden uitgevoerd.",
+        "logApplyEmpty": "Nog geen update-uitvoer beschikbaar.",
+        "logApplySkipped": "Er is niets bijgewerkt: het preview bevatte geen wijzigingen, dus er was niets bij te werken.",
+        "logIndexSummary": "Previewsamenvatting",
+        "logIndexTitle": "Ga naar een resourcewijziging of naar de previewsamenvatting",
+        "logPlanEmpty": "Nog geen preview-uitvoer beschikbaar.",
+        "nonDefaultRefNote": "Niet-standaard ref geselecteerd — uitvoering is alleen preview",
+        "planExpiryDescription": "Verwerp een onbevestigd preview automatisch zodra het ouder is dan dit, zodat een verouderd preview niet kan worden doorgevoerd in een veranderde wereld. Standaard uit; het preview moet dan opnieuw worden uitgevoerd. (Alleen van toepassing op uitvoeringen die kunnen bijwerken.)",
+        "planExpiryTitle": "Previewverval",
+        "planOptions": "Previewopties",
+        "planSummaryChatPlaceholder": "Stel een vervolgvraag over dit preview… (⌘/Ctrl + Enter om te verzenden)",
+        "planSummaryHeading": "Previewsamenvatting",
+        "planSummaryNoChangesTitle": "Preview rapporteerde geen resourcewijzigingen",
+        "planSummaryRegenerateTooltip": "De AI-samenvatting opnieuw uitvoeren tegen dezelfde preview-inputs",
+        "planSummarySummarising": "Preview samenvatten…",
+        "policyBlockedMessage": "Deze uitvoering wordt <strong>geblokkeerd door een verplichte beleidsset</strong>. Ze werkt niet bij totdat de fout is opgelost of een beheerder ze overschrijft.",
+        "queueApplyConfirm": "Een preview + update-uitvoering in de wachtrij zetten? Dit kan infrastructuur wijzigen.",
+        "queueApplyRefBlocked": "Update is niet beschikbaar zolang een branch, tag of commit is geselecteerd — die runs zijn altijd alleen preview",
+        "queueApplyTitle": "Een preview + update-run in de wachtrij zetten",
+        "queueDestroyTitle": "Zet een destroy-preview in de wachtrij",
+        "queuePlan": "Preview",
+        "queuePlanConfirm": "Een speculatief preview voor deze workspace in de wachtrij zetten?",
+        "queueRun": "Preview + update",
+        "replacePlaceholder": "e.g. urn:pulumi:dev::shop::aws:ec2/instance:Instance::web",
+        "runTriggersDescription": "Wanneer een bronworkspace een update voltooit, krijgen downstream-workspaces automatisch een nieuwe uitvoering in de wachtrij. Tot 20 bronworkspaces per bestemming.",
+        "tabApplyFull": "Update-logboek",
+        "tabApplyLabel": "Update<log>logboek</log>",
+        "tabPlanFull": "Preview-logboek",
+        "tabPlanLabel": "Preview<log>logboek</log>",
+        "targetPlaceholder": "e.g. urn:pulumi:dev::shop::aws:s3/bucket:Bucket::assets",
+        "timelineApplied": "Bijgewerkt",
+        "timelineApplyingStarted": "Bijwerken gestart",
+        "timelinePlanComplete": "Preview voltooid",
+        "timelinePlanningStarted": "Previewen gestart",
+        "typePlanApply": "preview + update",
+        "vcsWorkflowWarningRbac": "Iedereen die de PR kan samenvoegen, kan bijwerken. Branch-beschermingsregels (vereiste beoordelingen, statuscontroles, goedkeuring van code-eigenaar) worden de poort. Terrapod-rol-/label-RBAC is in deze modus<em>niet</em> van toepassing op comment-gestuurde acties.",
+        "vcsWorkflowWarningRecommended": "<strong>Aanbevolen:</strong> vereis lineaire geschiedenis (rebase/squash vóór samenvoegen) zodat de commit van waaruit u bijwerkt de commit is die landt.",
+        "slackDescription": "Meld deze workspace aan voor Slack-uitvoeringsnotificaties — goedkeuringsverzoeken, updates, fouten en drift. Laat het kanaal leeg en deze workspace blijft stil (er is geen deployment-brede fan-out). Vereist dat de Slack-app door een beheerder is ingeschakeld."
       }
     }
   },

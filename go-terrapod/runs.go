@@ -67,8 +67,29 @@ type Run struct {
 	AutoApplyMode           string `json:"auto-apply-mode"`
 	AutoApplyDeclinedReason string `json:"auto-apply-declined-reason"`
 	PlanOnly                bool   `json:"plan-only"`
-	Source                  string `json:"source,omitempty"`
-	ExecutionBackend        string `json:"execution-backend,omitempty"`
+	// SavePlan is `terraform plan -out=FILE`: an apply-capable run whose
+	// apply is DEFERRED. It plans immediately without taking the workspace's
+	// single apply slot, and takes it only when confirmed — which is what
+	// makes holding a plan file for a while meaningful. Distinct from an
+	// ordinary run awaiting confirmation, which holds the workspace from the
+	// moment it plans.
+	SavePlan         bool   `json:"save-plan,omitempty"`
+	Source           string `json:"source,omitempty"`
+	ExecutionBackend string `json:"execution-backend,omitempty"`
+	// Engine names which engine produced this run — "terraform" or "pulumi".
+	// The server sets it on every run, derived from the workspace, because a run
+	// stores no copy (#1536). Without it a Run is not self-describing: a caller
+	// holding one cannot tell which vocabulary its phases use, nor which of the
+	// fields below mean anything.
+	Engine string `json:"engine,omitempty"`
+	// PulumiStack is the `{org}/{project}/{stack}` triple this run drives, and
+	// is set only on a Pulumi run.
+	PulumiStack string `json:"pulumi-stack,omitempty"`
+	// PulumiBindPlan records whether this run bound its update to the plan its
+	// preview saved. A pointer, because the server sends null on every engine
+	// but Pulumi — "does not apply" and "switched off" are different answers,
+	// and a plain bool reports the second for both.
+	PulumiBindPlan *bool `json:"pulumi-bind-plan,omitempty"`
 	// EngineVersion is the version of whichever engine this run used.
 	// TerraformVersion is the same version under its original name — the API
 	// returns both, always equal, because go-tfe reads "terraform-version"
@@ -145,8 +166,13 @@ type CreateRunRequest struct {
 	ConfigurationVersionID string
 	Message                string
 	PlanOnly               bool
-	IsDestroy              bool
-	AutoApply              *bool
+	// SavePlan requests a saved-plan run (`terraform plan -out=FILE`). Mutually
+	// exclusive with PlanOnly, and with a speculative configuration version —
+	// the server refuses either combination rather than picking a winner, since
+	// a saved plan that cannot be applied is a file that promises nothing.
+	SavePlan  bool
+	IsDestroy bool
+	AutoApply *bool
 	// Set either; EngineVersion is preferred. TerraformVersion is the name
 	// go-tfe uses and the API accepts it indefinitely (#1559) — not deprecated,
 	// just superseded for new callers. Whichever is set is sent under the
@@ -176,6 +202,9 @@ func (c *Client) CreateRun(ctx context.Context, req CreateRunRequest) (*Run, err
 	}
 	if req.IsDestroy {
 		attrs["is-destroy"] = true
+	}
+	if req.SavePlan {
+		attrs["save-plan"] = true
 	}
 	if req.AutoApply != nil {
 		attrs["auto-apply"] = *req.AutoApply
@@ -315,6 +344,12 @@ func (c *Client) RetryRun(ctx context.Context, runID string) (*Run, error) {
 // to a presigned storage URL; the client follows it and returns the raw JSON
 // bytes. Returns *NotFoundError when the run produced no JSON plan output (never
 // planned, an engine/version that didn't emit it, or the artifact expired).
+//
+// Requires the state:read capability on the workspace — the plan tier, not the
+// read tier (GHSA-gwwq-5v7q-h3f4). The document embeds prior_state.values and
+// the root variables' values, sensitive included, so it is state-grade data and
+// is gated like raw state download. A read-tier principal gets
+// *AuthorizationError.
 func (c *Client) GetRunPlanJSON(ctx context.Context, runID string) ([]byte, error) {
 	id := strings.TrimPrefix(strings.TrimPrefix(runID, "plan-"), "run-")
 	if id == "" {
@@ -374,8 +409,12 @@ func runFromResource(res *Resource) *Run {
 		AutoApplyMode:           GetStringAttr(res, "auto-apply-mode"),
 		AutoApplyDeclinedReason: GetStringAttr(res, "auto-apply-declined-reason"),
 		PlanOnly:                GetBoolAttr(res, "plan-only"),
+		SavePlan:                GetBoolAttr(res, "save-plan"),
 		Source:                  GetStringAttr(res, "source"),
 		ExecutionBackend:        GetStringAttr(res, "execution-backend"),
+		Engine:                  GetStringAttr(res, "engine"),
+		PulumiStack:             GetStringAttr(res, "pulumi-stack"),
+		PulumiBindPlan:          GetBoolPtrAttr(res, "pulumi-bind-plan"),
 		// Both carry the resolved value, whichever name the server used (#1559).
 		EngineVersion:     engineVersionAttr(res),
 		TerraformVersion:  engineVersionAttr(res),

@@ -12,6 +12,25 @@ from terrapod.api.routers import runs as runs_router
 from terrapod.auth import capabilities as cap
 from terrapod.services import compliance_report_service
 
+
+def _native_request(path: str = "/api/v1/runs/run-x/compliance-report"):
+    """A stand-in Request carrying only what the handlers read: its path.
+
+    They are called directly here rather than over HTTP, so nothing injects one
+    -- and the path is not incidental. `_require_run_ws_capability` reads it to
+    decide which engines the surface may serve (#1904/#1905), which is why it
+    takes `request` as a required keyword rather than defaulting it. A test that
+    omitted it would exercise a different code path from the one the app runs.
+
+    Same shape as `_tfe_request` in `test_policy_checks.py`; these routes are
+    native, so the path is a `/api/v1` one and the engine filter does not fire.
+    """
+    req = MagicMock()
+    req.url.path = path
+    req.query_params = {}
+    return req
+
+
 STAMP = datetime(2026, 10, 7, 12, 0, tzinfo=UTC)
 READ_CAPS = {cap.RUN_READ}
 NO_CAPS = set()
@@ -86,6 +105,7 @@ class TestRunComplianceReportAPI:
             ),
         ):
             response = await runs_router.show_run_compliance_report(
+                request=_native_request(),
                 run_id=str(run.id),
                 user=_user(),
                 db=db,
@@ -124,6 +144,7 @@ class TestRunComplianceReportAPI:
             ),
         ):
             response = await runs_router.show_workspace_compliance_report(
+                request=_native_request(),
                 workspace_id=str(ws.id),
                 limit=50,
                 format="json",
@@ -177,6 +198,7 @@ class TestRunComplianceReportAPI:
             ),
         ):
             response = await runs_router.show_workspace_compliance_report(
+                request=_native_request(),
                 workspace_id=str(ws.id),
                 limit=50,
                 format="csv",
@@ -201,6 +223,7 @@ class TestRunComplianceReportAPI:
         ):
             with pytest.raises(HTTPException) as exc_info:
                 await runs_router.show_run_compliance_report(
+                    request=_native_request(),
                     run_id=str(run.id),
                     user=_user(),
                     db=db,
@@ -218,6 +241,7 @@ class TestRunComplianceReportAPI:
         ):
             with pytest.raises(HTTPException) as exc_info:
                 await runs_router.show_workspace_compliance_report(
+                    request=_native_request(),
                     workspace_id=str(ws.id),
                     limit=50,
                     format="json",

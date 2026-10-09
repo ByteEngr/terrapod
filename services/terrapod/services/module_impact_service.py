@@ -35,6 +35,7 @@ from terrapod.services import (
     run_links,
     run_service,
     vcs_rate_limit,
+    vcs_status_comment,
 )
 from terrapod.services.archive_utils import strip_archive_top_level_dir_async
 from terrapod.services.module_subdirectory import scope_archive_to_subdirectory
@@ -74,12 +75,31 @@ async def _list_open_prs(
             head_sha=pr["head_sha"],
             head_ref=pr["head_ref"],
             title=pr["title"],
+            from_fork=bool(pr["from_fork"]),
         )
         for pr in prs
     ]
 
 
 async def _download_archive(conn: VCSConnection, owner: str, repo: str, ref: str) -> bytes:
+    # GHSA-v8g7-pqrj-8mcm. This is one of the three clone dispatchers the allowlist
+    # did NOT reach: the guard added in this release sits on `vcs_provider`'s
+    # dispatcher, which these modules do not use — they call the provider services
+    # directly. So a module, policy set or registry entry whose URL predates a
+    # narrowing kept being cloned, and `docs/security-hardening.md` claimed otherwise.
+    from terrapod.services.vcs_connection_rbac import (
+        RepositoryNotAllowed,
+        repository_pair_allowed,
+    )
+
+    if not repository_pair_allowed(conn, owner, repo):
+        raise RepositoryNotAllowed(
+            f"VCS connection vcs-{getattr(conn, 'id', None)} is restricted to specific "
+            f"repositories and {owner}/{repo} is not one of them, so its credential will "
+            "not be used to clone it. Widen `allowed-repositories` on the connection, or "
+            "clear it to allow any repository the credential can reach."
+        )
+
     if conn.provider == "gitlab":
         return await gitlab_service.download_archive(conn, owner, repo, ref)
     return await github_service.download_repo_archive(conn, owner, repo, ref)
@@ -327,6 +347,23 @@ async def _create_module_test_runs(
     pr: PullRequest,
 ) -> None:
     """Download PR archive, upload override tarball, and create speculative runs."""
+    # A module PR from a fork reaches further than a workspace PR does: it
+    # creates a plan on every workspace that consumes the module, each with its
+    # own credentials. Each of those workspaces decides for itself (the per-
+    # workspace gate is in the run loop below); this early return just avoids
+    # downloading and storing an override tarball nobody will use.
+    if pr.from_fork and not any(
+        link.workspace is not None and link.workspace.allow_fork_pr_plans
+        for link in module.workspace_links
+    ):
+        logger.info(
+            "module_impact.fork_pr_skipped",
+            module=module.name,
+            pr_number=pr.number,
+            head_sha=pr.head_sha,
+        )
+        return
+
     # Download archive from PR head
     try:
         archive_bytes = await _download_archive(conn, owner, repo, pr.head_sha)
@@ -386,6 +423,17 @@ async def _create_module_test_runs(
     for link in module.workspace_links:
         ws = link.workspace
         if ws is None:
+            continue
+
+        # Per-workspace, because the setting is per-workspace: one consumer
+        # opting in to fork PRs does not volunteer the others' credentials.
+        if pr.from_fork and not ws.allow_fork_pr_plans:
+            logger.info(
+                "module_impact.fork_pr_skipped_for_workspace",
+                workspace=ws.name,
+                module=module.name,
+                pr_number=pr.number,
+            )
             continue
 
         # Fetch the workspace's own VCS code so the runner has configuration
@@ -593,11 +641,7 @@ async def _post_module_vcs_status(
     which rendered a completed plan as "Plan finished" rather than "No changes"
     (#1378). Falls back to the row when the payload predates the field.
     """
-    from terrapod.services.vcs_status_dispatcher import (
-        _build_comment_body,
-        _find_or_create_comment,
-        _resolve_status,
-    )
+    from terrapod.services.vcs_status_dispatcher import _resolve_status
 
     if not module.vcs_connection_id:
         return
@@ -657,18 +701,29 @@ async def _post_module_vcs_status(
     except Exception as e:
         logger.warning("Failed to post module VCS commit status", error=str(e))
 
-    # Post PR comment
+    # One comment on the module's PR, listing every consuming workspace
+    # (#1940).
+    #
+    # This used to post one comment per consumer, keyed on the workspace id,
+    # so a module with ten linked workspaces put ten comments on a single PR
+    # — and each was reposted on every push, because the commit SHA was part
+    # of the identity too. Now every consumer is a row of the same table a
+    # workspace PR gets, in one comment, edited in place.
+    #
+    # Called once per run rather than once per PR, so several consumers'
+    # transitions can arrive together; `_post_or_update` holds a per-PR lock
+    # and every call renders the whole table from current rows, so they
+    # converge on one comment instead of racing to create several.
     if run.vcs_pull_request_number:
-        run_url = target_url or f"run-{run.id}"
-        body = _build_comment_body(
-            workspace_name=ws_name,
-            workspace_id=str(run.workspace_id),
-            run_id=f"run-{run.id}",
-            run_status=target_status,
-            plan_only=run.plan_only,
-            has_changes=has_changes,
-            run_url=run_url,
+        link_rows = await db.execute(
+            select(ModuleWorkspaceLink.workspace_id).where(
+                ModuleWorkspaceLink.module_id == module.id
+            )
         )
-        await _find_or_create_comment(
-            conn, owner, repo, run.vcs_pull_request_number, str(run.workspace_id), body
+        await vcs_status_comment.refresh_module_pr_comment(
+            db,
+            conn,
+            f"{owner}/{repo}",
+            run.vcs_pull_request_number,
+            list(link_rows.scalars().all()),
         )

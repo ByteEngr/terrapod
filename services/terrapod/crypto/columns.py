@@ -9,6 +9,7 @@ model columns are EncryptedText, and the migration drives off this list.
 # (table_name, column_name) — all TEXT columns; id is the uuid primary key.
 ENCRYPTED_COLUMNS: list[tuple[str, str]] = [
     ("certificate_authority", "ca_key_pem"),
+    ("oidc_signing_keys", "private_key_pem"),
     ("variables", "value"),
     ("variable_set_variables", "value"),
     ("vcs_connections", "token"),
@@ -28,4 +29,18 @@ ENCRYPTED_COLUMNS: list[tuple[str, str]] = [
     # compromised DEK still decrypts both.
     ("gpg_keys", "private_key"),
     ("run_tasks", "hmac_key"),
+    # The HMAC key for the four stateless token families (#1994). Listed with
+    # the CA key above for the same reason, and the consequence of omitting it is
+    # sharper than for most: `auth.token_signing` REFUSES a stored value it
+    # cannot decode, so a DEK rotation that skipped this column would not degrade
+    # quietly — the API would fail to start.
+    ("token_signing_keys", "key"),
+    # The three ansible inventory variable surfaces (#1967). A host variable is
+    # an ordinary place for an `ansible_become_password`, so the column is
+    # encrypted and `sensitive` is left to mean masking alone -- a column cannot
+    # be conditionally encrypted, so the two are orthogonal rather than one
+    # implying the other.
+    ("inventory_host_vars", "value"),
+    ("inventory_group_vars", "value"),
+    ("inventory_global_vars", "value"),
 ]

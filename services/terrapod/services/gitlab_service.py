@@ -210,6 +210,29 @@ async def get_branch_sha(conn: VCSConnection, owner: str, repo: str, branch: str
     return resp.json()["commit"]["id"]
 
 
+async def pull_requests_for_commit(
+    conn: VCSConnection, owner: str, repo: str, sha: str
+) -> list[int]:
+    """The MR iids a commit belongs to (#1878). GitLab's half of the same idea.
+
+    `iid` rather than `id`: the project-scoped number is what the UI shows, what
+    `PRSession.pr_number` holds, and what every other MR call here addresses.
+    """
+    api = _api_url(conn)
+    project = _project_path(owner, repo)
+
+    resp = await _gitlab_request(
+        "GET",
+        f"{api}/projects/{project}/repository/commits/{url_quote(sha, safe='')}/merge_requests",
+        conn,
+        params={"per_page": 100},
+    )
+    if resp.status_code == 404:
+        return []
+    resp.raise_for_status()
+    return [mr["iid"] for mr in resp.json() if mr.get("iid") is not None]
+
+
 async def get_default_branch(conn: VCSConnection, owner: str, repo: str) -> str | None:
     """Get the repository's default branch name."""
     api = _api_url(conn)
@@ -290,6 +313,21 @@ async def download_archive_to_file(
     return bytes_written
 
 
+def _is_fork(mr: dict) -> bool:
+    """Whether this MR's source project differs from its target project.
+
+    GitLab's equivalent of a fork PR. Fails closed: if either id is missing we
+    treat it as a fork, because the consequence of guessing "trusted" is a
+    speculative plan running an outsider's code with the workspace's
+    credentials.
+    """
+    source = mr.get("source_project_id")
+    target = mr.get("target_project_id")
+    if source is None or target is None:
+        return True
+    return source != target
+
+
 async def list_open_prs(
     conn: VCSConnection, owner: str, repo: str, base_branch: str
 ) -> list[PullRequest]:
@@ -317,6 +355,7 @@ async def list_open_prs(
             head_sha=mr["sha"],
             head_ref=mr["source_branch"],
             title=mr["title"],
+            from_fork=_is_fork(mr),
         )
         for mr in resp.json()
     ]
@@ -674,6 +713,7 @@ async def get_pull_request(
         head_sha=mr.get("sha") or "",
         head_ref=mr.get("source_branch") or "",
         title=mr.get("title") or "",
+        from_fork=_is_fork(mr),
         draft=bool(mr.get("draft", False)),
         author_login=(mr.get("author") or {}).get("username", ""),
         state=mr_state,
@@ -993,3 +1033,66 @@ def parse_repo_url(repo_url: str) -> tuple[str, str] | None:
                 return parts[0], parts[1]
 
     return None
+
+
+#: GitLab's Developer role. The lowest access level that can push to a
+#: protected-branch-free branch and open a merge request from one; Reporter
+#: (20) and Guest (10) cannot push at all. Matches the GitHub side's "push",
+#: which is also the lowest level that can write to the repository.
+DEVELOPER_ACCESS_LEVEL = 30
+
+
+async def actor_has_push_access(
+    conn: VCSConnection, owner: str, repo: str, user_id: str
+) -> bool | None:
+    """Whether the GitLab user `user_id` may push to `owner/repo`.
+
+    True / False / **None when we could not establish it** — see the GitHub
+    twin for why None is not False at the call site.
+
+    Keyed on the numeric user id rather than the username because that is what
+    `members` takes, and it is what both the webhook payload and the comment
+    poller already carry. A username would need a second lookup and would
+    follow a rename to whoever took the handle.
+
+    `members/all/` rather than `members/`: the `/all/` variant resolves
+    membership **inherited from the parent group**, which is how most GitLab
+    installations grant repository access. The direct-members endpoint would
+    answer "not a member" for a group Maintainer and refuse every command they
+    issued.
+    """
+    if not user_id:
+        return False
+    try:
+        resp = await _gitlab_request(
+            "GET",
+            f"{_api_url(conn)}/projects/{_project_path(owner, repo)}"
+            f"/members/all/{url_quote(str(user_id), safe='')}",
+            conn,
+        )
+    except Exception as e:
+        logger.warning(
+            "could not establish push access",
+            repo=f"{owner}/{repo}",
+            user_id=user_id,
+            error=repr(e),
+        )
+        return None
+    if resp.status_code == 404:
+        # Not a member, directly or by inheritance. Definitive.
+        return False
+    if resp.status_code != 200:
+        logger.warning(
+            "could not establish push access",
+            repo=f"{owner}/{repo}",
+            user_id=user_id,
+            status=resp.status_code,
+        )
+        return None
+    try:
+        level = (resp.json() or {}).get("access_level")
+    except Exception:
+        return None
+    if not isinstance(level, int):
+        return None
+    return level >= DEVELOPER_ACCESS_LEVEL

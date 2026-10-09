@@ -27,6 +27,7 @@
     "account": "Tili",
     "apiTokens": "API-tunnukset",
     "sessions": "Istunnot",
+    "slackLinks": "Slack-liitokset",
     "logOut": "Kirjaudu ulos",
     "menu": "Valikko",
     "openMenu": "Avaa valikko",
@@ -70,7 +71,6 @@
       "agentPool": "Agenttipooli",
       "none": "Ei mitään",
       "autoApply": "Automaattinen käyttöönotto",
-      "autoApplyModeHint": "never: odota aina ihmistä. always: toteuta jokainen onnistunut suunnitelma. create / create/update: toteuta vain niihin toimiin rajoittuvat suunnitelmat — ei koskaan poistoa tai korvausta.",
       "enabled": "Käytössä",
       "workingDirectory": "Työhakemisto",
       "workingDirectoryPlaceholder": "esim. environments/dev",
@@ -372,6 +372,22 @@
         "load": "Istuntojen lataaminen epäonnistui",
         "revoke": "Istuntojen peruuttaminen epäonnistui ({status})",
         "revokeGeneric": "Istuntojen peruuttaminen epäonnistui"
+      }
+    },
+    "slackLinks": {
+      "title": "Slack-liitokset",
+      "description": "Slack-tilit, jotka voivat toimia sinuna. Liitetty Slack-tili voi hyväksyä ja hylätä ajoja sinun oikeuksillasi, joten peru kaikki, joita et tunnista.",
+      "empty": "Sinuun ei ole liitetty yhtään Slack-tiliä.",
+      "revoke": "Peru",
+      "confirmRevoke": "Perutaanko Slack-käyttäjän {user} liitos? Tili ei voi enää toimia sinuna Slackistä.",
+      "columns": {
+        "slackUser": "Slack-käyttäjä",
+        "team": "Slack-tiimi",
+        "linkedAt": "Liitetty"
+      },
+      "errors": {
+        "load": "Slack-liitoksiasi ei voitu ladata.",
+        "revoke": "Tätä Slack-liitosta ei voitu perua."
       }
     }
   },
@@ -761,7 +777,9 @@
       "setAssignmentStatus": "Määrityksen asettaminen epäonnistui ({status})",
       "deleteAssignment": "Määrityksen poistaminen epäonnistui",
       "conflictingLabelKeys": "{keys} sai useamman kuin yhden arvon. Tunnistesääntö pitää yhden arvon avainta kohden, joten viimeinen korvaisi aiemmat huomaamatta. API tukee useaa arvoa avainta kohden, mutta sitä ei voi vielä asettaa täällä."
-    }
+    },
+    "pinnedToSubject": "Kiinnitetty",
+    "pinnedToSubjectTitle": "Kiinnitetty IdP-subjektiin {subject}"
   },
   "adminVcs": {
     "title": "VCS-yhteydet",
@@ -774,6 +792,23 @@
       "delete": "Poista"
     },
     "confirmDelete": "Poistetaanko tämä VCS-yhteys? Sitä käyttävät työtilat menettävät VCS-integraation. Tätä ei voi kumota.",
+    "access": {
+      "heading": "Kuka voi käyttää tätä yhteyttä",
+      "intro": "Nämä kolme asetusta ratkaisevat, mitkä työtilat voivat osoittaa tähän yhteyteen. Tunnistetieto itse pysyy vain kirjoitettavana.",
+      "ownerEmail": "Omistajan sähköposti",
+      "ownerEmailHint": "Omistaja voi aina käyttää tätä yhteyttä. Jätä tyhjäksi, jos yhteys saa jäädä ilman omistajaa.",
+      "labels": "Käyttöoikeustunnisteet",
+      "labelsHint": "Rooli, jonka säännöt vastaavat näitä tunnisteita, voi osoittaa työtilan tähän yhteyteen.",
+      "allowedRepositories": "Sallitut tietovarastot",
+      "allowedRepositoriesHint": "Glob-mallit, joita verrataan tietovarastoon, jota työtila pyytää käyttöönsä.",
+      "addPattern": "Lisää malli",
+      "anyRepositoryWarning": "Yhtään mallia ei ole luetteloitu, joten tämä yhteys voi osoittaa mihin tahansa tietovarastoon.",
+      "restricted": "{count, plural, one {# malli on luetteloitu} other {# mallia on luetteloitu}}, joten tietovarasto, joka ei vastaa yhtäkään niistä, hylätään.",
+      "ownedBy": "Omistaja {email}",
+      "unowned": "Omistajaa ei ole asetettu",
+      "anyRepositorySummary": "Mikä tahansa tietovarasto on sallittu",
+      "repositoryCount": "Rajattu {count, plural, one {# tietovarastoon} other {# tietovarastoon}}"
+    },
     "form": {
       "name": "Nimi",
       "namePattern": "Vain kirjaimet, numerot, tavuviivat ja alaviivat. Alettava kirjaimella tai numerolla.",
@@ -922,7 +957,6 @@
       "varKey": "Avain",
       "varValue": "Arvo",
       "varCategory": "Kategoria",
-      "categoryTerraform": "Terraform",
       "categoryEnv": "Ympäristö",
       "sensitive": "Arkaluonteinen",
       "sensAbbr": "Ark.",
@@ -988,7 +1022,9 @@
       "valueSource": "Arvon lähde",
       "valueSourceStatic": "Syötä arvo",
       "valueSourceVault": "Lue OpenBao/Vaultista",
-      "vaultHint": "Terrapod lukee salaisuuden OpenBaosta (tai HashiCorp Vaultista) ajon aikana. Mitään ei tallenneta tänne."
+      "vaultHint": "Terrapod lukee salaisuuden OpenBaosta (tai HashiCorp Vaultista) ajon aikana. Mitään ei tallenneta tänne.",
+      "categoryNative": "Natiivi",
+      "structured": "Rakenteinen"
     }
   },
   "adminAutodiscovery": {
@@ -1076,7 +1112,10 @@
       "terragruntVersion": "Terragrunt-versio",
       "noExpiry": "Ei vanhenemista",
       "addDriftIgnoreRule": "Lisää sääntö",
-      "debugModeHint": "Pidä epäonnistuneiden suorittajien podit auki työtiloissa, jotka tämä sääntö luo. Oletuksena pois päältä – auki pidetty podi säilyttää kyseisen työtilan tunnukset."
+      "debugModeHint": "Pidä epäonnistuneiden suorittajien podit auki työtiloissa, jotka tämä sääntö luo. Oletuksena pois päältä – auki pidetty podi säilyttää kyseisen työtilan tunnukset.",
+      "allowForkPrPlansHint": "Koskee jokaista työtilaa, jonka tämä sääntö luo. Oletuksena pois päältä: forkista avattu pull request ei saa spekulatiivista suunnitelmaa, koska se ajaisi tekijänsä koodin työtilan tunnuksilla.",
+      "oidcAudiences": "Ajoidentiteetin audiencet (peritään luoduille työtiloille)",
+      "oidcAudiencesHint": "Audience-ohitukset, jotka asetetaan jokaiseen tämän säännön luomaan työtilaan, avaimena provider-konfiguraatio, jota token koskee — aws tai aws.west alias-konfiguraatiolle. Jätä tyhjäksi, niin nämä työtilat käyttävät käyttöönoton omaa konfiguraatiota."
     },
     "table": {
       "name": "Nimi",
@@ -1270,7 +1309,8 @@
       "cancel": "Peruuta",
       "working": "Työskennellään...",
       "previewDryRun": "Esikatsele (testiajo)",
-      "applyChanges": "Käytä muutoksia"
+      "applyChanges": "Käytä muutoksia",
+      "setOidcAudiences": "Aseta ajoidentiteetin OIDC-audiencet (korvaa kartan jokaisessa vastaavassa työtilassa)"
     },
     "diff": {
       "colWorkspace": "Työtila",
@@ -1919,12 +1959,24 @@
       "always": "aina",
       "create": "luonti",
       "createUpdate": "luonti/päivitys"
+    },
+    "oidcAudiences": {
+      "addProvider": "Lisää provider-konfiguraatio",
+      "audiences": "Audiencet",
+      "badgeInherited": "Käyttöönoton oletus",
+      "badgeOwned": "Työtila",
+      "issuerDisabled": "Tämä käyttöönotto ei julkaise lainkaan OpenID Connect -myöntäjää, joten mikään tässä määritetty ei voi tulla voimaan.",
+      "override": "Ohita",
+      "overrideAria": "Ohita {provider}-audiencet tässä työtilassa",
+      "providerDuplicate": "Tällä provider-konfiguraatiolla on jo merkintä.",
+      "providerInvalid": "Provider-nimessä ei ole välilyöntejä ja enintään yksi piste — aws tai aws.west.",
+      "providerPlaceholder": "aws tai aws.west",
+      "removeProviderAria": "Poista provider-konfiguraatio {provider}"
     }
   },
   "planSummary": {
     "aiGenerated": "Tekoälyn luoma",
     "heading": {
-      "planSummary": "Suunnitelman yhteenveto",
       "failureAnalysis": "Epäonnistumisanalyysi"
     },
     "errors": {
@@ -1933,13 +1985,11 @@
     "regenerate": {
       "label": "Luo uudelleen",
       "queueing": "Asetetaan jonoon…",
-      "tooltip": "Aja tekoälyn yhteenveto uudelleen samoilla suunnitelman syötteillä",
       "ariaLabel": "Luo tekoälyn yhteenveto uudelleen",
       "confirm": "Luodaanko tekoälyanalyysi uudelleen? Tämä ajaa mallin uudelleen.",
       "error": "Uudelleenluonti ei onnistunut: <mono>{detail}</mono>"
     },
     "pending": {
-      "summarisingPlan": "Tehdään yhteenvetoa suunnitelmasta…",
       "analysingFailure": "Analysoidaan epäonnistumista…"
     },
     "skipped": {
@@ -1963,7 +2013,6 @@
     "badges": {
       "noChanges": "Ei muutoksia",
       "noChangesLower": "ei muutoksia",
-      "noChangesTitle": "Suunnitelma ei raportoinut resurssimuutoksia",
       "toAdd": "{count, plural, one {# lisättävä} other {# lisättävää}}",
       "toChange": "{count, plural, one {# muutettava} other {# muutettavaa}}",
       "toDestroy": "{count, plural, one {# tuhottava} other {# tuhottavaa}}",
@@ -1973,7 +2022,6 @@
     "chat": {
       "heading": "Jatkokysymys",
       "sharedThreadNote": "Yksi jaettu keskustelu, näkyvissä kaikille, joilla on työtilan lukuoikeus.",
-      "placeholder": "Kysy jatkokysymys tästä suunnitelmasta… (⌘/Ctrl + Enter lähettää)",
       "send": "Lähetä",
       "thinking": "Ajatellaan…",
       "you": "Sinä",
@@ -1997,7 +2045,6 @@
     "workspaceFallback": "työtila",
     "backTo": "Takaisin kohteeseen {name}",
     "errorHeading": "Virhe",
-    "discardedHeading": "Hylätty — uudelleensuunnittelu vaaditaan",
     "common": {
       "yes": "Kyllä",
       "no": "Ei"
@@ -2051,14 +2098,13 @@
     },
     "badge": {
       "destroy": "tuhoa",
-      "planOnly": "vain suunnittelu"
+      "savedPlan": "tallennettu suunnitelma",
+      "savedPlanHint": "Käyttöönotto lykätty: tämä ajo ei varaa työtilaa ennen kuin tallennettu suunnitelma otetaan käyttöön."
     },
     "actions": {
       "retryShort": "Yritä uudelleen",
       "retryFull": "Yritä ajoa uudelleen",
       "retrying": "Yritetään uudelleen…",
-      "confirmShort": "Ota käyttöön",
-      "confirmFull": "Vahvista ja ota käyttöön",
       "confirming": "Vahvistetaan…",
       "discard": "Hylkää",
       "discarding": "Hylätään…",
@@ -2068,8 +2114,6 @@
       "queuing": "Lisätään jonoon…"
     },
     "confirm": {
-      "apply": "Otetaanko tämä ajo käyttöön? Tämä ottaa suunnitelman käyttöön ja muuttaa infrastruktuuria.",
-      "discard": "Hylätäänkö tämä suunnitelma?",
       "cancel": "Perutaanko tämä ajo?",
       "retry": "Yritetäänkö tätä ajoa uudelleen?"
     },
@@ -2092,20 +2136,19 @@
       "impactFull": "Vaikutusgraafi",
       "cost": "Kustannus",
       "costFull": "Kustannusarvio",
-      "planLabel": "Suunnitelma<log>Loki</log>",
-      "applyLabel": "Käyttöönotto<log>Loki</log>",
-      "planFull": "Suunnitelmaloki",
-      "applyFull": "Käyttöönottoloki",
       "details": "Tiedot",
       "security": "Turvallisuus",
       "securityFull": "Turvatarkistus"
     },
     "banner": {
       "destroy": "Tämä on <strong>tuhoajo</strong> — kaikki hallitut resurssit tuhotaan käyttöönotettaessa.",
-      "planOnlyCli": "Tämä on <strong>vain suunnittelu</strong> -ajo, joka on aloitettu CLI:stä VCS-yhdistetyssä työtilassa. Käyttöönotto ei ole saatavilla CLI:llä ladatulle koodille — vain VCS:n hallinnoima koodi voidaan ottaa käyttöön.",
       "moduleOverridesPrefix": "Tämä ajo käyttää <strong>moduuliohituksia</strong>",
       "moduleOverridesFromPr": "PR:stä #{number}",
       "moduleOverridesSuffix": "haetaan PR-haarasta julkaistun rekisteriversion sijaan."
+    },
+    "bindPlan": {
+      "bound": "Lukittu tähän esikatseluun: päivitys soveltaa täsmälleen tässä näytettyä suunnitelmaa, joten kaikki sen jälkeen muuttunut kaataa päivityksen sen sijaan, että se sovellettaisiin.",
+      "unbound": "Ei lukittu tähän esikatseluun: päivitys selvittää muutoksensa itse ajon aikana, kuten tavallinen pulumi up, joten se voi soveltaa muuta kuin tässä näytettyä."
     },
     "cards": {
       "changes": "Muutokset",
@@ -2117,7 +2160,6 @@
     },
     "changes": {
       "noChanges": "Ei muutoksia",
-      "planning": "Suunnitellaan…",
       "toAdd": "lisättävää",
       "toChange": "muutettavaa",
       "toDestroy": "tuhottavaa",
@@ -2154,7 +2196,6 @@
       "executionBackend": "Suoritustausta",
       "source": "Lähde",
       "autoApply": "Automaattinen käyttöönotto",
-      "planOnly": "Vain suunnittelu",
       "triggeredBy": "Käynnistänyt",
       "created": "Luotu",
       "commit": "Commit",
@@ -2170,11 +2211,7 @@
     "timeline": {
       "heading": "Aikajana",
       "queued": "Jonossa",
-      "planningStarted": "Suunnittelu aloitettu",
-      "planComplete": "Suunnitelma valmis",
       "confirmed": "Vahvistettu",
-      "applyingStarted": "Käyttöönotto aloitettu",
-      "applied": "Otettu käyttöön",
       "errored": "Virhe",
       "canceled": "Peruttu",
       "discarded": "Hylätty"
@@ -2198,12 +2235,8 @@
       "followOffTitle": "Seuraa reaaliaikaista häntää",
       "end": "Loppu",
       "endTitle": "Siirry lokin loppuun",
-      "planEmpty": "Suunnitelman tulostetta ei ole vielä saatavilla.",
-      "applyEmpty": "Käyttöönoton tulostetta ei ole vielä saatavilla.",
       "index": {
         "label": "Siirry",
-        "title": "Siirry resurssimuutokseen tai suunnitelman yhteenvetoon",
-        "summary": "Suunnitelman yhteenveto",
         "action": {
           "create": "luo",
           "update": "päivitä",
@@ -2215,13 +2248,11 @@
           "error": "virhe",
           "warning": "varoitus"
         }
-      },
-      "applySkippedNoChanges": "Käyttöönottoa ei ajettu: suunnitelmassa ei ollut muutoksia, joten mitään ei ollut otettavana käyttöön."
+      }
     },
     "policyPanel": {
       "heading": "Käytäntötarkistukset",
       "passedCount": "{passed}/{total} läpäisi",
-      "blockedMessage": "Tämä ajo on <strong>estetty pakollisen käytäntöjoukon toimesta</strong>. Sitä ei oteta käyttöön, ennen kuin epäonnistuminen ratkaistaan tai järjestelmänvalvoja ohittaa sen.",
       "overriding": "Ohitetaan...",
       "overrideContinue": "Ohita ja jatka",
       "overrideFailed": "Ohitus epäonnistui",
@@ -2261,7 +2292,6 @@
       "unpricedHint": "Hinnoittelutiedoista ei löytynyt vastaavuutta näille — kartoittamaton tyyppi, resurssi ilman suoraa kustannusta tai palveluntarjoaja, jota ei vielä tueta.",
       "indicative": "Arviot ovat suuntaa antavia; todellinen kustannus riippuu käytöstä, alueesta, sitoumuksista ja alennuksista.",
       "asOfState": "tilan v{serial} mukaan",
-      "noState": "Ei vielä kustannuksia — näkyy ensimmäisen käytön jälkeen.",
       "usageBand": "{dimension}: tyypillisesti {typical} {unit} (vaihteluväli {low}–{high})",
       "usageBandCost": "{dimension}: {costTypical}/kk tyypillisesti — {costLow}–{costHigh} välillä {low}–{high} {unit}"
     },
@@ -2348,7 +2378,6 @@
       "passed": "Yksikään käytäntökriteeri ei täsmännyt.",
       "overriding": "Ohitetaan...",
       "overrideContinue": "Ohita ja jatka",
-      "overrideConfirm": "Ohitetaanko tekoälykäytäntöportti ja sallitaanko tämän ajon soveltaminen päätöksestä huolimatta?",
       "overrideFailed": "Ohitus epäonnistui",
       "overrideFailedStatus": "Ohitus epäonnistui ({status})",
       "overriddenBy": "ohittanut {by}"
@@ -2407,9 +2436,6 @@
       "translatedNote": "Käännetty alkuperäisestä katselun yhteydessä."
     },
     "drift": {
-      "remediate": "Plan + apply",
-      "remediateTitle": "Lisää plan + apply -ajo jonoon, jotta infrastruktuuri saadaan taas vastaamaan konfiguraatiota",
-      "remediateConfirm": "Lisätäänkö plan + apply -ajo jonoon tälle työtilalle?",
       "remediateMessage": "Lisätty jonoon poikkeamatarkistuksesta",
       "remediateFailed": "Korjausajoa ei voitu lisätä jonoon"
     }
@@ -2469,6 +2495,7 @@
       "architecture": "Arkkitehtuuri",
       "insights": "Näkemykset",
       "automation": "Automaatio",
+      "inventory": "Inventaario",
       "access": "Käyttöoikeus"
     },
     "lifecycle": {
@@ -2501,6 +2528,9 @@
       "version": "Versio",
       "versionPlaceholder": "esim. 1.11 tai 1.11.5",
       "versionTitle": "Versio muodossa X.Y tai X.Y.Z (esim. 1.11 tai 1.11.5)",
+      "ansibleVersion": "Ansible-versio",
+      "ansibleVersionPlaceholder": "esim. 2.21.5",
+      "ansibleVersionTitle": "Tämän työtilan ansible-core-versio. Jätä tyhjäksi, niin noudatetaan käyttöönoton oletusta.",
       "terragruntEnabledAgent": "Käytössä (agenttitila)",
       "terragruntEnabledVersion": "Käytössä (v{version})",
       "terragruntVersionPlaceholder": "esim. 1.0",
@@ -2541,12 +2571,16 @@
       "engineTerraform": "Terraform",
       "nameTitlePulumi": "Kaksi osaa erotettuna merkeillä '::' — project::stack. Vain kirjaimia, numeroita, väliviivoja ja alaviivoja; kummankin osan on alettava kirjaimella tai numerolla.",
       "bindPlan": "Lukitse päivitys hyväksyttyyn esikatseluun",
-      "bindPlanHelp": "Kun asetus on päällä, päivitys soveltaa täsmälleen esikatselun tallentamaa suunnitelmaa, joten kaikki esikatselun jälkeen muuttunut kaataa päivityksen sen sijaan, että se sovellettaisiin. Tämä perustuu Pulumin päivityssuunnitelmiin, jotka ovat vielä kokeellisia. Kun asetus on pois päältä, päivitys selvittää muutoksensa itse, kuten tavallinen pulumi up. <docs>Näin Pulumi-ajot toimivat</docs>"
+      "bindPlanHelp": "Kun asetus on päällä, päivitys soveltaa täsmälleen esikatselun tallentamaa suunnitelmaa, joten kaikki esikatselun jälkeen muuttunut kaataa päivityksen sen sijaan, että se sovellettaisiin. Tämä perustuu Pulumin päivityssuunnitelmiin, jotka ovat vielä kokeellisia. Kun asetus on pois päältä, päivitys selvittää muutoksensa itse, kuten tavallinen pulumi up. <docs>Näin Pulumi-ajot toimivat</docs>",
+      "oidcAudiences": "Ajoidentiteetin audiencet",
+      "oidcAudiencesAdd": "Lisää audience",
+      "oidcAudiencesHint": "Terrapod myöntää lyhytikäisen OpenID Connect -tokenin jokaiselle provider-konfiguraatiolle, jota ajo käyttää, ja kirjoittaa sen tiedostoon, jonka ajo voi lukea. Avaimena merkinnässä on provider sellaisena kuin konfiguraatiosi sen nimeää — aws tai aws.west alias-konfiguraatiolle — ja luettele audiencet, jotka kohde hyväksyy. Jokainen merkintä ohittaa käyttöönoton oman konfiguraation kyseiselle providerille; poista se, niin provider palaa käyttöönoton audienceihin. Audience on läpinäkymätön merkkijono, jonka federaatiokohde valitsi, joten se tallennetaan täsmälleen kirjoittamassasi muodossa.",
+      "oidcAudiencesLoading": "Tarkistetaan käyttöönotossa määritetyt audiencet …",
+      "oidcAudiencesNone": "Ei mitään (ajot käyttävät agenttipoolin omaa identiteettiä)",
+      "oidcAudiencesPlaceholder": "esim. sts.amazonaws.com"
     },
     "vcsWorkflowWarning": {
       "title": "Valtuutus delegoitu VCS-repositoriollesi.",
-      "rbac": "Kuka tahansa, joka voi yhdistää PR:n, voi ottaa käyttöön. Haaran suojaussäännöistä (vaaditut tarkastelut, tilatarkistukset, koodinomistajan hyväksyntä) tulee portti. Terrapod-roolien/-tunnisteiden RBAC<em>ei</em> koske kommenttivetoisia toimintoja tässä tilassa.",
-      "recommended": "<strong>Suositeltu:</strong> vaadi lineaarinen historia (rebase/squash ennen yhdistämistä), jotta käyttöönotettava commit on se commit, joka päätyy kohteeseen.",
       "credit": "Kiitokset: tämä työnkulku on mallinnettu <atlantis>Atlantis</atlantis>in mukaan. Atlantis on edelleen oikea työkalu tiimeille, jotka haluavat vain PR-kommenttivetoiset käyttöönotot eivätkä alustan käyttöliittymää."
     },
     "vcsPolling": {
@@ -2562,7 +2596,6 @@
     },
     "lock": {
       "title": "Lukituksen tila",
-      "lockedDesc": "Tämä työtila on lukittu. Suunnitelmia tai käyttöönottoja ei voi suorittaa.",
       "unlockedDesc": "Tämä työtila on lukitsematon ja valmis ajoihin.",
       "lock": "Lukitse",
       "unlock": "Poista lukitus",
@@ -2584,7 +2617,6 @@
       "dismissTitle": "Tyhjennä raportoitu ajautumatila. Seuraava ajoitettu tarkistus täyttää sen uudelleen todellisuudesta.",
       "lastChecked": "Viimeksi tarkistettu",
       "checkNow": "Tarkista nyt",
-      "checkNowTitle": "Aseta jonoon vain suunnittelu -ajo ajautuman tarkistamiseksi",
       "checkNowTitleDisabled": "Ota ajautuman tunnistus ensin käyttöön"
     },
     "intervals": {
@@ -2598,13 +2630,10 @@
       "7days": "7 päivää"
     },
     "planExpiry": {
-      "title": "Suunnitelman vanheneminen",
-      "description": "Hylkää vahvistamaton suunnitelma automaattisesti, kun se on tätä vanhempi, jotta vanhentunutta suunnitelmaa ei voi ottaa käyttöön muuttunutta maailmaa vastaan. Oletuksena pois päältä; suunnitelma on tällöin ajettava uudelleen. (Koskee vain käyttöönottokykyisiä ajoja.)",
       "expireAfter": "Vanhene jälkeen"
     },
     "aiSummary": {
       "title": "Tekoälyn suunnitelmayhteenveto",
-      "description": "Automaattinen LLM:n luoma muutosyhteenveto, riskiarvio ja epäonnistumisanalyysi jokaisesta tämän työtilan suunnitteluvaiheen tuloksesta.",
       "mode": "Tila",
       "modeDefault": "Noudata käyttöönoton oletusta",
       "modeEnabled": "Tee aina yhteenveto",
@@ -2619,7 +2648,6 @@
     },
     "slack": {
       "title": "Slack-ilmoitukset",
-      "description": "Ota tämä työtila mukaan Slack-ajoilmoituksiin — hyväksyntäpyynnöt, käyttöönotot, virheet ja ajautuma. Jätä kanava tyhjäksi, niin tämä työtila pysyy hiljaa (ei ole käyttöönottolaajuista jakelua). Vaatii, että järjestelmänvalvoja on ottanut Slack-sovelluksen käyttöön.",
       "channel": "Kanava",
       "channelPlaceholder": "#deploys tai kanavan ID (esim. C0123ABCD)",
       "notSet": "Ei asetettu — hiljainen.",
@@ -2694,20 +2722,18 @@
       "vaultFileEncoding": "Koodaus",
       "vaultFileEncodingNone": "Kuten OpenBao/Vaultiin tallennettu",
       "vaultFileEncodingBase64": "Base64-dekoodaus",
-      "vaultFileEncodingHint": "Dekoodaa kentän ennen kirjoittamista. Tuloksen on oltava tekstiä; binääritiedostoja ei tueta."
+      "vaultFileEncodingHint": "Dekoodaa kentän ennen kirjoittamista. Tuloksen on oltava tekstiä; binääritiedostoja ei tueta.",
+      "categoryNative": "Natiivi",
+      "structured": "Rakenteinen",
+      "categoryTerraform": "Terraform",
+      "categoryPulumiConfig": "Pulumi-määritys"
     },
     "runs": {
       "options": "Vaihtoehdot",
       "hideOptions": "Piilota vaihtoehdot",
       "queueDestroy": "Tuhoa",
-      "queueDestroyTitle": "Aseta tuhosuunnitelma jonoon",
       "destroyAllConfirm": "Tuhotaanko kaikki resurssit?",
       "confirmDestroy": "Vahvista tuhoaminen",
-      "queuePlan": "Plan",
-      "queueRun": "Plan + apply",
-      "queuePlanConfirm": "Asetetaanko spekulatiivinen suunnitelma jonoon tälle työtilalle?",
-      "queueApplyConfirm": "Asetetaanko suunnittelu- + käyttöönottoajo jonoon? Tämä voi muuttaa infrastruktuuria.",
-      "planOptions": "Suunnitelman vaihtoehdot",
       "targetResources": "Kohderesurssit",
       "replaceResources": "Korvaa resurssit",
       "commaSeparated": "(pilkuin eroteltuna)",
@@ -2718,7 +2744,6 @@
       "branch": "Haara",
       "tag": "Tagi",
       "defaultBranch": "Oletus ({branch})",
-      "nonDefaultRefNote": "Ei-oletusviite valittu — ajo on vain suunnittelu",
       "empty": "Ei vielä ajoja tälle työtilalle.",
       "runId": "Ajon ID",
       "status": "Tila",
@@ -2729,13 +2754,11 @@
       "created": "Luotu",
       "needsConfirm": "vaatii vahvistuksen",
       "typeDestroy": "tuhoa",
-      "typePlanOnly": "vain suunnittelu",
-      "typePlanApply": "suunnittelu + käyttöönotto",
       "sourceModuleTest": "moduulitesti",
       "sourceModulePublish": "moduulijulkaisu",
-      "queueApplyTitle": "Lisää plan + apply -ajo jonoon",
-      "queueApplyRefBlocked": "Apply ei ole käytettävissä, kun haara, tunniste tai commit on valittuna — nämä ajot ovat aina vain plan",
-      "awaitingDecision": "odottaa päätöstä"
+      "awaitingDecision": "odottaa päätöstä",
+      "typeSavedPlan": "tallennettu suunnitelma",
+      "typeSavedPlanHint": "Käyttöönotto lykätty: tämä ajo ei varaa työtilaa ennen kuin tallennettu suunnitelma otetaan käyttöön."
     },
     "state": {
       "deleteConfirm": "Poistetaanko tilaversio #{serial}? Tätä ei voi kumota.",
@@ -2752,12 +2775,18 @@
       "runner": "runner",
       "latest": "uusin"
     },
+    "stateOutputs": {
+      "title": "Tulosteet",
+      "fromSerial": "Sarjanumero #{serial}",
+      "empty": "Tämä tila ei määrittele tulosteita.",
+      "sensitive": "Arkaluonteinen",
+      "loadFailed": "Tämän työtilan tulosteiden lataaminen epäonnistui."
+    },
     "configurations": {
       "description": "Ladatut lähdearkistot tälle työtilalle, uusimmat ensin. Valitse kaksi riviä vertailua varten.",
       "selectedCount": "{count}/2 valittu",
       "compare": "Vertaa",
       "comparing": "Vertaillaan…",
-      "empty": "Ei vielä määritysversioita. Ne näkyvät tässä heti, kun `terraform plan` lataa tai VCS-työntö käynnistää ajon.",
       "id": "ID",
       "source": "Lähde",
       "status": "Tila",
@@ -2819,7 +2848,6 @@
     },
     "runTriggers": {
       "title": "Ajokäynnistimet",
-      "description": "Kun lähdetyötila suorittaa käyttöönoton loppuun, alavirran työtilat saavat automaattisesti uuden ajon jonoon. Enintään 20 lähdetyötilaa kohdetta kohti.",
       "inboundHeading": "Lähdetyötilat, jotka käynnistävät ajoja täällä",
       "inboundEmpty": "Yksikään lähdetyötila ei käynnistä ajoja tässä työtilassa.",
       "pickerPlaceholder": "Etsi lähteeksi lisättäviä työtiloja…",
@@ -2827,6 +2855,173 @@
       "outboundEmpty": "Tämä työtila ei käynnistä ajoja missään muussa työtilassa.",
       "destinationNote": "(kohde; poista sieltä)",
       "removeConfirm": "Poistetaanko tämä ajokäynnistin?"
+    },
+    "inventory": {
+      "scope": {
+        "heading": "Inventaario",
+        "body": "Isännät ja ryhmät, jotka tämä työtila pitää hallussaan, ja se, mihin ansible ne ratkaisee. Jokaista riviä voi muokata täällä; playbookin ajaminen niitä vasten ei ole vielä käytettävissä."
+      },
+      "nav": {
+        "label": "Inventaarion osiot",
+        "hosts": "Isännät",
+        "groups": "Ryhmät",
+        "vars": "Muuttujat",
+        "resolved": "Ratkaistu",
+        "settings": "Asetukset"
+      },
+      "actions": {
+        "save": "Tallenna",
+        "saving": "Tallennetaan…",
+        "cancel": "Peruuta",
+        "edit": "Muokkaa",
+        "delete": "Poista",
+        "remove": "Irrota",
+        "add": "Lisää",
+        "adding": "Lisätään…",
+        "rename": "Nimeä uudelleen"
+      },
+      "hosts": {
+        "heading": "Isännät",
+        "body": "Yksi rivi isäntää kohden. Avaa isäntä muokataksesi sen muuttujia ja ryhmiä, joihin se kuuluu.",
+        "empty": "Ei vielä isäntiä.",
+        "colName": "Isäntä",
+        "colGroups": "Ryhmät",
+        "colVars": "Muuttujat",
+        "newLabel": "Uuden isännän nimi",
+        "newPlaceholder": "web-1",
+        "add": "Lisää isäntä",
+        "confirmDelete": "Poistetaanko isäntä {name}? Sen muuttujat ja sen ryhmäjäsenyydet lähtevät sen mukana.",
+        "renameLabel": "Isännän nimi"
+      },
+      "groups": {
+        "heading": "Ryhmät",
+        "body": "Yksi rivi ryhmää kohden. Avaa ryhmä muokataksesi sen muuttujia, sen jäsenisäntiä ja sen sisään sijoitettuja ryhmiä.",
+        "empty": "Ei vielä ryhmiä.",
+        "colName": "Ryhmä",
+        "colMembers": "Isännät",
+        "colChildren": "Aliryhmät",
+        "colVars": "Muuttujat",
+        "newLabel": "Uuden ryhmän nimi",
+        "newPlaceholder": "web",
+        "add": "Lisää ryhmä",
+        "confirmDelete": "Poistetaanko ryhmä {name}? Sen muuttujat ja sen jäsenyydet lähtevät sen mukana; isännät itse jäävät.",
+        "renameLabel": "Ryhmän nimi"
+      },
+      "vars": {
+        "actions": "Toiminnot",
+        "key": "Avain",
+        "keyPlaceholder": "ansible_user",
+        "value": "Arvo",
+        "structured": "Rakenteinen",
+        "sensitive": "Arkaluonteinen",
+        "structuredHelp": "Lista, luku tai objekti on rakenteinen arvo: rastita Rakenteinen ja kirjoita sen kirjaimellinen lähde arvoon. Arkaluonteista arvoa ei koskaan lueta takaisin — kenttä näyttää sen sijaan peitteen.",
+        "structuredBadge": "rakenteinen",
+        "sensitiveKeep": "Jätä tämä tyhjäksi, niin tallennettu arvo säilyy.",
+        "empty": "Täällä ei ole muuttujia.",
+        "add": "Lisää muuttuja",
+        "confirmDelete": "Poistetaanko muuttuja {key}?"
+      },
+      "hostDetail": {
+        "heading": "Isäntä {name}",
+        "body": "Kaikki, mitä tämä yksi isäntä kantaa.",
+        "back": "Takaisin isäntiin",
+        "gone": "Tätä isäntää ei ole enää.",
+        "vars": "Isännän muuttujat",
+        "varsBody": "Muuttujat, jotka koskevat vain tätä isäntää. Ne voittavat samannimisen ryhmämuuttujan.",
+        "memberships": "Ryhmät",
+        "membershipsBody": "Ryhmät, joihin tämä isäntä kuuluu. Jäsenyys on linkki, joten sen irrottaminen täällä jättää sekä isännän että ryhmän paikoilleen.",
+        "membershipsEmpty": "Tämä isäntä ei ole missään ryhmässä, joten ansible sijoittaa sen ryhmään ungrouped.",
+        "addGroup": "Lisää ryhmään",
+        "addGroupLabel": "Valitse ryhmä",
+        "removeGroupAria": "Irrota tämä isäntä ryhmästä {name}",
+        "confirmRemoveGroup": "Otetaanko tämä isäntä pois ryhmästä {name}?"
+      },
+      "groupDetail": {
+        "heading": "Ryhmä {name}",
+        "body": "Kaikki, mitä tämä yksi ryhmä kantaa.",
+        "back": "Takaisin ryhmiin",
+        "gone": "Tätä ryhmää ei ole enää.",
+        "vars": "Ryhmän muuttujat",
+        "varsBody": "Muuttujat, jotka koskevat jokaista tämän ryhmän isäntää, suoraan tai sijoittelun kautta.",
+        "members": "Jäsenisännät",
+        "membersBody": "Tähän ryhmään suoraan kuuluvat isännät. Isäntää, joka saavutetaan vain sijoitetun ryhmän kautta, ei luetella täällä.",
+        "membersEmpty": "Tähän ryhmään ei kuulu suoraan yhtään isäntää.",
+        "addHost": "Lisää isäntä",
+        "addHostLabel": "Valitse isäntä",
+        "removeHostAria": "Irrota {name} tästä ryhmästä",
+        "confirmRemoveHost": "Otetaanko {name} pois tästä ryhmästä?",
+        "children": "Aliryhmät",
+        "childrenBody": "Tämän sisään sijoitetut ryhmät. Niiden isännät ovat myös tämän ryhmän jäseniä, ja tämän ryhmän muuttujat tavoittavat ne.",
+        "childrenEmpty": "Tämän sisään ei ole sijoitettu yhtään ryhmää.",
+        "addChild": "Lisää aliryhmä",
+        "addChildLabel": "Valitse sijoitettava ryhmä",
+        "removeChildAria": "Irrota {name} tämän ryhmän aliryhmistä",
+        "confirmRemoveChild": "Lopetetaanko {name} sijoittaminen tämän ryhmän sisään?",
+        "parents": "Yläryhmät",
+        "parentsBody": "Ryhmät, joiden sisään tämä on sijoitettu. Ryhmällä voi olla useita yläryhmiä.",
+        "parentsEmpty": "Tätä ryhmää ei ole sijoitettu minkään sisään.",
+        "addParent": "Lisää yläryhmä",
+        "addParentLabel": "Valitse yläryhmä",
+        "removeParentAria": "Irrota tämä ryhmä ryhmästä {name}",
+        "confirmRemoveParent": "Lopetetaanko tämän ryhmän sijoittaminen ryhmän {name} sisään?"
+      },
+      "globalVars": {
+        "heading": "Inventaarion muuttujat",
+        "body": "Muuttujat, jotka koskevat jokaista isäntää — ansiblen group_vars/all. Samanniminen ryhmä- tai isäntämuuttuja voittaa täällä asetetun."
+      },
+      "resolved": {
+        "heading": "Ratkaistut isännät",
+        "body": "Se, mitä ansible näistä riveistä tekee: jokainen isäntä niillä muuttujilla, jotka sille lopulta jäävät, yhdistämisen ja etusijajärjestyksen jälkeen.",
+        "hosts": "Isännät",
+        "groups": "Ryhmät",
+        "liveNote": "Tämä on reaaliaikainen. Jokainen lähde täällä on staattinen, joten luku ratkaisee rivit itse vastatakseen — mitään ei tarvitse päivittää.",
+        "noHosts": "Mikään ei ratkennut isännäksi.",
+        "noVars": "ei muuttujia",
+        "groupsHeading": "Ryhmäjäsenyys",
+        "directOnly": "Vain suora jäsenyys, täsmälleen niin kuin ansible sen ilmoittaa: ryhmä, jonka isännät saapuvat kaikki sijoitetun ryhmän kautta, ei luettele yhtään omaa. Sijoittelu on alla.",
+        "noGroups": "Yhtään ryhmää ei ratkennut.",
+        "noDirectMembers": "ei suoria isäntiä",
+        "nestingHeading": "Ryhmien sijoittelu",
+        "nestingBody": "Mitkä ryhmät ovat minkä sisällä. Yläryhmään osuva --limit tavoittaa jokaisen sen alla olevan isännän.",
+        "noNesting": "Yhtään ryhmää ei ole sijoitettu toisen sisään.",
+        "limitHeading": "Mihin --limit kohdistuisi?",
+        "limitBody": "Laajenna ansible --limit -kuvio tätä inventaariota vasten ja näe tarkalleen, mitkä isännät se valitsee ennen kuin mitään ajetaan. Laajennuksen tekee ansible itse, joten ryhmä, poissulku ja ~regex käyttäytyvät kaikki niin kuin ne käyttäytyvät ajohetkellä.",
+        "limitLabel": "--limit-kuvio",
+        "limitPlaceholder": "web:!web-2",
+        "limitApply": "Käytä rajausta",
+        "limitClear": "Tyhjennä",
+        "limitApplied": "Rajattu kuviolla {limit}. Kaikki alla oleva on se, mihin kuvio kohdistuu."
+      },
+      "settings": {
+        "heading": "Asetukset",
+        "body": "Lasketaanko täällä pidetyt rivit mukaan, ja mistä tietovarastosta inventaario myös luetaan.",
+        "absent": "Ei asetuksia, mikä on oletus: täällä pidetyt isännät ja ryhmät ovat koko inventaario.",
+        "includePlatform": "Käytä täällä pidettyjä isäntiä ja ryhmiä",
+        "includePlatformHelp": "Oletuksena päällä. Ota pois päältä, jos haluat ratkaista vain tietovarastosta — nämä rivit jäävät paikoilleen mutta vastauksen ulkopuolelle.",
+        "included": "kyllä",
+        "excluded": "ei",
+        "vcsConnection": "VCS-yhteys",
+        "vcsNone": "Ei mitään",
+        "field": {
+          "repo-url": "Tietovarasto",
+          "branch": "Haara",
+          "working-directory": "Hakemisto"
+        },
+        "branchHelp": "Jätä tyhjäksi, niin seurataan tietovaraston oletushaaraa.",
+        "ignorePaths": "Ohitetut polut",
+        "ignorePathsHelp": "Yksi glob riviä kohden. Kaikki osuva jätetään pois tietovarastosta luetusta inventaariosta.",
+        "unset": "ei asetettu",
+        "create": "Lisää asetukset",
+        "clear": "Tyhjennä asetukset",
+        "confirmClear": "Tyhjennetäänkö nämä asetukset? Tietovarastosidos lähtee niiden mukana; täällä pidetyt isännät ja ryhmät jäävät."
+      },
+      "errors": {
+        "load": "Inventaarion lataaminen epäonnistui",
+        "save": "Tallentaminen epäonnistui",
+        "delete": "Poistaminen epäonnistui",
+        "resolved": "Inventaarion ratkaiseminen epäonnistui",
+        "settings": "Inventaarion asetusten tallentaminen epäonnistui"
+      }
     },
     "sharing": {
       "title": "Etätilan jakaminen",
@@ -2896,8 +3091,6 @@
       "addVariableStatus": "Muuttujan lisääminen epäonnistui ({status})",
       "deleteVariable": "Muuttujan poistaminen epäonnistui",
       "updateVariable": "Muuttujan päivittäminen epäonnistui",
-      "queuePlan": "Suunnitelman asettaminen jonoon epäonnistui",
-      "queuePlanStatus": "Suunnitelman asettaminen jonoon epäonnistui ({status})",
       "queueDestroy": "Tuhoamisen asettaminen jonoon epäonnistui",
       "queueDestroyStatus": "Tuhoamisen asettaminen jonoon epäonnistui ({status})",
       "createNotification": "Ilmoituksen luominen epäonnistui",
@@ -2914,7 +3107,8 @@
       "uploadState": "Tilan lataaminen epäonnistui",
       "uploadStateFile": "Tilatiedoston lataaminen epäonnistui",
       "updateSecurityScan": "Tietoturvatarkistuksen päivitys epäonnistui",
-      "updateDebugMode": "Virheenkorjaustilan päivitys epäonnistui"
+      "updateDebugMode": "Virheenkorjaustilan päivitys epäonnistui",
+      "updateForkPlans": "Forkien pull requestien suunnitelmien päivitys epäonnistui"
     },
     "subtabs": {
       "state": "Tila",
@@ -2967,6 +3161,14 @@
       "bannerTitle": "Virheenkorjaustila on päällä tässä työtilassa",
       "bannerBody": "Epäonnistuneen ajon podi pidetään auki tarkastelua varten sen sijaan, että se päättyisi, ja se säilyttää koko sen ajan tämän työtilan tunnukset ja puretut muuttujat. Kytke virheenkorjaustila pois, kun olet saanut selvityksen valmiiksi.",
       "confirmEnable": "Otetaanko virheenkorjaustila käyttöön? Epäonnistuneen ajon podi pidetään auki tämän työtilan tunnusten ja purettujen muuttujien kanssa, kunnes ikkuna umpeutuu tai poistat podin."
+    },
+    "allowForkPrPlans": {
+      "title": "Suunnitelmat forkista avatuille pull requesteille",
+      "description": "Saako forkista avattu pull request spekulatiivisen suunnitelman. Oletuksena pois päältä, koska tuo suunnitelma ajaa forkin tekijän koodin tämän työtilan tunnuksilla.",
+      "label": "Suunnittele forkista avatut pull requestit",
+      "hint": "Ajo saa tämän työtilan ympäristömuuttujat, arkaluonteiset arvot, kaikki Vaultista haetut salaisuudet ja työn pilvi-identiteetin. Forkista pull requestin avaavalla ei ole kirjoitusoikeutta eikä hän voi yhdistää, joten spekulatiivinen suunnitelma on ainoa reitti, jota pitkin hänen koodinsa pääsee noihin tunnuksiin. Ota tämä käyttöön työtilassa, jossa ei ole mitään viemisen arvoista — vaikkapa julkisessa moduulirepositoriossa, joka ottaa vastaan yhteisön kontribuutioita. Repositorion omista haaroista avatut pull requestit eivät muutu, ja ne suunnitellaan aina.",
+      "activeBadge": "Päällä",
+      "confirmEnable": "Suunnitellaanko forkeista avatut pull requestit? Niiden tekijöiden koodi ajetaan tämän työtilan tunnuksilla ja puretuilla muuttujilla, ilman että kukaan hyväksyy sitä ensin."
     }
   },
   "graphs": {
@@ -3189,11 +3391,14 @@
     "unknown": "tuntematon",
     "confirm": {
       "prompt": "Linkitetäänkö tämä Slack-tili <em>sinun</em> Terrapod-identiteettiisi? Jokainen tuleva Slack-toiminto (hyväksy/hylkää) suoritetaan tänä Terrapod-käyttäjänä hänen oikeuksillaan.",
+      "slackName": "Slack-tili",
       "slackUser": "Slack-käyttäjä",
       "slackTeam": "Slack-tiimi",
       "terrapodAccount": "Terrapod-tili",
       "warning": "Jatka vain, jos aloitit tämän linkin juuri itse Slackista. Jos et, sulje tämä välilehti äläkä linkitä — tämä sitoo yllä olevan Slack-tilin <em>sinun</em> Terrapod-identiteettiisi.",
-      "button": "Vahvista ja linkitä"
+      "button": "Vahvista ja linkitä",
+      "namesUnavailable": "Terrapod ei saanut haettua tämän Slack-tilin nimeä. Tarkista yllä olevat tunnukset ja jatka vain, jos aloitit tämän liitoksen itse Slackissä.",
+      "nameIsSelfChosen": "Tunnus on Slack-työtilassa yksilöllinen; sen alla oleva näyttönimi on omistajan itse valitsema, joten arvioi tunnuksen perusteella."
     },
     "success": {
       "message": "Slack-tilisi on nyt linkitetty Terrapodiin.",
@@ -3416,7 +3621,77 @@
       },
       "status": {
         "planning": "Suunnitellaan",
-        "applying": "Otetaan käyttöön"
+        "applying": "Otetaan käyttöön",
+        "planned": "Suunniteltu",
+        "applied": "Otettu käyttöön"
+      },
+      "words": {
+        "actionConfirmFull": "Vahvista ja ota käyttöön",
+        "actionConfirmShort": "Ota käyttöön",
+        "activityApplied": "Käyttöönotto valmis",
+        "activityConfirmed": "Aloitetaan käyttöönottoa",
+        "activityDiscarded": "Suunnitelma hylätty",
+        "activityPlannedComplete": "Suunnitelma valmis",
+        "activityPlannedConfirmable": "Odotetaan, että vahvistat ja otat käyttöön",
+        "activityPlannedSpeculative": "Spekulatiivinen suunnitelma valmis",
+        "aiPolicyOverrideConfirm": "Ohitetaanko tekoälykäytäntöportti ja sallitaanko tämän ajon soveltaminen päätöksestä huolimatta?",
+        "aiSummaryDescription": "Automaattinen LLM:n luoma muutosyhteenveto, riskiarvio ja epäonnistumisanalyysi jokaisesta tämän työtilan suunnitteluvaiheen tuloksesta.",
+        "aiSummaryTitle": "Tekoälyn suunnitelmayhteenveto",
+        "badgePlanOnly": "vain suunnittelu",
+        "bannerPlanOnlyCli": "Tämä on <strong>vain suunnittelu</strong> -ajo, joka on aloitettu CLI:stä VCS-yhdistetyssä työtilassa. Käyttöönotto ei ole saatavilla CLI:llä ladatulle koodille — vain VCS:n hallinnoima koodi voidaan ottaa käyttöön.",
+        "changesPlanning": "Suunnitellaan…",
+        "configurationsEmpty": "Ei vielä määritysversioita. Ne näkyvät tässä heti, kun `terraform plan` lataa tai VCS-työntö käynnistää ajon.",
+        "confirmApply": "Otetaanko tämä ajo käyttöön? Tämä ottaa suunnitelman käyttöön ja muuttaa infrastruktuuria.",
+        "confirmDiscard": "Hylätäänkö tämä suunnitelma?",
+        "costNoState": "Ei vielä kustannuksia — näkyy ensimmäisen käytön jälkeen.",
+        "detailsPlanOnly": "Vain suunnittelu",
+        "discardedHeading": "Hylätty — uudelleensuunnittelu vaaditaan",
+        "driftCheckNowTitle": "Aseta jonoon vain suunnittelu -ajo ajautuman tarkistamiseksi",
+        "driftRemediate": "Plan + apply",
+        "driftRemediateConfirm": "Lisätäänkö plan + apply -ajo jonoon tälle työtilalle?",
+        "driftRemediateTitle": "Lisää plan + apply -ajo jonoon, jotta infrastruktuuri saadaan taas vastaamaan konfiguraatiota",
+        "errorsQueuePlan": "Suunnitelman asettaminen jonoon epäonnistui",
+        "errorsQueuePlanStatus": "Suunnitelman asettaminen jonoon epäonnistui ({status})",
+        "fieldsAutoMerge": "Automaattinen yhdistäminen käyttöönoton jälkeen",
+        "formAutoApplyModeHint": "never: odota aina ihmistä. always: toteuta jokainen onnistunut suunnitelma. create / create/update: toteuta vain niihin toimiin rajoittuvat suunnitelmat — ei koskaan poistoa tai korvausta.",
+        "lockLockedDesc": "Tämä työtila on lukittu. Suunnitelmia tai käyttöönottoja ei voi suorittaa.",
+        "logApplyEmpty": "Käyttöönoton tulostetta ei ole vielä saatavilla.",
+        "logApplySkipped": "Käyttöönottoa ei ajettu: suunnitelmassa ei ollut muutoksia, joten mitään ei ollut otettavana käyttöön.",
+        "logIndexSummary": "Suunnitelman yhteenveto",
+        "logIndexTitle": "Siirry resurssimuutokseen tai suunnitelman yhteenvetoon",
+        "logPlanEmpty": "Suunnitelman tulostetta ei ole vielä saatavilla.",
+        "nonDefaultRefNote": "Ei-oletusviite valittu — ajo on vain suunnittelu",
+        "planExpiryDescription": "Hylkää vahvistamaton suunnitelma automaattisesti, kun se on tätä vanhempi, jotta vanhentunutta suunnitelmaa ei voi ottaa käyttöön muuttunutta maailmaa vastaan. Oletuksena pois päältä; suunnitelma on tällöin ajettava uudelleen. (Koskee vain käyttöönottokykyisiä ajoja.)",
+        "planExpiryTitle": "Suunnitelman vanheneminen",
+        "planOptions": "Suunnitelman vaihtoehdot",
+        "planSummaryChatPlaceholder": "Kysy jatkokysymys tästä suunnitelmasta… (⌘/Ctrl + Enter lähettää)",
+        "planSummaryHeading": "Suunnitelman yhteenveto",
+        "planSummaryNoChangesTitle": "Suunnitelma ei raportoinut resurssimuutoksia",
+        "planSummaryRegenerateTooltip": "Aja tekoälyn yhteenveto uudelleen samoilla suunnitelman syötteillä",
+        "planSummarySummarising": "Tehdään yhteenvetoa suunnitelmasta…",
+        "policyBlockedMessage": "Tämä ajo on <strong>estetty pakollisen käytäntöjoukon toimesta</strong>. Sitä ei oteta käyttöön, ennen kuin epäonnistuminen ratkaistaan tai järjestelmänvalvoja ohittaa sen.",
+        "queueApplyConfirm": "Asetetaanko suunnittelu- + käyttöönottoajo jonoon? Tämä voi muuttaa infrastruktuuria.",
+        "queueApplyRefBlocked": "Apply ei ole käytettävissä, kun haara, tunniste tai commit on valittuna — nämä ajot ovat aina vain plan",
+        "queueApplyTitle": "Lisää plan + apply -ajo jonoon",
+        "queueDestroyTitle": "Aseta tuhosuunnitelma jonoon",
+        "queuePlan": "Plan",
+        "queuePlanConfirm": "Asetetaanko spekulatiivinen suunnitelma jonoon tälle työtilalle?",
+        "queueRun": "Plan + apply",
+        "replacePlaceholder": "e.g. aws_instance.web",
+        "runTriggersDescription": "Kun lähdetyötila suorittaa käyttöönoton loppuun, alavirran työtilat saavat automaattisesti uuden ajon jonoon. Enintään 20 lähdetyötilaa kohdetta kohti.",
+        "tabApplyFull": "Käyttöönottoloki",
+        "tabApplyLabel": "Käyttöönotto<log>Loki</log>",
+        "tabPlanFull": "Suunnitelmaloki",
+        "tabPlanLabel": "Suunnitelma<log>Loki</log>",
+        "targetPlaceholder": "e.g. aws_instance.web, aws_s3_bucket.data",
+        "timelineApplied": "Otettu käyttöön",
+        "timelineApplyingStarted": "Käyttöönotto aloitettu",
+        "timelinePlanComplete": "Suunnitelma valmis",
+        "timelinePlanningStarted": "Suunnittelu aloitettu",
+        "typePlanApply": "suunnittelu + käyttöönotto",
+        "vcsWorkflowWarningRbac": "Kuka tahansa, joka voi yhdistää PR:n, voi ottaa käyttöön. Haaran suojaussäännöistä (vaaditut tarkastelut, tilatarkistukset, koodinomistajan hyväksyntä) tulee portti. Terrapod-roolien/-tunnisteiden RBAC<em>ei</em> koske kommenttivetoisia toimintoja tässä tilassa.",
+        "vcsWorkflowWarningRecommended": "<strong>Suositeltu:</strong> vaadi lineaarinen historia (rebase/squash ennen yhdistämistä), jotta käyttöönotettava commit on se commit, joka päätyy kohteeseen.",
+        "slackDescription": "Ota tämä työtila mukaan Slack-ajoilmoituksiin — hyväksyntäpyynnöt, käyttöönotot, virheet ja ajautuma. Jätä kanava tyhjäksi, niin tämä työtila pysyy hiljaa (ei ole käyttöönottolaajuista jakelua). Vaatii, että järjestelmänvalvoja on ottanut Slack-sovelluksen käyttöön."
       }
     },
     "pulumi": {
@@ -3425,14 +3700,84 @@
         "applying": "Suoritetaan pulumi up"
       },
       "runStatus": {
-        "planning": "Suunnitellaan",
-        "planned": "Suunniteltu",
-        "applying": "Otetaan käyttöön",
-        "applied": "Otettu käyttöön"
+        "planning": "Esikatsellaan",
+        "planned": "Esikatseltu",
+        "applying": "Päivitetään",
+        "applied": "Päivitetty"
       },
       "status": {
-        "planning": "Suunnitellaan",
-        "applying": "Otetaan käyttöön"
+        "planning": "Esikatsellaan",
+        "applying": "Päivitetään",
+        "planned": "Esikatseltu",
+        "applied": "Päivitetty"
+      },
+      "words": {
+        "actionConfirmFull": "Vahvista ja päivitä",
+        "actionConfirmShort": "Päivitä",
+        "activityApplied": "Päivitys valmis",
+        "activityConfirmed": "Aloitetaan päivitystä",
+        "activityDiscarded": "Esikatselu hylätty",
+        "activityPlannedComplete": "Esikatselu valmis",
+        "activityPlannedConfirmable": "Odotetaan, että vahvistat ja päivität",
+        "activityPlannedSpeculative": "Spekulatiivinen esikatselu valmis",
+        "aiPolicyOverrideConfirm": "Ohitetaanko tekoälykäytäntöportti ja sallitaanko tämän ajon päivitys päätöksestä huolimatta?",
+        "aiSummaryDescription": "Automaattinen LLM:n luoma muutosyhteenveto, riskiarvio ja epäonnistumisanalyysi jokaisesta tämän työtilan esikatseluvaiheen tuloksesta.",
+        "aiSummaryTitle": "Tekoälyn esikatseluyhteenveto",
+        "badgePlanOnly": "vain esikatselu",
+        "bannerPlanOnlyCli": "Tämä on <strong>vain esikatselu</strong> -ajo, joka on aloitettu CLI:stä VCS-yhdistetyssä työtilassa. Päivitys ei ole saatavilla CLI:llä ladatulle koodille — vain VCS:n hallinnoima koodi voidaan päivittää.",
+        "changesPlanning": "Esikatsellaan…",
+        "configurationsEmpty": "Ei vielä määritysversioita. Ne näkyvät tässä heti, kun VCS-työntö käynnistää ajon.",
+        "confirmApply": "Päivitetäänkö tämä ajo? Tämä toteuttaa esikatselun ja muuttaa infrastruktuuria.",
+        "confirmDiscard": "Hylätäänkö tämä esikatselu?",
+        "costNoState": "Ei vielä kustannuksia — näkyy ensimmäisen päivityksen jälkeen.",
+        "detailsPlanOnly": "Vain esikatselu",
+        "discardedHeading": "Hylätty — uusi esikatselu vaaditaan",
+        "driftCheckNowTitle": "Aseta jonoon vain esikatselu -ajo ajautuman tarkistamiseksi",
+        "driftRemediate": "Preview + update",
+        "driftRemediateConfirm": "Lisätäänkö preview + update -ajo jonoon tälle työtilalle?",
+        "driftRemediateTitle": "Lisää preview + update -ajo jonoon, jotta infrastruktuuri saadaan taas vastaamaan konfiguraatiota",
+        "errorsQueuePlan": "Esikatselun asettaminen jonoon epäonnistui",
+        "errorsQueuePlanStatus": "Esikatselun asettaminen jonoon epäonnistui ({status})",
+        "fieldsAutoMerge": "Automaattinen yhdistäminen päivityksen jälkeen",
+        "formAutoApplyModeHint": "never: odota aina ihmistä. always: päivitä jokaisen onnistuneen esikatselun jälkeen. create / create/update: päivitä vain niihin toimiin rajoittuvien esikatselujen pohjalta — ei koskaan poistoa tai korvausta.",
+        "lockLockedDesc": "Tämä työtila on lukittu. Esikatseluja tai päivityksiä ei voi suorittaa.",
+        "logApplyEmpty": "Päivityksen tulostetta ei ole vielä saatavilla.",
+        "logApplySkipped": "Päivitystä ei ajettu: esikatselussa ei ollut muutoksia, joten mitään ei ollut päivitettävänä.",
+        "logIndexSummary": "Esikatselun yhteenveto",
+        "logIndexTitle": "Siirry resurssimuutokseen tai esikatselun yhteenvetoon",
+        "logPlanEmpty": "Esikatselun tulostetta ei ole vielä saatavilla.",
+        "nonDefaultRefNote": "Ei-oletusviite valittu — ajo on vain esikatselu",
+        "planExpiryDescription": "Hylkää vahvistamaton esikatselu automaattisesti, kun se on tätä vanhempi, jotta vanhentunutta esikatselua ei voi toteuttaa muuttunutta maailmaa vastaan. Oletuksena pois päältä; esikatselu on tällöin ajettava uudelleen. (Koskee vain päivityskykyisiä ajoja.)",
+        "planExpiryTitle": "Esikatselun vanheneminen",
+        "planOptions": "Esikatselun vaihtoehdot",
+        "planSummaryChatPlaceholder": "Kysy jatkokysymys tästä esikatselusta… (⌘/Ctrl + Enter lähettää)",
+        "planSummaryHeading": "Esikatselun yhteenveto",
+        "planSummaryNoChangesTitle": "Esikatselu ei raportoinut resurssimuutoksia",
+        "planSummaryRegenerateTooltip": "Aja tekoälyn yhteenveto uudelleen samoilla esikatselun syötteillä",
+        "planSummarySummarising": "Tehdään yhteenvetoa esikatselusta…",
+        "policyBlockedMessage": "Tämä ajo on <strong>estetty pakollisen käytäntöjoukon toimesta</strong>. Sitä ei päivitetä, ennen kuin epäonnistuminen ratkaistaan tai järjestelmänvalvoja ohittaa sen.",
+        "queueApplyConfirm": "Asetetaanko esikatselu- + päivitysajo jonoon? Tämä voi muuttaa infrastruktuuria.",
+        "queueApplyRefBlocked": "Update ei ole käytettävissä, kun haara, tunniste tai commit on valittuna — nämä ajot ovat aina vain preview",
+        "queueApplyTitle": "Lisää preview + update -ajo jonoon",
+        "queueDestroyTitle": "Aseta tuhoesikatselu jonoon",
+        "queuePlan": "Preview",
+        "queuePlanConfirm": "Asetetaanko spekulatiivinen esikatselu jonoon tälle työtilalle?",
+        "queueRun": "Preview + update",
+        "replacePlaceholder": "e.g. urn:pulumi:dev::shop::aws:ec2/instance:Instance::web",
+        "runTriggersDescription": "Kun lähdetyötila suorittaa päivityksen loppuun, alavirran työtilat saavat automaattisesti uuden ajon jonoon. Enintään 20 lähdetyötilaa kohdetta kohti.",
+        "tabApplyFull": "Päivitysloki",
+        "tabApplyLabel": "Päivitys<log>Loki</log>",
+        "tabPlanFull": "Esikatseluloki",
+        "tabPlanLabel": "Esikatselu<log>Loki</log>",
+        "targetPlaceholder": "e.g. urn:pulumi:dev::shop::aws:s3/bucket:Bucket::assets",
+        "timelineApplied": "Päivitetty",
+        "timelineApplyingStarted": "Päivitys aloitettu",
+        "timelinePlanComplete": "Esikatselu valmis",
+        "timelinePlanningStarted": "Esikatselu aloitettu",
+        "typePlanApply": "esikatselu + päivitys",
+        "vcsWorkflowWarningRbac": "Kuka tahansa, joka voi yhdistää PR:n, voi päivittää. Haaran suojaussäännöistä (vaaditut tarkastelut, tilatarkistukset, koodinomistajan hyväksyntä) tulee portti. Terrapod-roolien/-tunnisteiden RBAC<em>ei</em> koske kommenttivetoisia toimintoja tässä tilassa.",
+        "vcsWorkflowWarningRecommended": "<strong>Suositeltu:</strong> vaadi lineaarinen historia (rebase/squash ennen yhdistämistä), jotta commit, josta päivität, on se commit, joka päätyy kohteeseen.",
+        "slackDescription": "Ota tämä työtila mukaan Slack-ajoilmoituksiin — hyväksyntäpyynnöt, päivitykset, virheet ja ajautuma. Jätä kanava tyhjäksi, niin tämä työtila pysyy hiljaa (ei ole käyttöönottolaajuista jakelua). Vaatii, että järjestelmänvalvoja on ottanut Slack-sovelluksen käyttöön."
       }
     }
   },

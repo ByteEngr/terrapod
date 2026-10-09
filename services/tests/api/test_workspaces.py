@@ -15,6 +15,19 @@ _BASE = "http://test"
 _AUTH = {"Authorization": "Bearer dummy"}
 
 
+def _no_inert_vars():
+    """The engine-mismatch resolver's result (#1565): no workspace on this page
+    holds a variable its engine never reads.
+
+    The detail and list routes resolve this once per request, so a test that
+    scripts `db.execute` in order has to account for it. Empty is the answer for
+    every fixture here — none of them sets up a mismatched variable.
+    """
+    result = MagicMock()
+    result.scalars.return_value.all.return_value = []
+    return result
+
+
 def _user(email="test@example.com", roles=None, auth_method="session"):
     return AuthenticatedUser(
         email=email,
@@ -37,6 +50,7 @@ def _mock_workspace(
     auto_apply=False,
     execution_mode="local",
     engine_version="1.11",
+    ansible_version="2.21.5",
     resource_cpu="1",
     parallelism=10,
     resource_memory="2Gi",
@@ -51,6 +65,7 @@ def _mock_workspace(
     ws.auto_apply = auto_apply
     ws.execution_mode = execution_mode
     ws.engine_version = engine_version
+    ws.ansible_version = ansible_version
     ws.terragrunt_enabled = False
     ws.terragrunt_version = "1.0"
     ws.working_directory = ""
@@ -88,6 +103,7 @@ def _mock_workspace(
     ws.drift_status = ""
     ws.state_diverged = False
     ws.vcs_workflow = "merge_then_apply"
+    ws.allow_fork_pr_plans = False
     ws.auto_merge = False
     ws.auto_merge_strategy = "merge"
     ws.lifecycle_state = "active"
@@ -201,7 +217,7 @@ class TestShowWorkspace:
         ws_result.scalar_one_or_none.return_value = ws
         no_run_result = MagicMock()
         no_run_result.scalar_one_or_none.return_value = None
-        mock_db.execute.side_effect = [ws_result, no_run_result]
+        mock_db.execute.side_effect = [ws_result, no_run_result, _no_inert_vars()]
 
         async with AsyncClient(transport=ASGITransport(app=app), base_url=_BASE) as c:
             resp = await c.get(
@@ -264,7 +280,7 @@ class TestShowWorkspaceById:
         ws_result.scalar_one_or_none.return_value = ws
         no_run_result = MagicMock()
         no_run_result.scalar_one_or_none.return_value = None
-        mock_db.execute.side_effect = [ws_result, no_run_result]
+        mock_db.execute.side_effect = [ws_result, no_run_result, _no_inert_vars()]
 
         async with AsyncClient(transport=ASGITransport(app=app), base_url=_BASE) as c:
             resp = await c.get(
@@ -830,7 +846,7 @@ class TestLockReasonAndHolder:
         from terrapod.api.routers.tfe_v2 import _workspace_json
 
         ws = _mock_workspace(locked=False, lock_reason="stale", locked_by="old@example.com")
-        attrs = _workspace_json(ws)["data"]["attributes"]
+        attrs = _workspace_json(ws, tfe=False)["data"]["attributes"]
 
         assert attrs["lock-reason"] is None
         assert attrs["locked-by"] is None
@@ -853,7 +869,7 @@ class TestPermissionsBlock:
         ws_result.scalar_one_or_none.return_value = ws
         no_run_result = MagicMock()
         no_run_result.scalar_one_or_none.return_value = None
-        mock_db.execute.side_effect = [ws_result, no_run_result]
+        mock_db.execute.side_effect = [ws_result, no_run_result, _no_inert_vars()]
 
         async with AsyncClient(transport=ASGITransport(app=app), base_url=_BASE) as c:
             resp = await c.get(f"/api/v2/workspaces/ws-{ws.id}", headers=_AUTH)
@@ -883,7 +899,7 @@ class TestPermissionsBlock:
         ws_result.scalar_one_or_none.return_value = ws
         no_run_result = MagicMock()
         no_run_result.scalar_one_or_none.return_value = None
-        mock_db.execute.side_effect = [ws_result, no_run_result]
+        mock_db.execute.side_effect = [ws_result, no_run_result, _no_inert_vars()]
 
         async with AsyncClient(transport=ASGITransport(app=app), base_url=_BASE) as c:
             resp = await c.get(f"/api/v2/workspaces/ws-{ws.id}", headers=_AUTH)
@@ -915,7 +931,7 @@ class TestPermissionsBlock:
         ws_result.scalar_one_or_none.return_value = ws
         no_run_result = MagicMock()
         no_run_result.scalar_one_or_none.return_value = None
-        mock_db.execute.side_effect = [ws_result, no_run_result]
+        mock_db.execute.side_effect = [ws_result, no_run_result, _no_inert_vars()]
 
         async with AsyncClient(transport=ASGITransport(app=app), base_url=_BASE) as c:
             resp = await c.get(f"/api/v2/workspaces/ws-{ws.id}", headers=_AUTH)
@@ -933,7 +949,7 @@ class TestPermissionsBlock:
         ws_result.scalar_one_or_none.return_value = ws
         no_run_result = MagicMock()
         no_run_result.scalar_one_or_none.return_value = None
-        mock_db.execute.side_effect = [ws_result, no_run_result]
+        mock_db.execute.side_effect = [ws_result, no_run_result, _no_inert_vars()]
 
         async with AsyncClient(transport=ASGITransport(app=app), base_url=_BASE) as c:
             resp = await c.get(f"/api/v2/workspaces/ws-{ws.id}", headers=_AUTH)
@@ -1252,7 +1268,7 @@ class TestVcsWorkflowAttributes:
         ws_result.scalar_one_or_none.return_value = ws
         no_run = MagicMock()
         no_run.scalar_one_or_none.return_value = None
-        mock_db.execute.side_effect = [ws_result, no_run]
+        mock_db.execute.side_effect = [ws_result, no_run, _no_inert_vars()]
 
         async with AsyncClient(transport=ASGITransport(app=app), base_url=_BASE) as c:
             resp = await c.get(f"/api/v2/workspaces/ws-{ws.id}", headers=_AUTH)
@@ -1432,7 +1448,7 @@ class TestVcsWorkflowAttributes:
         # No active PR runs.
         active_result = MagicMock()
         active_result.all.return_value = []
-        mock_db.execute.side_effect = [mock_result, active_result]
+        mock_db.execute.side_effect = [mock_result, active_result, _no_inert_vars()]
 
         async with AsyncClient(transport=ASGITransport(app=app), base_url=_BASE) as c:
             resp = await c.patch(
@@ -1468,7 +1484,7 @@ class TestVcsWorkflowAttributes:
         # Two PR runs in flight.
         active_result = MagicMock()
         active_result.all.return_value = [(uuid.uuid4(),), (uuid.uuid4(),)]
-        mock_db.execute.side_effect = [mock_result, active_result]
+        mock_db.execute.side_effect = [mock_result, active_result, _no_inert_vars()]
 
         async with AsyncClient(transport=ASGITransport(app=app), base_url=_BASE) as c:
             resp = await c.patch(
@@ -1536,19 +1552,21 @@ class TestVcsWorkflowAttributes:
 
 
 def _list_db(workspaces):
-    """A mock DB whose two execute() calls return workspaces then no runs."""
+    """A mock DB whose three execute() calls return workspaces, no runs, then no
+    engine-mismatched workspaces (#1565)."""
     ws_result = MagicMock()
     ws_result.scalars.return_value.all.return_value = workspaces
     runs_result = MagicMock()
     runs_result.scalars.return_value.all.return_value = []
     db = AsyncMock()
-    db.execute.side_effect = [ws_result, runs_result]
+    db.execute.side_effect = [ws_result, runs_result, _no_inert_vars()]
     return db
 
 
 def _list_db_seeall(total, page_ws):
-    """Mock DB for the admin/audit see-all fast path (#1056): the three calls are
-    COUNT (scalar) -> page rows (LIMIT/OFFSET) -> latest runs."""
+    """Mock DB for the admin/audit see-all fast path (#1056): the four calls are
+    COUNT (scalar) -> page rows (LIMIT/OFFSET) -> latest runs -> the
+    engine-mismatch resolver (#1565)."""
     count_result = MagicMock()
     count_result.scalar_one.return_value = total
     page_result = MagicMock()
@@ -1556,7 +1574,7 @@ def _list_db_seeall(total, page_ws):
     runs_result = MagicMock()
     runs_result.scalars.return_value.all.return_value = []
     db = AsyncMock()
-    db.execute.side_effect = [count_result, page_result, runs_result]
+    db.execute.side_effect = [count_result, page_result, runs_result, _no_inert_vars()]
     return db
 
 
@@ -2110,3 +2128,498 @@ class TestCreateHonoursTheVCSWorkflowSettings1763:
         resp = await self._post(app, {"name": "bad-strat", "auto-merge-strategy": "fast-forward"})
         assert resp.status_code == 422, resp.text
         mock_db.commit.assert_not_awaited()
+
+
+# ── The route-level gate (GHSA-v8g7-pqrj-8mcm) ──────────────────────────
+#
+# The predicate has its own unit tests; these pin that the ROUTES consult it.
+# Without them the gate can be deleted from the router and every other workspace
+# test still passes — which is how it was nearly shipped unguarded.
+
+
+class TestNamingAVcsConnectionIsAuthorized:
+    _CONN = "vcs-11111111-2222-3333-4444-555555555555"
+
+    def _app(self):
+        user = _user(roles=["everyone"])
+        app, db = _make_app(user)
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = None
+        db.execute.return_value = result
+        db.refresh = AsyncMock()
+        return app, db
+
+    async def _post(self, body):
+        """POST a create with the authorization predicate refusing."""
+        app, db = self._app()
+        with (
+            patch("terrapod.api.app.init_storage", new_callable=AsyncMock),
+            patch("terrapod.api.app.init_redis"),
+            patch("terrapod.api.app.init_db"),
+            patch("terrapod.redis.client.publish_workspace_event", new_callable=AsyncMock),
+            patch(
+                "terrapod.services.vcs_connection_rbac.may_reference_connection",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
+        ):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url=_BASE) as c:
+                resp = await c.post("/api/v2/organizations/default/workspaces", json=body)
+        return resp, db
+
+    async def test_create_refuses_an_unauthorized_connection_attribute(self):
+        resp, db = await self._post(
+            {
+                "data": {
+                    "type": "workspaces",
+                    "attributes": {"name": "w", "vcs-connection-id": self._CONN},
+                }
+            }
+        )
+        assert resp.status_code == 403, resp.text
+        assert "every repository" in resp.text
+        db.commit.assert_not_awaited()
+
+    async def test_create_refuses_it_through_the_RELATIONSHIP_too(self):
+        """Both spellings reach the same column; gating one leaves the other open."""
+        resp, db = await self._post(
+            {
+                "data": {
+                    "type": "workspaces",
+                    "attributes": {"name": "w"},
+                    "relationships": {
+                        "vcs-connection": {"data": {"type": "vcs-connections", "id": self._CONN}}
+                    },
+                }
+            }
+        )
+        assert resp.status_code == 403, resp.text
+        db.commit.assert_not_awaited()
+
+    async def test_create_with_no_connection_is_untouched(self):
+        """The gate must not fire where no connection was named at all."""
+        resp, _ = await self._post({"data": {"type": "workspaces", "attributes": {"name": "w"}}})
+        assert resp.status_code != 403, resp.text
+
+
+class TestAWorkspaceWriteThatViolatesAConstraintIsNotA500:
+    """Two things the caller gets wrong answered "Internal server error": a name
+    already taken (or two creates racing for it) and a `vcs-connection-id` naming a
+    connection that does not exist.
+
+    Neither is new — `db.commit()` raised the same `IntegrityError` before the varset
+    self-join check added a `flush()` — but the flush sat OUTSIDE the `try`, so the
+    one place with somewhere to catch it did not.
+    """
+
+    @staticmethod
+    def _integrity(sqlstate):
+        from sqlalchemy.exc import IntegrityError
+
+        orig = Exception("constraint violated")
+        orig.sqlstate = sqlstate
+        return IntegrityError("INSERT ...", {}, orig)
+
+    def test_a_duplicate_name_is_a_409(self):
+        from terrapod.api.routers.tfe_v2 import _workspace_integrity_error
+
+        exc = _workspace_integrity_error(self._integrity("23505"), "prod-net")
+        assert exc.status_code == 409
+        assert "prod-net" in exc.detail
+
+    def test_an_unknown_referenced_id_is_a_422(self):
+        from terrapod.api.routers.tfe_v2 import _workspace_integrity_error
+
+        exc = _workspace_integrity_error(self._integrity("23503"), "prod-net")
+        assert exc.status_code == 422
+        assert "vcs-connection-id" in exc.detail
+
+    def test_an_unexpected_integrity_error_stays_a_500(self):
+        """Guessing a 4xx would hide a server-side bug behind a message blaming the
+        caller."""
+        from terrapod.api.routers.tfe_v2 import _workspace_integrity_error
+
+        exc = _workspace_integrity_error(self._integrity("23502"), "prod-net")
+        assert exc.status_code == 500
+
+    def test_a_driver_without_sqlstate_stays_a_500(self):
+        from sqlalchemy.exc import IntegrityError
+
+        from terrapod.api.routers.tfe_v2 import _workspace_integrity_error
+
+        exc = _workspace_integrity_error(
+            IntegrityError("INSERT ...", {}, Exception("no sqlstate")), "prod-net"
+        )
+        assert exc.status_code == 500
+
+    def test_the_constraint_name_is_not_echoed_back(self):
+        from terrapod.api.routers.tfe_v2 import _workspace_integrity_error
+
+        for state in ("23505", "23503", "23502"):
+            exc = _workspace_integrity_error(self._integrity(state), "prod-net")
+            assert "constraint violated" not in str(exc.detail)
+
+    def test_the_flush_is_inside_the_try_on_both_write_paths(self):
+        """The defect was positional, so the guard has to be too: a `flush()` sitting
+        above its `try` cannot be caught however good the handler is."""
+        import inspect
+        import re
+
+        from terrapod.api.routers import tfe_v2
+
+        src = inspect.getsource(tfe_v2)
+        # Every `await db.flush()` that is followed by `refuse_varset_growth` must be
+        # preceded by a `try:` at a lower-or-equal indent with nothing but comments
+        # between them.
+        offenders = []
+        for m in re.finditer(r"\n([ \t]*)await db\.flush\(\)", src):
+            indent, start = m.group(1), m.start()
+            before = src[:start].rstrip().splitlines()
+            # walk back over comments to the first real statement
+            j = len(before) - 1
+            while j >= 0 and before[j].strip().startswith("#"):
+                j -= 1
+            if j >= 0 and before[j].strip() != "try:":
+                offenders.append(before[j].strip()[:60] + f"  (indent {len(indent)})")
+        assert not offenders, (
+            "a db.flush() is not the first statement in a try:, so an IntegrityError "
+            "from it escapes as a 500:\n  " + "\n  ".join(offenders)
+        )
+
+
+class TestTheRoutesTranslateAConstraintViolationNotJustTheHelper:
+    """`TestAWorkspaceWriteThatViolatesAConstraintIsNotA500` above calls
+    `_workspace_integrity_error` directly with a hand-built exception, so it pins the
+    helper's mapping and nothing about whether any route reaches it. Deleting the
+    `except IntegrityError` block from either workspace path, or neutering the unique
+    branch in the state-version path, left every one of those tests green.
+
+    The positional gate covers the other half of the defect — that the `flush()` is
+    inside the `try` — and cannot see whether an `except IntegrityError` exists at all.
+    These drive the routes.
+    """
+
+    @staticmethod
+    def _integrity(sqlstate):
+        from sqlalchemy.exc import IntegrityError
+
+        orig = Exception("duplicate key value violates unique constraint")
+        orig.sqlstate = sqlstate
+        return IntegrityError("INSERT ...", {}, orig)
+
+    @patch("terrapod.api.app.init_storage", new_callable=AsyncMock)
+    @patch("terrapod.api.app.init_redis")
+    @patch("terrapod.api.app.init_db")
+    async def test_a_racing_duplicate_name_on_create_is_409(self, *_mocks):
+        """The pre-insert SELECT finds nothing — two creates racing — and the flush is
+        where the database first disagrees."""
+        app, mock_db = _make_app(_user(roles=["admin"]))
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = None
+        mock_db.execute.return_value = result
+        mock_db.flush = AsyncMock(side_effect=self._integrity("23505"))
+        mock_db.rollback = AsyncMock()
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url=_BASE) as c:
+            resp = await c.post(
+                "/api/v2/organizations/default/workspaces",
+                json={"data": {"type": "workspaces", "attributes": {"name": "raced"}}},
+                headers=_AUTH,
+            )
+        assert resp.status_code == 409, resp.text
+        assert "raced" in resp.text
+        mock_db.rollback.assert_awaited()
+
+    @patch("terrapod.api.app.init_storage", new_callable=AsyncMock)
+    @patch("terrapod.api.app.init_redis")
+    @patch("terrapod.api.app.init_db")
+    async def test_an_unknown_referenced_id_on_create_is_422(self, *_mocks):
+        app, mock_db = _make_app(_user(roles=["admin"]))
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = None
+        mock_db.execute.return_value = result
+        mock_db.flush = AsyncMock(side_effect=self._integrity("23503"))
+        mock_db.rollback = AsyncMock()
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url=_BASE) as c:
+            resp = await c.post(
+                "/api/v2/organizations/default/workspaces",
+                json={"data": {"type": "workspaces", "attributes": {"name": "bad-fk"}}},
+                headers=_AUTH,
+            )
+        assert resp.status_code == 422, resp.text
+
+    @patch("terrapod.api.app.init_storage", new_callable=AsyncMock)
+    @patch("terrapod.api.app.init_redis")
+    @patch("terrapod.api.app.init_db")
+    async def test_an_unexpected_integrity_error_on_create_stays_500(self, *_mocks):
+        """Guessing a 4xx for an unexpected SQLSTATE would hide a server-side bug
+        behind a message blaming the caller."""
+        app, mock_db = _make_app(_user(roles=["admin"]))
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = None
+        mock_db.execute.return_value = result
+        mock_db.flush = AsyncMock(side_effect=self._integrity("23502"))
+        mock_db.rollback = AsyncMock()
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url=_BASE) as c:
+            resp = await c.post(
+                "/api/v2/organizations/default/workspaces",
+                json={"data": {"type": "workspaces", "attributes": {"name": "odd"}}},
+                headers=_AUTH,
+            )
+        assert resp.status_code == 500, resp.text
+        # And the driver's own text is not echoed to the caller.
+        assert "unique constraint" not in resp.text
+
+
+# ── ansible-version (#2010) ─────────────────────────────────────────────
+
+
+class TestAnsibleVersionOnTheWorkspaceRoutes:
+    """The attribute's contract on create, read and update.
+
+    It follows `engine-version` throughout: an omitted attribute takes the
+    deployment default, an explicit empty string is the "inherit at run time"
+    value, and a pre-release answers to `binary_cache.allow_prerelease`.
+    """
+
+    @patch("terrapod.api.app.init_storage", new_callable=AsyncMock)
+    @patch("terrapod.api.app.init_redis")
+    @patch("terrapod.api.app.init_db")
+    @patch("terrapod.api.routers.tfe_v2.resolve_workspace_capabilities_for")
+    async def test_a_read_returns_the_workspaces_own_value(self, mock_resolve, *mocks):
+        mock_resolve.return_value = caps_for_level("read")
+        ws = _mock_workspace(name="ansible-ws", ansible_version="2.19.3")
+        app, mock_db = _make_app(_user(roles=["admin"]))
+        ws_result = MagicMock()
+        ws_result.scalar_one_or_none.return_value = ws
+        no_run_result = MagicMock()
+        no_run_result.scalar_one_or_none.return_value = None
+        mock_db.execute.side_effect = [ws_result, no_run_result, _no_inert_vars()]
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url=_BASE) as c:
+            resp = await c.get("/api/v2/organizations/default/workspaces/ansible-ws", headers=_AUTH)
+
+        assert resp.status_code == 200
+        assert resp.json()["data"]["attributes"]["ansible-version"] == "2.19.3"
+
+    @patch("terrapod.api.app.init_storage", new_callable=AsyncMock)
+    @patch("terrapod.api.app.init_redis")
+    @patch("terrapod.api.app.init_db")
+    @patch("terrapod.api.routers.tfe_v2.resolve_workspace_capabilities_for")
+    async def test_a_read_does_not_substitute_the_default_for_an_empty_one(
+        self, mock_resolve, *mocks
+    ):
+        """An empty value reads back empty, not filled in.
+
+        A client that wrote a read straight back would otherwise pin every
+        inheriting workspace to whatever the default happened to be at read
+        time -- the same reason `oidc_audiences` reconciles only the keys a
+        practitioner declared. This is the case that catches it: with a concrete
+        version stored, substitution and no substitution look identical.
+        """
+        from terrapod.config import settings
+
+        mock_resolve.return_value = caps_for_level("read")
+        ws = _mock_workspace(name="inherit-ws", ansible_version="")
+        app, mock_db = _make_app(_user(roles=["admin"]))
+        ws_result = MagicMock()
+        ws_result.scalar_one_or_none.return_value = ws
+        no_run_result = MagicMock()
+        no_run_result.scalar_one_or_none.return_value = None
+        mock_db.execute.side_effect = [ws_result, no_run_result, _no_inert_vars()]
+
+        with patch.object(settings, "default_ansible_version", "2.20.4"):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url=_BASE) as c:
+                resp = await c.get(
+                    "/api/v2/organizations/default/workspaces/inherit-ws", headers=_AUTH
+                )
+
+        assert resp.status_code == 200
+        assert resp.json()["data"]["attributes"]["ansible-version"] == ""
+
+    @patch("terrapod.api.app.init_storage", new_callable=AsyncMock)
+    @patch("terrapod.api.app.init_redis")
+    @patch("terrapod.api.app.init_db")
+    @patch("terrapod.redis.client.publish_workspace_event", new_callable=AsyncMock)
+    async def test_create_without_the_attribute_takes_the_deployment_default(
+        self, _mock_publish, *mocks
+    ):
+        from terrapod.config import settings
+
+        app, mock_db = _make_app(_user(roles=["admin"]))
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_db.execute.return_value = mock_result
+        mock_db.refresh = AsyncMock()
+
+        with patch.object(settings, "default_ansible_version", "2.20.4"):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url=_BASE) as c:
+                resp = await c.post(
+                    "/api/v2/organizations/default/workspaces",
+                    json={"data": {"attributes": {"name": "ws-a"}}},
+                    headers=_AUTH,
+                )
+
+        assert resp.status_code == 201
+        assert resp.json()["data"]["attributes"]["ansible-version"] == "2.20.4"
+
+    @patch("terrapod.api.app.init_storage", new_callable=AsyncMock)
+    @patch("terrapod.api.app.init_redis")
+    @patch("terrapod.api.app.init_db")
+    @patch("terrapod.redis.client.publish_workspace_event", new_callable=AsyncMock)
+    async def test_create_with_a_prerelease_is_422_under_a_ga_only_policy(
+        self, _mock_publish, *mocks
+    ):
+        from terrapod.config import settings
+
+        app, mock_db = _make_app(_user(roles=["admin"]))
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_db.execute.return_value = mock_result
+        mock_db.refresh = AsyncMock()
+
+        with patch.object(settings.registry.binary_cache, "allow_prerelease", "none"):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url=_BASE) as c:
+                resp = await c.post(
+                    "/api/v2/organizations/default/workspaces",
+                    json={"data": {"attributes": {"name": "ws-b", "ansible-version": "2.21.5rc1"}}},
+                    headers=_AUTH,
+                )
+
+        assert resp.status_code == 422
+        assert "allow_prerelease" in resp.text
+
+    @patch("terrapod.api.app.init_storage", new_callable=AsyncMock)
+    @patch("terrapod.api.app.init_redis")
+    @patch("terrapod.api.app.init_db")
+    @patch("terrapod.redis.client.publish_workspace_event", new_callable=AsyncMock)
+    async def test_a_prerelease_DEFAULT_does_not_422_every_create(self, _mock_publish, *mocks):
+        """Only what the CLIENT supplied is policy-checked.
+
+        The deployment default is the operator's own pin, and
+        `get_or_cache_binary` draws exactly this line already: the policy
+        governs a version a *user* picks, not one an operator deliberately set
+        in Helm. Checking the default here made every workspace create on such
+        a deployment a 422 -- including creates that never mentioned ansible.
+        """
+        from terrapod.config import settings
+
+        app, mock_db = _make_app(_user(roles=["admin"]))
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_db.execute.return_value = mock_result
+        mock_db.refresh = AsyncMock()
+
+        with (
+            patch.object(settings, "default_ansible_version", "2.22.0rc1"),
+            patch.object(settings.registry.binary_cache, "allow_prerelease", "none"),
+        ):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url=_BASE) as c:
+                resp = await c.post(
+                    "/api/v2/organizations/default/workspaces",
+                    json={"data": {"attributes": {"name": "ws-c"}}},
+                    headers=_AUTH,
+                )
+
+        assert resp.status_code == 201
+        assert resp.json()["data"]["attributes"]["ansible-version"] == "2.22.0rc1"
+
+    @patch("terrapod.api.app.init_storage", new_callable=AsyncMock)
+    @patch("terrapod.api.app.init_redis")
+    @patch("terrapod.api.app.init_db")
+    @patch("terrapod.redis.client.publish_workspace_event", new_callable=AsyncMock)
+    async def test_create_with_an_explicit_empty_string_means_inherit(self, _mock_publish, *mocks):
+        """Empty is a value, not an absence -- it must NOT be replaced by the
+        default, or there would be no way to say "follow the deployment"."""
+        from terrapod.config import settings
+
+        app, mock_db = _make_app(_user(roles=["admin"]))
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_db.execute.return_value = mock_result
+        mock_db.refresh = AsyncMock()
+
+        with patch.object(settings, "default_ansible_version", "2.20.4"):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url=_BASE) as c:
+                resp = await c.post(
+                    "/api/v2/organizations/default/workspaces",
+                    json={"data": {"attributes": {"name": "ws-d", "ansible-version": ""}}},
+                    headers=_AUTH,
+                )
+
+        assert resp.status_code == 201
+        assert resp.json()["data"]["attributes"]["ansible-version"] == ""
+
+    @patch("terrapod.api.app.init_storage", new_callable=AsyncMock)
+    @patch("terrapod.api.app.init_redis")
+    @patch("terrapod.api.app.init_db")
+    @patch("terrapod.api.routers.tfe_v2.resolve_workspace_capabilities_for")
+    async def test_update_sets_it(self, mock_resolve, *mocks):
+        mock_resolve.return_value = caps_for_level("admin")
+        ws = _mock_workspace(ansible_version="2.19.3")
+        app, mock_db = _make_app(_user(roles=["admin"]))
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = ws
+        mock_db.execute.return_value = mock_result
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url=_BASE) as c:
+            resp = await c.patch(
+                f"/api/v2/workspaces/ws-{ws.id}",
+                json={"data": {"attributes": {"ansible-version": "2.21.5"}}},
+                headers=_AUTH,
+            )
+
+        assert resp.status_code == 200
+        assert ws.ansible_version == "2.21.5", (
+            "the attribute was accepted with a 2xx but changed nothing"
+        )
+
+    @patch("terrapod.api.app.init_storage", new_callable=AsyncMock)
+    @patch("terrapod.api.app.init_redis")
+    @patch("terrapod.api.app.init_db")
+    @patch("terrapod.api.routers.tfe_v2.resolve_workspace_capabilities_for")
+    async def test_update_without_the_attribute_leaves_it_alone(self, mock_resolve, *mocks):
+        """A PATCH is partial: touching another field must not reset this one."""
+        mock_resolve.return_value = caps_for_level("admin")
+        ws = _mock_workspace(ansible_version="2.19.3")
+        app, mock_db = _make_app(_user(roles=["admin"]))
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = ws
+        mock_db.execute.return_value = mock_result
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url=_BASE) as c:
+            resp = await c.patch(
+                f"/api/v2/workspaces/ws-{ws.id}",
+                json={"data": {"attributes": {"auto-apply": True}}},
+                headers=_AUTH,
+            )
+
+        assert resp.status_code == 200
+        assert ws.ansible_version == "2.19.3"
+
+    @patch("terrapod.api.app.init_storage", new_callable=AsyncMock)
+    @patch("terrapod.api.app.init_redis")
+    @patch("terrapod.api.app.init_db")
+    @patch("terrapod.api.routers.tfe_v2.resolve_workspace_capabilities_for")
+    async def test_update_to_a_prerelease_is_422_under_a_ga_only_policy(self, mock_resolve, *mocks):
+        from terrapod.config import settings
+
+        mock_resolve.return_value = caps_for_level("admin")
+        ws = _mock_workspace(ansible_version="2.19.3")
+        app, mock_db = _make_app(_user(roles=["admin"]))
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = ws
+        mock_db.execute.return_value = mock_result
+
+        with patch.object(settings.registry.binary_cache, "allow_prerelease", "none"):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url=_BASE) as c:
+                resp = await c.patch(
+                    f"/api/v2/workspaces/ws-{ws.id}",
+                    json={"data": {"attributes": {"ansible-version": "2.21.5rc1"}}},
+                    headers=_AUTH,
+                )
+
+        assert resp.status_code == 422
+        assert ws.ansible_version == "2.19.3", "the refused value was written anyway"

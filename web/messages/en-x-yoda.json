@@ -27,6 +27,7 @@
     "account": "Account",
     "apiTokens": "Tokens, API",
     "sessions": "Sessions",
+    "slackLinks": "Links Slack",
     "logOut": "Leave, you must",
     "menu": "Menu",
     "openMenu": "The menu, open",
@@ -70,7 +71,6 @@
       "agentPool": "Pool, Agent",
       "none": "None",
       "autoApply": "Apply, Auto",
-      "autoApplyModeHint": "never: wait for a human, always you must. always: apply every successful plan, it does. create / create/update: only plans limited to those actions, apply it will — a destroy or a replace, never.",
       "enabled": "Enabled",
       "workingDirectory": "Directory, Working",
       "workingDirectoryPlaceholder": "e.g. environments/dev",
@@ -372,6 +372,22 @@
         "load": "Load the sessions, it did not",
         "revoke": "Revoke the sessions, it did not ({status})",
         "revokeGeneric": "Revoke the sessions, it did not"
+      }
+    },
+    "slackLinks": {
+      "title": "Links Slack",
+      "description": "As you, act these Slack accounts can. Runs with your permissions, a linked Slack account approve and discard may. Any you do not recognise, revoke you must.",
+      "empty": "Linked to you, no Slack accounts are.",
+      "revoke": "Revoke",
+      "confirmRevoke": "The link for Slack user {user}, revoke? As you, from Slack act that account no longer can.",
+      "columns": {
+        "slackUser": "User Slack",
+        "team": "Team Slack",
+        "linkedAt": "Linked"
+      },
+      "errors": {
+        "load": "Your Slack links, load I could not.",
+        "revoke": "That Slack link, revoke I could not."
       }
     }
   },
@@ -761,7 +777,9 @@
       "setAssignmentStatus": "Set the assignment, it did not ({status})",
       "deleteAssignment": "Delete the assignment, it did not",
       "conflictingLabelKeys": "More than one value, {keys} is given. One value per key a label rule holds, so silently replace the earlier ones the last would. Supported by the API, several values for one key are, but set here yet they cannot be."
-    }
+    },
+    "pinnedToSubject": "Pinned",
+    "pinnedToSubjectTitle": "To IdP subject {subject}, pinned it is"
   },
   "adminVcs": {
     "title": "Connections, VCS",
@@ -774,6 +792,23 @@
       "delete": "Delete"
     },
     "confirmDelete": "This VCS connection, delete? Workspaces using it, VCS integration lose they will. Undone, this cannot be.",
+    "access": {
+      "heading": "Use this connection, who may",
+      "intro": "Which workspaces may be pointed at this connection, these three settings decide. Write-only, the credential itself stays.",
+      "ownerEmail": "Email, owner",
+      "ownerEmailHint": "Always use this connection, the owner may. To leave the connection unowned, blank it leave.",
+      "labels": "Labels, access",
+      "labelsHint": "Point a workspace at this connection, a role whose rules match these labels may.",
+      "allowedRepositories": "Repositories, allowed",
+      "allowedRepositoriesHint": "Against the repository a workspace asks to use, glob patterns matched they are.",
+      "addPattern": "A pattern, add",
+      "anyRepositoryWarning": "Listed, no patterns are. Pointed at any repository, this connection may be.",
+      "restricted": "{count, plural, one {Listed, # pattern is} other {Listed, # patterns are}}. Refused, a repository matching none of them is.",
+      "ownedBy": "By {email}, owned",
+      "unowned": "Set, no owner is",
+      "anyRepositorySummary": "Allowed, any repository is",
+      "repositoryCount": "To {count, plural, one {# repository} other {# repositories}}, restricted it is"
+    },
     "form": {
       "name": "Name",
       "namePattern": "Letters, numbers, hyphens, and underscores only, there must be. With a letter or number, start it must.",
@@ -922,7 +957,6 @@
       "varKey": "Key",
       "varValue": "Value",
       "varCategory": "Category",
-      "categoryTerraform": "Terraform",
       "categoryEnv": "Environment",
       "sensitive": "Sensitive",
       "sensAbbr": "Sens.",
@@ -988,7 +1022,9 @@
       "valueSource": "Source, value",
       "valueSourceStatic": "A value, enter",
       "valueSourceVault": "From OpenBao/Vault, read",
-      "vaultHint": "From OpenBao (or HashiCorp Vault) at run time, the secret Terrapod reads. Stored here, nothing is."
+      "vaultHint": "From OpenBao (or HashiCorp Vault) at run time, the secret Terrapod reads. Stored here, nothing is.",
+      "categoryNative": "Native it is",
+      "structured": "Structured"
     }
   },
   "adminAutodiscovery": {
@@ -1076,7 +1112,10 @@
       "terragruntVersion": "Version, Terragrunt",
       "noExpiry": "Expiry, there is none",
       "addDriftIgnoreRule": "A rule, add",
-      "debugModeHint": "Open failed runner pods hold, on the workspaces this rule creates. Off by default — that workspace's credentials, a held pod keeps."
+      "debugModeHint": "Open failed runner pods hold, on the workspaces this rule creates. Off by default, it is — that workspace's credentials, a held pod keeps.",
+      "allowForkPrPlansHint": "To every workspace this rule creates, applies it. Off by default, it is: no speculative plan a pull request from a fork gets, because run its author's code with the workspace's credentials, it would.",
+      "oidcAudiences": "Audiences, run identity (by created workspaces, inherited)",
+      "oidcAudiencesHint": "Audience overrides templated onto every workspace this rule creates, keyed on the provider configuration a token is for — aws, or aws.west for an aliased configuration. Empty it leave, and the deployment''s own configuration those workspaces take."
     },
     "table": {
       "name": "Name",
@@ -1270,7 +1309,8 @@
       "cancel": "Cancel",
       "working": "Working, we are...",
       "previewDryRun": "Preview (run, dry)",
-      "applyChanges": "changes, Apply"
+      "applyChanges": "changes, Apply",
+      "setOidcAudiences": "audiences, Set OIDC run identity (on every matched workspace, the map replaces)"
     },
     "diff": {
       "colWorkspace": "Workspace",
@@ -1919,12 +1959,24 @@
       "always": "always",
       "create": "create only",
       "createUpdate": "create or update only"
+    },
+    "oidcAudiences": {
+      "addProvider": "provider configuration, Add",
+      "audiences": "Audiences",
+      "badgeInherited": "Deployment default",
+      "badgeOwned": "Workspace",
+      "issuerDisabled": "No OpenID Connect issuer, this deployment publishes, so take effect, nothing configured here can.",
+      "override": "Override",
+      "overrideAria": "For this workspace, the {provider} audiences override",
+      "providerDuplicate": "An entry that provider configuration already has.",
+      "providerInvalid": "No spaces a provider name has, and at most one dot — aws, or aws.west.",
+      "providerPlaceholder": "aws, or aws.west",
+      "removeProviderAria": "{provider} provider configuration, Remove"
     }
   },
   "planSummary": {
     "aiGenerated": "generated, AI",
     "heading": {
-      "planSummary": "summary, Plan",
       "failureAnalysis": "analysis, Failure"
     },
     "errors": {
@@ -1933,13 +1985,11 @@
     "regenerate": {
       "label": "Regenerate",
       "queueing": "Queueing, we are…",
-      "tooltip": "Against the same plan inputs, the AI summary re-run",
       "ariaLabel": "AI summary, Regenerate",
       "confirm": "The AI analysis, regenerate? The model again, this runs.",
       "error": "Regenerate, could not: <mono>{detail}</mono>"
     },
     "pending": {
-      "summarisingPlan": "The plan, summarizing it…",
       "analysingFailure": "The failure, analysing it…"
     },
     "skipped": {
@@ -1963,7 +2013,6 @@
     "badges": {
       "noChanges": "changes, No",
       "noChangesLower": "no changes",
-      "noChangesTitle": "No resource changes, the plan reported",
       "toAdd": "{count, plural, one {# to add} other {# to add}}",
       "toChange": "{count, plural, one {# to change} other {# to change}}",
       "toDestroy": "{count, plural, one {# to destroy} other {# to destroy}}",
@@ -1973,7 +2022,6 @@
     "chat": {
       "heading": "Follow-up",
       "sharedThreadNote": "One shared thread, to anyone with workspace read visible.",
-      "placeholder": "About this plan, a follow-up question ask… (⌘/Ctrl + Enter to send)",
       "send": "Send",
       "thinking": "Thinking, we are…",
       "you": "You",
@@ -1997,7 +2045,6 @@
     "workspaceFallback": "workspace",
     "backTo": "To {name}, back",
     "errorHeading": "Error",
-    "discardedHeading": "Discarded — re-plan required, there is",
     "common": {
       "yes": "Yes",
       "no": "No"
@@ -2051,14 +2098,13 @@
     },
     "badge": {
       "destroy": "destroy",
-      "planOnly": "plan only"
+      "savedPlan": "saved, the plan is",
+      "savedPlanHint": "Deferred, the apply is. Hold the workspace, this run does not, until applied the saved plan is."
     },
     "actions": {
       "retryShort": "Retry",
       "retryFull": "Run, Retry",
       "retrying": "Retrying, we are…",
-      "confirmShort": "Apply",
-      "confirmFull": "Confirm and Apply",
       "confirming": "Confirming, we are…",
       "discard": "Discard",
       "discarding": "Discarding, we are…",
@@ -2068,8 +2114,6 @@
       "queuing": "Queued, it is being…"
     },
     "confirm": {
-      "apply": "This run, apply? The plan this applies, and infrastructure changes it.",
-      "discard": "This plan, discard?",
       "cancel": "This run, cancel?",
       "retry": "This run, retry?"
     },
@@ -2092,20 +2136,19 @@
       "impactFull": "graph, Impact",
       "cost": "Cost",
       "costFull": "Cost estimate",
-      "planLabel": "Plan<log>Log</log>",
-      "applyLabel": "Apply<log>Log</log>",
-      "planFull": "log, Plan",
-      "applyFull": "log, Apply",
       "details": "Details",
       "security": "Security",
       "securityFull": "Security scan"
     },
     "banner": {
       "destroy": "A <strong>destroy</strong> run, this is — when applied, destroyed all managed resources will be.",
-      "planOnlyCli": "A <strong>plan-only</strong> run initiated from the CLI on a VCS-connected workspace, this is. For CLI-uploaded code, apply available it is not — only VCS-managed code, applied it can be.",
       "moduleOverridesPrefix": "<strong>Module overrides</strong>, this run uses",
       "moduleOverridesFromPr": "from PR #{number}",
       "moduleOverridesSuffix": "instead of the published registry version, from the PR branch fetched they will be."
+    },
+    "bindPlan": {
+      "bound": "To this preview, locked it is: exactly the plan shown here, the update applies. Anything changed since, fail the update it does, instead of applied being.",
+      "unbound": "To this preview, locked it is not: its own changes the update works out when it runs, as a plain pulumi up does. Differ from what is shown here, what it applies may."
     },
     "cards": {
       "changes": "Changes",
@@ -2117,7 +2160,6 @@
     },
     "changes": {
       "noChanges": "changes, No",
-      "planning": "Planning, we are…",
       "toAdd": "to add",
       "toChange": "to change",
       "toDestroy": "to destroy",
@@ -2154,7 +2196,6 @@
       "executionBackend": "Backend, Execution",
       "source": "Source",
       "autoApply": "Apply, Auto",
-      "planOnly": "Only, Plan",
       "triggeredBy": "By, Triggered",
       "created": "Created",
       "commit": "Commit",
@@ -2170,11 +2211,7 @@
     "timeline": {
       "heading": "Timeline",
       "queued": "Queued",
-      "planningStarted": "started, Planning",
-      "planComplete": "complete, Plan",
       "confirmed": "Confirmed",
-      "applyingStarted": "started, Applying",
-      "applied": "Applied",
       "errored": "Errored",
       "canceled": "Canceled",
       "discarded": "Discarded"
@@ -2198,12 +2235,8 @@
       "followOffTitle": "The live tail, follow",
       "end": "End",
       "endTitle": "To the end of the log, jump",
-      "planEmpty": "No plan output available yet, there is.",
-      "applyEmpty": "No apply output available yet, there is.",
       "index": {
         "label": "Jump, you will",
-        "title": "To a resource change, or to the plan summary, jump you will",
-        "summary": "Summary of the plan, the",
         "action": {
           "create": "create, you will",
           "update": "update, you will",
@@ -2215,13 +2248,11 @@
           "error": "failed, it has",
           "warning": "careful, you must be"
         }
-      },
-      "applySkippedNoChanges": "Run, no apply did: no changes, the plan had, so to apply, nothing there was."
+      }
     },
     "policyPanel": {
       "heading": "Checks, Policy",
       "passedCount": "{passed}/{total} passed",
-      "blockedMessage": "<strong>By a mandatory policy set, blocked</strong> this run is. Until the failure is resolved or an admin overrides it, apply it will not.",
       "overriding": "Overriding, we are...",
       "overrideContinue": "Override and Continue",
       "overrideFailed": "Failed, the override did",
@@ -2261,7 +2292,6 @@
       "unpricedHint": "Nothing in the pricing data matched these — an unmapped type, a resource with no direct cost, or a provider not yet covered.",
       "indicative": "Estimates are indicative; actual cost depends on usage, region, commitments, and discounts.",
       "asOfState": "as of state v{serial}",
-      "noState": "No cost yet — appears after the first apply, it does.",
       "usageBand": "{dimension}: typical {typical} {unit}, it is (range {low}–{high})",
       "usageBandCost": "{dimension}: typical {costTypical}/mo, it is — {costLow}–{costHigh} across {low}–{high} {unit}"
     },
@@ -2348,7 +2378,6 @@
       "passed": "Match, no policy criteria did.",
       "overriding": "Overriding, we are...",
       "overrideContinue": "Override and Continue",
-      "overrideConfirm": "Override the AI policy gate, and despite the verdict let this run apply, you would?",
       "overrideFailed": "Failed, the override did",
       "overrideFailedStatus": "Failed, the override did ({status})",
       "overriddenBy": "by {by}, overridden"
@@ -2407,9 +2436,6 @@
       "translatedNote": "From the original on view, translated."
     },
     "drift": {
-      "remediate": "Plan and apply",
-      "remediateTitle": "A plan + apply run, queue — back in line with the configuration, the infrastructure it brings",
-      "remediateConfirm": "For this workspace, a plan + apply run queue?",
       "remediateMessage": "From a drift check, queued it was",
       "remediateFailed": "Queued, the remediation run could not be"
     }
@@ -2469,6 +2495,7 @@
       "architecture": "Architecture",
       "insights": "Insights",
       "automation": "Automation",
+      "inventory": "Inventory",
       "access": "Access"
     },
     "lifecycle": {
@@ -2501,6 +2528,9 @@
       "version": "Version",
       "versionPlaceholder": "e.g. 1.11 or 1.11.5",
       "versionTitle": "In X.Y or X.Y.Z format, the version must be (e.g. 1.11 or 1.11.5)",
+      "ansibleVersion": "Version, Ansible",
+      "ansibleVersionPlaceholder": "e.g. 2.21.5",
+      "ansibleVersionTitle": "For this workspace, the ansible-core version this is. Empty, leave it, and the deployment default it follows.",
       "terragruntEnabledAgent": "Enabled (agent mode)",
       "terragruntEnabledVersion": "Enabled (v{version})",
       "terragruntVersionPlaceholder": "e.g. 1.0",
@@ -2541,12 +2571,16 @@
       "engineTerraform": "Terraform",
       "nameTitlePulumi": "Separated by '::', two parts there are — project::stack. Only letters, numbers, hyphens and underscores; start with a letter or number, each part must.",
       "bindPlan": "To the approved preview, lock the update",
-      "bindPlanHelp": "When on, exactly the plan the preview saved, the update applies — so fail the update, anything changed since the preview does, instead of applied being. On Pulumi update plans this rests; experimental still, they are. When off, its own changes the update works out, as a plain pulumi up does. <docs>How Pulumi runs work, learn you will</docs>"
+      "bindPlanHelp": "When on, exactly the plan the preview saved, the update applies — so fail the update, anything changed since the preview does, instead of applied being. On Pulumi update plans this rests; experimental still, they are. When off, its own changes the update works out, as a plain pulumi up does. <docs>How Pulumi runs work, learn you will</docs>",
+      "oidcAudiences": "Audiences, run identity",
+      "oidcAudiencesAdd": "audience, Add",
+      "oidcAudiencesHint": "A short-lived OpenID Connect token for each provider configuration a run uses, Terrapod mints, and to a file the run can read, it writes. On the provider as your configuration names it, an entry key — aws, or aws.west for an aliased configuration — and the audiences that target accepts, list. The deployment''s own configuration for that provider, each entry overrides; remove it, and to the deployment''s audiences that provider falls back. An opaque string the federation target chose, an audience is, so exactly as typed, stored it is.",
+      "oidcAudiencesLoading": "The deployment''s configured audiences, checking …",
+      "oidcAudiencesNone": "None (the agent pool''s own identity, runs use)",
+      "oidcAudiencesPlaceholder": "e.g. sts.amazonaws.com"
     },
     "vcsWorkflowWarning": {
       "title": "To your VCS repository, authorization delegated it is.",
-      "rbac": "Anyone who can merge the PR, apply they can. The gate, branch protection rules (required reviews, status checks, code owner approval) become. To comment-driven actions in this mode, Terrapod role/label RBAC apply it does<em>not</em>.",
-      "recommended": "<strong>Recommended:</strong> linear history require (before merge, rebase/squash) so the commit you apply, the commit that lands it is.",
       "credit": "Credit: on <atlantis>Atlantis</atlantis>, this workflow modelled is. For teams who only want PR-comment-driven applies and no platform UI, the right tool Atlantis remains."
     },
     "vcsPolling": {
@@ -2562,7 +2596,6 @@
     },
     "lock": {
       "title": "Status, Lock",
-      "lockedDesc": "Locked, this workspace is. No plans or applies run they can.",
       "unlockedDesc": "Unlocked and ready for runs, this workspace is.",
       "lock": "Lock",
       "unlock": "Unlock",
@@ -2584,7 +2617,6 @@
       "dismissTitle": "The reported drift state, clear. From reality, the next scheduled check repopulate it will.",
       "lastChecked": "Checked, Last",
       "checkNow": "Now, Check",
-      "checkNowTitle": "To check for drift, a plan-only run queue",
       "checkNowTitleDisabled": "Drift detection first, enable it"
     },
     "intervals": {
@@ -2598,13 +2630,10 @@
       "7days": "7 days"
     },
     "planExpiry": {
-      "title": "Expiry, Plan",
-      "description": "Once older than this it is, an unconfirmed plan auto-discard, so against a moved world, applied a stale plan cannot be. Off by default, it is; re-run then the plan must be. (To apply-capable runs only, this applies.)",
       "expireAfter": "after, Expire"
     },
     "aiSummary": {
       "title": "Summary, AI Plan",
-      "description": "On every plan-phase outcome for this workspace, an automatic LLM-generated change summary, risk assessment, and failure analysis.",
       "mode": "Mode",
       "modeDefault": "The deployment default, follow",
       "modeEnabled": "Summarize, always",
@@ -2619,7 +2648,6 @@
     },
     "slack": {
       "title": "notifications, Slack",
-      "description": "Into Slack run notifications, this workspace opt — approval requests, applies, errors, and drift. The channel empty leave, and silent this workspace stays (no deployment-wide fan-out, there is). By an administrator, the Slack app to be enabled, requires it.",
       "channel": "Channel",
       "channelPlaceholder": "#deploys or a channel ID (e.g. C0123ABCD)",
       "notSet": "Set, not — silent.",
@@ -2694,20 +2722,18 @@
       "vaultFileEncoding": "The encoding, it is",
       "vaultFileEncodingNone": "As in OpenBao/Vault stored, it stays",
       "vaultFileEncodingBase64": "Base64-decode it, you will",
-      "vaultFileEncodingHint": "Before it is written, the field decoded is. Text, the result must be; supported, binary files are not."
+      "vaultFileEncodingHint": "Before it is written, the field decoded is. Text, the result must be; supported, binary files are not.",
+      "categoryNative": "Native it is",
+      "structured": "Structured",
+      "categoryTerraform": "Terraform",
+      "categoryPulumiConfig": "Config, Pulumi"
     },
     "runs": {
       "options": "Options",
       "hideOptions": "Options, Hide",
       "queueDestroy": "Destroy",
-      "queueDestroyTitle": "A destroy plan, queue",
       "destroyAllConfirm": "All resources, destroy?",
       "confirmDestroy": "Destroy, Confirm",
-      "queuePlan": "Plan",
-      "queueRun": "Plan and apply",
-      "queuePlanConfirm": "For this workspace, a speculative plan queue?",
-      "queueApplyConfirm": "A plan + apply run, queue? Infrastructure, this can change.",
-      "planOptions": "Options, Plan",
       "targetResources": "resources, Target",
       "replaceResources": "resources, Replace",
       "commaSeparated": "(comma-separated)",
@@ -2718,7 +2744,6 @@
       "branch": "Branch",
       "tag": "Tag",
       "defaultBranch": "Default ({branch})",
-      "nonDefaultRefNote": "Selected, a non-default ref is — plan-only the run will be",
       "empty": "For this workspace, no runs yet there are.",
       "runId": "ID, Run",
       "status": "Status",
@@ -2729,13 +2754,11 @@
       "created": "Created",
       "needsConfirm": "confirm, needs",
       "typeDestroy": "destroy",
-      "typePlanOnly": "plan only",
-      "typePlanApply": "plan + apply",
       "sourceModuleTest": "module test",
       "sourceModulePublish": "module publish",
-      "queueApplyTitle": "A plan + apply run, queue",
-      "queueApplyRefBlocked": "Unavailable apply is, while selected a branch, tag or commit is — plan-only always, those runs are",
-      "awaitingDecision": "a decision, awaiting"
+      "awaitingDecision": "a decision, awaiting",
+      "typeSavedPlan": "saved, the plan is",
+      "typeSavedPlanHint": "Deferred, the apply is. Hold the workspace, this run does not, until applied the saved plan is."
     },
     "state": {
       "deleteConfirm": "State version #{serial}, delete? Undone, this cannot be.",
@@ -2752,12 +2775,18 @@
       "runner": "runner",
       "latest": "latest"
     },
+    "stateOutputs": {
+      "title": "Outputs",
+      "fromSerial": "Serial #{serial}",
+      "empty": "No outputs, this state declares.",
+      "sensitive": "Sensitive",
+      "loadFailed": "Load the outputs for this workspace, it did not."
+    },
     "configurations": {
       "description": "For this workspace, uploaded source archives, newest first. To compare, two rows pick.",
       "selectedCount": "{count}/2 selected",
       "compare": "Compare",
       "comparing": "Comparing, we are…",
-      "empty": "No configuration versions yet, there are. As soon as a `terraform plan` uploads or a VCS push triggers a run, here appear they will.",
       "id": "ID",
       "source": "Source",
       "status": "Status",
@@ -2819,7 +2848,6 @@
     },
     "runTriggers": {
       "title": "Triggers, Run",
-      "description": "When an apply a source workspace completes, a new run downstream workspaces get automatically queued. Per destination, up to 20 source workspaces there may be.",
       "inboundHeading": "Source workspaces that trigger runs here",
       "inboundEmpty": "On this workspace, no source workspaces trigger runs.",
       "pickerPlaceholder": "Workspaces to add as a source, search them…",
@@ -2827,6 +2855,173 @@
       "outboundEmpty": "On any other workspace, runs this workspace triggers not.",
       "destinationNote": "(destination; from there, remove)",
       "removeConfirm": "This run trigger, remove?"
+    },
+    "inventory": {
+      "scope": {
+        "heading": "Inventory",
+        "body": "The hosts and groups this workspace holds, these are — and what ansible resolves them to. Editable here, every row is; run a playbook against them, you cannot yet."
+      },
+      "nav": {
+        "label": "Sections of the inventory",
+        "hosts": "Hosts",
+        "groups": "Groups",
+        "vars": "Variables",
+        "resolved": "Resolved",
+        "settings": "Settings"
+      },
+      "actions": {
+        "save": "Save",
+        "saving": "Saving, it is…",
+        "cancel": "Cancel",
+        "edit": "Edit",
+        "delete": "Delete",
+        "remove": "Remove",
+        "add": "Add",
+        "adding": "Adding, it is…",
+        "rename": "Rename"
+      },
+      "hosts": {
+        "heading": "Hosts",
+        "body": "One row per host, there is. A host, open — then its variables and the groups it belongs to, edit you may.",
+        "empty": "No hosts, there are. Yet.",
+        "colName": "Host",
+        "colGroups": "Groups",
+        "colVars": "Variables",
+        "newLabel": "Name of the new host",
+        "newPlaceholder": "web-1",
+        "add": "A host, add",
+        "confirmDelete": "The host {name}, delete? With it, its variables and its group memberships go.",
+        "renameLabel": "Name of the host"
+      },
+      "groups": {
+        "heading": "Groups",
+        "body": "One row per group, there is. A group, open — then its variables, its member hosts and the groups nested inside it, edit you may.",
+        "empty": "No groups, there are. Yet.",
+        "colName": "Group",
+        "colMembers": "Hosts",
+        "colChildren": "Child groups",
+        "colVars": "Variables",
+        "newLabel": "Name of the new group",
+        "newPlaceholder": "web",
+        "add": "A group, add",
+        "confirmDelete": "The group {name}, delete? With it, its variables and its memberships go; the hosts themselves, stay they do.",
+        "renameLabel": "Name of the group"
+      },
+      "vars": {
+        "actions": "Actions",
+        "key": "Key",
+        "keyPlaceholder": "ansible_user",
+        "value": "Value",
+        "structured": "Structured",
+        "sensitive": "Sensitive",
+        "structuredHelp": "A list, a number or an object — a structured value, it is: Structured, tick, and its literal source in the value, write. Read back, a sensitive value never is — a mask, the field shows instead.",
+        "structuredBadge": "structured",
+        "sensitiveKeep": "Blank, leave this — then the stored value kept it is.",
+        "empty": "No variables here, there are.",
+        "add": "A variable, add",
+        "confirmDelete": "The variable {key}, delete?"
+      },
+      "hostDetail": {
+        "heading": "Host {name}",
+        "body": "Everything this one host carries, this is.",
+        "back": "To the hosts, back",
+        "gone": "Exist, that host no longer does.",
+        "vars": "Variables of the host",
+        "varsBody": "Variables that to this host alone apply. Over a group variable of the same name, win they do.",
+        "memberships": "Groups",
+        "membershipsBody": "The groups this host belongs to, these are. A link, a membership is — so remove one here, and both the host and the group in place remain.",
+        "membershipsEmpty": "In no group, this host is — so in ungrouped, ansible puts it.",
+        "addGroup": "To a group, add",
+        "addGroupLabel": "A group, choose",
+        "removeGroupAria": "From {name}, this host remove",
+        "confirmRemoveGroup": "Out of {name}, this host take?"
+      },
+      "groupDetail": {
+        "heading": "Group {name}",
+        "body": "Everything this one group carries, this is.",
+        "back": "To the groups, back",
+        "gone": "Exist, that group no longer does.",
+        "vars": "Variables of the group",
+        "varsBody": "Variables that to every host in this group apply — directly, or through nesting.",
+        "members": "Member hosts",
+        "membersBody": "The hosts in this group directly, these are. A host reached only through a nested group, listed here it is not.",
+        "membersEmpty": "In this group directly, no hosts there are.",
+        "addHost": "A host, add",
+        "addHostLabel": "A host, choose",
+        "removeHostAria": "From this group, {name} remove",
+        "confirmRemoveHost": "Out of this group, {name} take?",
+        "children": "Child groups",
+        "childrenBody": "Groups nested inside this one, these are. Members of this group too, their hosts are — and reach them, this group’s variables do.",
+        "childrenEmpty": "Inside this one, nested no groups are.",
+        "addChild": "A child group, add",
+        "addChildLabel": "A group to nest, choose",
+        "removeChildAria": "From the children of this group, {name} remove",
+        "confirmRemoveChild": "Inside this group, nesting {name} stop?",
+        "parents": "Parent groups",
+        "parentsBody": "The groups this one is nested inside, these are. Several parents, a group may have.",
+        "parentsEmpty": "Inside nothing, this group is nested.",
+        "addParent": "A parent group, add",
+        "addParentLabel": "A parent group, choose",
+        "removeParentAria": "From {name}, this group remove",
+        "confirmRemoveParent": "Inside {name}, nesting this group stop?"
+      },
+      "globalVars": {
+        "heading": "Variables of the inventory",
+        "body": "Variables that to every host apply — ansible’s group_vars/all. Over one set here, a group or host variable of the same name wins."
+      },
+      "resolved": {
+        "heading": "Hosts, resolved",
+        "body": "What of the rows ansible makes, this is: every host with the variables it ends up holding, after the merge and the precedence.",
+        "hosts": "Hosts",
+        "groups": "Groups",
+        "liveNote": "Live, this is. Static, every source here is — so to answer itself, the read resolves the rows. Nothing to refresh, there is.",
+        "noHosts": "To a host, nothing resolved.",
+        "noVars": "variables, none",
+        "groupsHeading": "Membership of the groups",
+        "directOnly": "Direct membership only, exactly as ansible reports it: a group whose hosts all arrive through a nested group, none of its own it lists. Below, the nesting is.",
+        "noGroups": "Resolved, no groups were.",
+        "noDirectMembers": "direct hosts, none",
+        "nestingHeading": "Nesting of the groups",
+        "nestingBody": "Which groups inside which sit, this shows. A limit on a parent — every host below it, reach it does.",
+        "noNesting": "Nested, no groups are.",
+        "limitHeading": "Target, what would a limit?",
+        "limitBody": "An ansible --limit pattern against this inventory, expand — then exactly which hosts it selects, see you will, before anything runs. The expansion, ansible does — so a group, an exclusion and a ~regex, behave as at run time they will.",
+        "limitLabel": "Limit pattern",
+        "limitPlaceholder": "web:!web-2",
+        "limitApply": "The limit, apply",
+        "limitClear": "Clear",
+        "limitApplied": "To {limit}, limited. What that pattern targets, everything below is."
+      },
+      "settings": {
+        "heading": "Settings",
+        "body": "Whether the rows held here count, this decides — and the repository an inventory is also read from.",
+        "absent": "No settings, which the default is: the whole inventory, the hosts and groups held here are.",
+        "includePlatform": "The hosts and groups held here, use",
+        "includePlatformHelp": "On by default, it is. Off, turn it — then from the repository alone, resolve it does, these rows in place but out of the answer.",
+        "included": "yes",
+        "excluded": "no",
+        "vcsConnection": "VCS connection",
+        "vcsNone": "None",
+        "field": {
+          "repo-url": "Repository",
+          "branch": "Branch",
+          "working-directory": "Directory"
+        },
+        "branchHelp": "Empty, leave it — then the default branch of the repository, tracked it is.",
+        "ignorePaths": "Paths, ignored",
+        "ignorePathsHelp": "One glob per line. Anything matching, left out of the inventory read from the repository it is.",
+        "unset": "set, not",
+        "create": "Settings, add",
+        "clear": "Settings, clear",
+        "confirmClear": "These settings, clear? With them, the repository binding goes; the hosts and groups held here, stay they do."
+      },
+      "errors": {
+        "load": "Load the inventory, we could not",
+        "save": "Save, we could not",
+        "delete": "Delete, we could not",
+        "resolved": "Resolve the inventory, we could not",
+        "settings": "Save the inventory settings, we could not"
+      }
     },
     "sharing": {
       "title": "Sharing, Remote State",
@@ -2896,8 +3091,6 @@
       "addVariableStatus": "Add the variable, it did not ({status})",
       "deleteVariable": "Delete the variable, it did not",
       "updateVariable": "Update the variable, it did not",
-      "queuePlan": "Queue the plan, it did not",
-      "queuePlanStatus": "Queue the plan, it did not ({status})",
       "queueDestroy": "Queue the destroy, it did not",
       "queueDestroyStatus": "Queue the destroy, it did not ({status})",
       "createNotification": "Create the notification, it did not",
@@ -2914,7 +3107,8 @@
       "uploadState": "Upload the state, it did not",
       "uploadStateFile": "Upload the state file, it did not",
       "updateSecurityScan": "Update the security scanning, failed it did",
-      "updateDebugMode": "Update debug mode, it did not"
+      "updateDebugMode": "Update debug mode, it did not",
+      "updateForkPlans": "Update fork pull request plans, it did not"
     },
     "subtabs": {
       "state": "State",
@@ -2967,6 +3161,14 @@
       "bannerTitle": "On for this workspace, debug mode is",
       "bannerBody": "Held open for inspection instead of exiting, a failed run's pod is, and this workspace's credentials and decrypted variables it keeps, while held it is. Off turn debug mode, when finished troubleshooting you are.",
       "confirmEnable": "On debug mode, turn? Held open a failed run's pod will be, holding this workspace's credentials and decrypted variables, until expires the window or delete the pod you do."
+    },
+    "allowForkPrPlans": {
+      "title": "Plans, on fork pull requests",
+      "description": "Whether a speculative plan a pull request opened from a fork gets. Off by default, it is, because run the fork author's code with this workspace's credentials, that plan does.",
+      "label": "Fork pull requests, plan",
+      "hint": "This workspace's environment variables, sensitive values, any Vault-resolved secrets and the job's cloud identity, a run receives. No write access has someone opening a pull request from a fork, and merge they cannot, so the only way their code reaches those credentials, a speculative plan is. For a workspace that holds nothing worth taking, turn this on — a public module repository accepting community contributions, say. Unaffected are pull requests from branches in the repository itself, and always plan they do.",
+      "activeBadge": "On",
+      "confirmEnable": "Pull requests opened from forks, plan? With this workspace's credentials and decrypted variables, their authors' code will run, without anyone approving it first."
     }
   },
   "graphs": {
@@ -3189,11 +3391,14 @@
     "unknown": "unknown",
     "confirm": {
       "prompt": "To <em>your</em> Terrapod identity, this Slack account link? Every future Slack action (approve/discard), as this Terrapod user with their permissions run it will.",
+      "slackName": "Account Slack",
       "slackUser": "user, Slack",
       "slackTeam": "team, Slack",
       "terrapodAccount": "account, Terrapod",
       "warning": "Only if from Slack yourself this link you just started, continue you should. If you didn''t, this tab close and link do not — to <em>your</em> Terrapod identity, the Slack account above this binds.",
-      "button": "Confirm and link"
+      "button": "Confirm and link",
+      "namesUnavailable": "This Slack account's name, look up Terrapod could not. The ids above, check you must. Only if from Slack this link you yourself began, continue you should.",
+      "nameIsSelfChosen": "Unique in the Slack workspace, the handle is. Chosen by its owner, the display name beneath it is. By the handle, judge you must."
     },
     "success": {
       "message": "To Terrapod, now linked your Slack account is.",
@@ -3416,7 +3621,77 @@
       },
       "status": {
         "planning": "Planning",
-        "applying": "Applying"
+        "applying": "Applying",
+        "planned": "Planned",
+        "applied": "Applied"
+      },
+      "words": {
+        "actionConfirmFull": "Confirm and Apply",
+        "actionConfirmShort": "Apply",
+        "activityApplied": "Complete, the apply is",
+        "activityConfirmed": "The apply, starting it",
+        "activityDiscarded": "Discarded, the plan was",
+        "activityPlannedComplete": "Complete, the plan is",
+        "activityPlannedConfirmable": "For you to confirm and apply, waiting",
+        "activityPlannedSpeculative": "Complete, the speculative plan is",
+        "aiPolicyOverrideConfirm": "Override the AI policy gate, and despite the verdict let this run apply, you would?",
+        "aiSummaryDescription": "On every plan-phase outcome for this workspace, an automatic LLM-generated change summary, risk assessment, and failure analysis.",
+        "aiSummaryTitle": "Summary, AI Plan",
+        "badgePlanOnly": "plan only",
+        "bannerPlanOnlyCli": "A <strong>plan-only</strong> run initiated from the CLI on a VCS-connected workspace, this is. For CLI-uploaded code, apply available it is not — only VCS-managed code, applied it can be.",
+        "changesPlanning": "Planning, we are…",
+        "configurationsEmpty": "No configuration versions yet, there are. As soon as a `terraform plan` uploads or a VCS push triggers a run, here appear they will.",
+        "confirmApply": "This run, apply? The plan this applies, and infrastructure changes it.",
+        "confirmDiscard": "This plan, discard?",
+        "costNoState": "No cost yet — appears after the first apply, it does.",
+        "detailsPlanOnly": "Only, Plan",
+        "discardedHeading": "Discarded — re-plan required, there is",
+        "driftCheckNowTitle": "To check for drift, a plan-only run queue",
+        "driftRemediate": "Plan and apply",
+        "driftRemediateConfirm": "For this workspace, a plan + apply run queue?",
+        "driftRemediateTitle": "A plan + apply run, queue — back in line with the configuration, the infrastructure it brings",
+        "errorsQueuePlan": "Queue the plan, it did not",
+        "errorsQueuePlanStatus": "Queue the plan, it did not ({status})",
+        "fieldsAutoMerge": "After apply, auto-merge",
+        "formAutoApplyModeHint": "never: wait for a human, always you must. always: apply every successful plan, it does. create / create/update: only plans limited to those actions, apply it will — a destroy or a replace, never.",
+        "lockLockedDesc": "Locked, this workspace is. No plans or applies run they can.",
+        "logApplyEmpty": "No apply output available yet, there is.",
+        "logApplySkipped": "Run, no apply did: no changes, the plan had, so to apply, nothing there was.",
+        "logIndexSummary": "Summary of the plan, the",
+        "logIndexTitle": "To a resource change, or to the plan summary, jump you will",
+        "logPlanEmpty": "No plan output available yet, there is.",
+        "nonDefaultRefNote": "Selected, a non-default ref is — plan-only the run will be",
+        "planExpiryDescription": "Once older than this it is, an unconfirmed plan auto-discard, so against a moved world, applied a stale plan cannot be. Off by default, it is; re-run then the plan must be. (To apply-capable runs only, this applies.)",
+        "planExpiryTitle": "Expiry, Plan",
+        "planOptions": "Options, Plan",
+        "planSummaryChatPlaceholder": "About this plan, a follow-up question ask… (⌘/Ctrl + Enter to send)",
+        "planSummaryHeading": "summary, Plan",
+        "planSummaryNoChangesTitle": "No resource changes, the plan reported",
+        "planSummaryRegenerateTooltip": "Against the same plan inputs, the AI summary re-run",
+        "planSummarySummarising": "The plan, summarizing it…",
+        "policyBlockedMessage": "<strong>By a mandatory policy set, blocked</strong> this run is. Until the failure is resolved or an admin overrides it, apply it will not.",
+        "queueApplyConfirm": "A plan + apply run, queue? Infrastructure, this can change.",
+        "queueApplyRefBlocked": "Unavailable apply is, while selected a branch, tag or commit is — plan-only always, those runs are",
+        "queueApplyTitle": "A plan + apply run, queue",
+        "queueDestroyTitle": "A destroy plan, queue",
+        "queuePlan": "Plan",
+        "queuePlanConfirm": "For this workspace, a speculative plan queue?",
+        "queueRun": "Plan and apply",
+        "replacePlaceholder": "e.g. aws_instance.web",
+        "runTriggersDescription": "When an apply a source workspace completes, a new run downstream workspaces get automatically queued. Per destination, up to 20 source workspaces there may be.",
+        "tabApplyFull": "log, Apply",
+        "tabApplyLabel": "Apply<log>Log</log>",
+        "tabPlanFull": "log, Plan",
+        "tabPlanLabel": "Plan<log>Log</log>",
+        "targetPlaceholder": "e.g. aws_instance.web, aws_s3_bucket.data",
+        "timelineApplied": "Applied",
+        "timelineApplyingStarted": "started, Applying",
+        "timelinePlanComplete": "complete, Plan",
+        "timelinePlanningStarted": "started, Planning",
+        "typePlanApply": "plan + apply",
+        "vcsWorkflowWarningRbac": "Anyone who can merge the PR, apply they can. The gate, branch protection rules (required reviews, status checks, code owner approval) become. To comment-driven actions in this mode, Terrapod role/label RBAC apply it does<em>not</em>.",
+        "vcsWorkflowWarningRecommended": "<strong>Recommended:</strong> linear history require (before merge, rebase/squash) so the commit you apply, the commit that lands it is.",
+        "slackDescription": "Into Slack run notifications, this workspace opt — approval requests, applies, errors, and drift. The channel empty leave, and silent this workspace stays (no deployment-wide fan-out, there is). By an administrator, the Slack app to be enabled, requires it."
       }
     },
     "pulumi": {
@@ -3425,14 +3700,84 @@
         "applying": "pulumi up, running it"
       },
       "runStatus": {
-        "planning": "Previewning",
-        "planned": "Previewned",
-        "applying": "Uping",
-        "applied": "Applied"
+        "planning": "Previewing",
+        "planned": "Previewed",
+        "applying": "Updating",
+        "applied": "Updated"
       },
       "status": {
-        "planning": "Previewning",
-        "applying": "Uping"
+        "planning": "Previewing",
+        "applying": "Updating",
+        "planned": "Previewed",
+        "applied": "Updated"
+      },
+      "words": {
+        "actionConfirmFull": "Confirm and Update",
+        "actionConfirmShort": "Update",
+        "activityApplied": "Complete, the update is",
+        "activityConfirmed": "The update, starting it",
+        "activityDiscarded": "Discarded, the preview was",
+        "activityPlannedComplete": "Complete, the preview is",
+        "activityPlannedConfirmable": "For you to confirm and update, waiting",
+        "activityPlannedSpeculative": "Complete, the speculative preview is",
+        "aiPolicyOverrideConfirm": "Override the AI policy gate, and despite the verdict let this run update, you would?",
+        "aiSummaryDescription": "On every preview-phase outcome for this workspace, an automatic LLM-generated change summary, risk assessment, and failure analysis.",
+        "aiSummaryTitle": "Summary, AI Preview",
+        "badgePlanOnly": "preview only",
+        "bannerPlanOnlyCli": "A <strong>preview-only</strong> run initiated from the CLI on a VCS-connected workspace, this is. For CLI-uploaded code, update available it is not — only VCS-managed code, updated it can be.",
+        "changesPlanning": "Previewing, we are…",
+        "configurationsEmpty": "No configuration versions yet, there are. As soon as a VCS push triggers a run, here appear they will.",
+        "confirmApply": "This run, update? The preview this updates, and infrastructure changes it.",
+        "confirmDiscard": "This preview, discard?",
+        "costNoState": "No cost yet — appears after the first update, it does.",
+        "detailsPlanOnly": "Only, Preview",
+        "discardedHeading": "Discarded — re-preview required, there is",
+        "driftCheckNowTitle": "To check for drift, a preview-only run queue",
+        "driftRemediate": "Preview and update",
+        "driftRemediateConfirm": "For this workspace, a preview + update run queue?",
+        "driftRemediateTitle": "A preview + update run, queue — back in line with the configuration, the infrastructure it brings",
+        "errorsQueuePlan": "Queue the preview, it did not",
+        "errorsQueuePlanStatus": "Queue the preview, it did not ({status})",
+        "fieldsAutoMerge": "After update, auto-merge",
+        "formAutoApplyModeHint": "never: wait for a human, always you must. always: update every successful preview, it does. create / create/update: only previews limited to those actions, update it will — a destroy or a replace, never.",
+        "lockLockedDesc": "Locked, this workspace is. No previews or updates run they can.",
+        "logApplyEmpty": "No update output available yet, there is.",
+        "logApplySkipped": "Run, no update did: no changes, the preview had, so to update, nothing there was.",
+        "logIndexSummary": "Summary of the preview, the",
+        "logIndexTitle": "To a resource change, or to the preview summary, jump you will",
+        "logPlanEmpty": "No preview output available yet, there is.",
+        "nonDefaultRefNote": "Selected, a non-default ref is — preview-only the run will be",
+        "planExpiryDescription": "Once older than this it is, an unconfirmed preview auto-discard, so against a moved world, carried out a stale preview cannot be. Off by default, it is; re-run then the preview must be. (To update-capable runs only, this applies.)",
+        "planExpiryTitle": "Expiry, Preview",
+        "planOptions": "Options, Preview",
+        "planSummaryChatPlaceholder": "About this preview, a follow-up question ask… (⌘/Ctrl + Enter to send)",
+        "planSummaryHeading": "summary, Preview",
+        "planSummaryNoChangesTitle": "No resource changes, the preview reported",
+        "planSummaryRegenerateTooltip": "Against the same preview inputs, the AI summary re-run",
+        "planSummarySummarising": "The preview, summarizing it…",
+        "policyBlockedMessage": "<strong>By a mandatory policy set, blocked</strong> this run is. Until the failure is resolved or an admin overrides it, update it will not.",
+        "queueApplyConfirm": "A preview + update run, queue? Infrastructure, this can change.",
+        "queueApplyRefBlocked": "Unavailable update is, while selected a branch, tag or commit is — preview-only always, those runs are",
+        "queueApplyTitle": "A preview + update run, queue",
+        "queueDestroyTitle": "A destroy preview, queue",
+        "queuePlan": "Preview",
+        "queuePlanConfirm": "For this workspace, a speculative preview queue?",
+        "queueRun": "Preview and update",
+        "replacePlaceholder": "e.g. urn:pulumi:dev::shop::aws:ec2/instance:Instance::web",
+        "runTriggersDescription": "When an update a source workspace completes, a new run downstream workspaces get automatically queued. Per destination, up to 20 source workspaces there may be.",
+        "tabApplyFull": "log, Update",
+        "tabApplyLabel": "Update<log>Log</log>",
+        "tabPlanFull": "log, Preview",
+        "tabPlanLabel": "Preview<log>Log</log>",
+        "targetPlaceholder": "e.g. urn:pulumi:dev::shop::aws:s3/bucket:Bucket::assets",
+        "timelineApplied": "Updated",
+        "timelineApplyingStarted": "started, Updating",
+        "timelinePlanComplete": "complete, Preview",
+        "timelinePlanningStarted": "started, Previewing",
+        "typePlanApply": "preview + update",
+        "vcsWorkflowWarningRbac": "Anyone who can merge the PR, update they can. The gate, branch protection rules (required reviews, status checks, code owner approval) become. To comment-driven actions in this mode, Terrapod role/label RBAC apply it does<em>not</em>.",
+        "vcsWorkflowWarningRecommended": "<strong>Recommended:</strong> linear history require (before merge, rebase/squash) so the commit you update, the commit that lands it is.",
+        "slackDescription": "Into Slack run notifications, this workspace opt — approval requests, updates, errors, and drift. The channel empty leave, and silent this workspace stays (no deployment-wide fan-out, there is). By an administrator, the Slack app to be enabled, requires it."
       }
     }
   },

@@ -37,8 +37,10 @@ type workspaceDataSourceModel struct {
 	TerraformVersion              types.String `tfsdk:"terraform_version"`
 	TerragruntEnabled             types.Bool   `tfsdk:"terragrunt_enabled"`
 	TerragruntVersion             types.String `tfsdk:"terragrunt_version"`
+	AnsibleVersion                types.String `tfsdk:"ansible_version"`
 	WorkingDirectory              types.String `tfsdk:"working_directory"`
 	DebugMode                     types.Bool   `tfsdk:"debug_mode"`
+	AllowForkPRPlans              types.Bool   `tfsdk:"allow_fork_pr_plans"`
 	ResourceCPU                   types.String `tfsdk:"resource_cpu"`
 	Parallelism                   types.Int64  `tfsdk:"parallelism"`
 	ResourceMemory                types.String `tfsdk:"resource_memory"`
@@ -58,6 +60,7 @@ type workspaceDataSourceModel struct {
 	SecurityScanEngine            types.String `tfsdk:"security_scan_engine"`
 	SecurityScanSeverityThreshold types.String `tfsdk:"security_scan_severity_threshold"`
 	SecurityScanSkipRules         types.List   `tfsdk:"security_scan_skip_rules"`
+	OIDCAudiences                 types.Map    `tfsdk:"oidc_audiences"`
 	PlanExpirySeconds             types.Int64  `tfsdk:"plan_expiry_seconds"`
 	AISummaryMode                 types.String `tfsdk:"ai_summary_mode"`
 	AIPolicyMode                  types.String `tfsdk:"ai_policy_mode"`
@@ -96,21 +99,27 @@ func (d *workspaceDataSource) Schema(_ context.Context, _ datasource.SchemaReque
 	resp.Schema = schema.Schema{
 		Description: "Look up a Terrapod workspace by name.",
 		Attributes: map[string]schema.Attribute{
-			"id":                               computedString("Workspace ID."),
-			"name":                             requiredString("Workspace name to look up."),
-			"execution_mode":                   computedString("Execution mode."),
-			"auto_apply":                       computedBool("Auto-apply setting."),
-			"auto_apply_mode":                  computedString("Conditional auto-apply mode: never, always, create or create_update."),
-			"execution_backend":                computedString("Execution backend."),
-			"engine":                           computedString("The execution engine family (\"terraform\")."),
+			"id":                computedString("Workspace ID."),
+			"name":              requiredString("Workspace name to look up."),
+			"execution_mode":    computedString("Execution mode."),
+			"auto_apply":        computedBool("Auto-apply setting."),
+			"auto_apply_mode":   computedString("Conditional auto-apply mode: never, always, create or create_update."),
+			"execution_backend": computedString("Execution backend."),
+			"engine": computedString(
+				"The execution engine family this workspace belongs to — " +
+					"\"terraform\" or \"pulumi\", or another engine the deployment " +
+					"enables. Distinct from execution_backend, which picks the " +
+					"binary within the Terraform engine."),
 			"pulumi_bind_plan":                 computedBool("Pulumi only: whether the update is bound to the approved preview."),
 			"engine_version":                   computedString("Version of the engine this workspace runs (OpenTofu/Terraform, or Pulumi)."),
 			"terraform_version":                computedString("The same version under its original name; `engine_version` is the current one."),
 			"terragrunt_enabled":               computedBool("Whether terragrunt wraps tofu/terraform for agent-mode runs."),
 			"terragrunt_version":               computedString("Terragrunt CLI version (when terragrunt_enabled)."),
+			"ansible_version":                  computedString("The ansible-core version this workspace pins. Null when it pins none and inherits the deployment default."),
 			"working_directory":                computedString("Working directory."),
 			"parallelism":                      computedInt64("How many operations the engine performs at once."),
 			"debug_mode":                       computedBool("Whether a failed run's pod is held open for inspection (#1764)."),
+			"allow_fork_pr_plans":              computedBool("Whether a pull request opened from a fork gets a speculative plan. Off by default, because that plan runs the author's code with this workspace's credentials (GHSA-gp5w-76rw-c452); same-repository pull requests always plan regardless."),
 			"resource_cpu":                     computedString("CPU request."),
 			"resource_memory":                  computedString("Memory request."),
 			"labels":                           computedMap("Labels."),
@@ -129,6 +138,7 @@ func (d *workspaceDataSource) Schema(_ context.Context, _ datasource.SchemaReque
 			"security_scan_engine":             computedString("Security-scan engine (#1036): 'checkov' (default), 'trivy', or 'both'."),
 			"security_scan_severity_threshold": computedString("Lowest severity that counts as a scan failure (#1036): 'critical', 'high' (default), 'medium', or 'low'."),
 			"security_scan_skip_rules":         computedList("Scanner rule-ids to suppress (#1036; Checkov CKV_* / Trivy AVD-*)."),
+			"oidc_audiences":                   computedAudienceMap("The EFFECTIVE audiences a run's identity token is minted for, per provider configuration (#1901) — the workspace's own override merged over the deployment's audience catalogue, which is the set its runs actually use. A key is the provider configuration the token is for, exactly as written in a `provider` block: `aws`, `vault`, or `aws.west` for one aliased configuration. Values are verbatim opaque strings the federation target itself named. Empty means this workspace mints nothing and its runs authenticate with the agent pool's own identity. This is the merged view on purpose: the `terrapod_workspace` RESOURCE records only the keys a configuration sets, so this data source is where a config reads the full set to cross-reference against its own federation trust policy."),
 			"plan_expiry_seconds":              computedInt64("Per-workspace plan expiry TTL in seconds (#646); null/0 = disabled."),
 			"ai_policy_mode":                   computedString("Per-workspace AI policy gate override: 'default', 'enabled', or 'disabled'. 'disabled' opts out of an advisory verdict only -- a mandatory gate ignores it."),
 			"ai_summary_mode":                  computedString("Per-workspace AI plan-summary mode: 'default' (follow deployment global), 'enabled' (always summarise), or 'disabled' (never summarise)."),
@@ -243,7 +253,12 @@ func readDataSourceModel(ctx context.Context, res *terrapod.Resource, m *workspa
 	setOptionalString(&m.TerraformVersion, engineVersion)
 	m.TerragruntEnabled = types.BoolValue(terrapod.GetBoolAttr(res, "terragrunt-enabled"))
 	setOptionalString(&m.TerragruntVersion, terrapod.GetStringAttr(res, "terragrunt-version"))
+	// Empty means the workspace inherits `api.config.default_ansible_version`
+	// rather than pinning one (#2010); the server does not substitute the
+	// resolved default, so null is the honest reading.
+	setOptionalString(&m.AnsibleVersion, terrapod.GetStringAttr(res, "ansible-version"))
 	m.DebugMode = types.BoolValue(terrapod.GetBoolAttr(res, "debug-mode"))
+	m.AllowForkPRPlans = types.BoolValue(terrapod.GetBoolAttr(res, "allow-fork-pr-plans"))
 	setOptionalString(&m.VCSRepoURL, terrapod.GetStringAttr(res, "vcs-repo-url"))
 	setOptionalString(&m.VCSBranch, terrapod.GetStringAttr(res, "vcs-branch"))
 	setOptionalString(&m.AgentPoolID, terrapod.GetStringAttr(res, "agent-pool-id"))
@@ -327,6 +342,20 @@ func readDataSourceModel(ctx context.Context, res *terrapod.Resource, m *workspa
 		m.SecurityScanSkipRules = types.ListNull(types.StringType)
 	}
 
+	// The FULL merged view, not the narrowed one the resource keeps (#1901). A
+	// data source has no plan for its result to be consistent with and nothing
+	// writes back through it, so the drift that forces the resource's selective
+	// read cannot arise here — and a config cross-referencing a workspace
+	// against its own federation trust policy needs the effective set, not the
+	// subset some other configuration happens to declare.
+	if auds := terrapod.GetAudienceMapAttr(res, "oidc-audiences"); len(auds) > 0 {
+		val, d := types.MapValueFrom(ctx, audienceElemType, auds)
+		diags.Append(d...)
+		m.OIDCAudiences = val
+	} else {
+		m.OIDCAudiences = types.MapNull(audienceElemType)
+	}
+
 	if labels := terrapod.GetMapAttr(res, "labels"); len(labels) > 0 {
 		val, d := types.MapValueFrom(ctx, types.StringType, labels)
 		diags.Append(d...)
@@ -364,4 +393,14 @@ func computedList(desc string) schema.ListAttribute {
 }
 func computedMap(desc string) schema.MapAttribute {
 	return schema.MapAttribute{Description: desc, Computed: true, ElementType: types.StringType}
+}
+
+// audienceElemType is the element type of oidc_audiences (#1901): a LIST of
+// audiences per provider configuration. One audience is still a one-element
+// list, and several mean "interchangeable for this target" — so the shape never
+// collapses to a scalar.
+var audienceElemType = types.ListType{ElemType: types.StringType}
+
+func computedAudienceMap(desc string) schema.MapAttribute {
+	return schema.MapAttribute{Description: desc, Computed: true, ElementType: audienceElemType}
 }

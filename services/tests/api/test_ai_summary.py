@@ -24,6 +24,18 @@ _BASE = "http://test"
 _AUTH = {"Authorization": "Bearer dummy"}
 
 
+def _no_inert_vars():
+    """The engine-mismatch resolver's result (#1565): no workspace here holds a
+    variable its engine never reads.
+
+    The detail route resolves this once per request, so a test that scripts
+    `db.execute` in order has to account for it.
+    """
+    result = MagicMock()
+    result.scalars.return_value.all.return_value = []
+    return result
+
+
 def _user(email="test@example.com", roles=None):
     return AuthenticatedUser(
         email=email,
@@ -46,6 +58,7 @@ def _mock_workspace(ws_id=None, **overrides):
     ws.execution_mode = "agent"
     ws.execution_backend = "tofu"
     ws.engine_version = "1.12"
+    ws.ansible_version = "2.21.5"
     ws.terragrunt_enabled = False
     ws.terragrunt_version = "1.0"
     ws.working_directory = ""
@@ -85,6 +98,7 @@ def _mock_workspace(ws_id=None, **overrides):
     ws.drift_status = ""
     ws.state_diverged = False
     ws.debug_mode = overrides.get("debug_mode", False)
+    ws.allow_fork_pr_plans = overrides.get("allow_fork_pr_plans", False)
     ws.ai_policy_mode = overrides.get("ai_policy_mode", "default")
     ws.ai_summary_mode = overrides.get("ai_summary_mode", "default")
     ws.ai_summary_context = overrides.get("ai_summary_context", "")
@@ -349,7 +363,7 @@ class TestWorkspaceAISummaryFields:
         ws_result.scalar_one_or_none.return_value = ws
         no_run = MagicMock()
         no_run.scalar_one_or_none.return_value = None
-        mock_db.execute.side_effect = [ws_result, no_run]
+        mock_db.execute.side_effect = [ws_result, no_run, _no_inert_vars()]
 
         async with AsyncClient(transport=ASGITransport(app=app), base_url=_BASE) as c:
             resp = await c.get(f"/api/v2/workspaces/ws-{ws.id}", headers=_AUTH)

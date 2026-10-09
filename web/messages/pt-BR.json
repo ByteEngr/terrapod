@@ -27,6 +27,7 @@
     "account": "Conta",
     "apiTokens": "Tokens de API",
     "sessions": "Sessões",
+    "slackLinks": "Vínculos do Slack",
     "logOut": "Sair",
     "menu": "Menu",
     "openMenu": "Abrir menu",
@@ -70,7 +71,6 @@
       "agentPool": "Agent Pool",
       "none": "Nenhum",
       "autoApply": "Aplicação Automática",
-      "autoApplyModeHint": "never: sempre esperar por uma pessoa. always: aplicar todo plano bem-sucedido. create / create/update: aplicar apenas planos limitados a essas ações — nunca uma destruição ou uma substituição.",
       "enabled": "Ativado",
       "workingDirectory": "Diretório de Trabalho",
       "workingDirectoryPlaceholder": "ex.: environments/dev",
@@ -372,6 +372,22 @@
         "load": "Falha ao carregar as sessões",
         "revoke": "Falha ao revogar as sessões ({status})",
         "revokeGeneric": "Falha ao revogar as sessões"
+      }
+    },
+    "slackLinks": {
+      "title": "Vínculos do Slack",
+      "description": "Contas do Slack que podem agir como você. Uma conta vinculada pode aprovar e descartar execuções com as suas permissões, então revogue qualquer uma que você não reconheça.",
+      "empty": "Nenhuma conta do Slack está vinculada a você.",
+      "revoke": "Revogar",
+      "confirmRevoke": "Revogar o vínculo do usuário do Slack {user}? Essa conta não poderá mais agir como você pelo Slack.",
+      "columns": {
+        "slackUser": "Usuário do Slack",
+        "team": "Equipe do Slack",
+        "linkedAt": "Vinculada"
+      },
+      "errors": {
+        "load": "Não foi possível carregar seus vínculos do Slack.",
+        "revoke": "Não foi possível revogar esse vínculo do Slack."
       }
     }
   },
@@ -761,7 +777,9 @@
       "setAssignmentStatus": "Falha ao definir a atribuição ({status})",
       "deleteAssignment": "Falha ao excluir a atribuição",
       "conflictingLabelKeys": "{keys} recebeu mais de um valor. Uma regra de rótulo guarda um valor por chave, então o último substituiria os anteriores sem aviso. Vários valores por chave são aceitos pela API, mas ainda não podem ser definidos aqui."
-    }
+    },
+    "pinnedToSubject": "Fixado",
+    "pinnedToSubjectTitle": "Fixado ao sujeito de IdP {subject}"
   },
   "adminVcs": {
     "title": "Conexões VCS",
@@ -774,6 +792,23 @@
       "delete": "Excluir"
     },
     "confirmDelete": "Excluir esta conexão VCS? Os workspaces que a utilizam perderão a integração com o VCS. Isso não pode ser desfeito.",
+    "access": {
+      "heading": "Quem pode usar esta conexão",
+      "intro": "Estas três configurações decidem quais workspaces podem apontar para esta conexão. A credencial em si continua sendo somente escrita.",
+      "ownerEmail": "E-mail do proprietário",
+      "ownerEmailHint": "O proprietário sempre pode usar esta conexão. Deixe em branco para que a conexão fique sem proprietário.",
+      "labels": "Rótulos de acesso",
+      "labelsHint": "Um papel cujas regras correspondam a estes rótulos pode apontar um workspace para esta conexão.",
+      "allowedRepositories": "Repositórios permitidos",
+      "allowedRepositoriesHint": "Padrões glob comparados com o repositório que um workspace pede para usar.",
+      "addPattern": "Adicionar um padrão",
+      "anyRepositoryWarning": "Nenhum padrão está listado, então esta conexão pode apontar para qualquer repositório.",
+      "restricted": "{count, plural, one {# padrão está listado} other {# padrões estão listados}}, então um repositório que não corresponda a nenhum deles é recusado.",
+      "ownedBy": "Pertence a {email}",
+      "unowned": "Nenhum proprietário está definido",
+      "anyRepositorySummary": "Qualquer repositório é permitido",
+      "repositoryCount": "Restrito a {count, plural, one {# repositório} other {# repositórios}}"
+    },
     "form": {
       "name": "Nome",
       "namePattern": "Apenas letras, números, hífens e sublinhados. Deve começar com uma letra ou número.",
@@ -922,7 +957,6 @@
       "varKey": "Chave",
       "varValue": "Valor",
       "varCategory": "Categoria",
-      "categoryTerraform": "Terraform",
       "categoryEnv": "Ambiente",
       "sensitive": "Sensível",
       "sensAbbr": "Sens.",
@@ -988,7 +1022,9 @@
       "valueSource": "Origem do valor",
       "valueSourceStatic": "Inserir um valor",
       "valueSourceVault": "Ler do OpenBao/Vault",
-      "vaultHint": "O Terrapod lê o segredo do OpenBao (ou do HashiCorp Vault) durante a execução. Nada é armazenado aqui."
+      "vaultHint": "O Terrapod lê o segredo do OpenBao (ou do HashiCorp Vault) durante a execução. Nada é armazenado aqui.",
+      "categoryNative": "Nativa",
+      "structured": "Estruturada"
     }
   },
   "adminAutodiscovery": {
@@ -1076,7 +1112,10 @@
       "terragruntVersion": "Versão do Terragrunt",
       "noExpiry": "Sem expiração",
       "addDriftIgnoreRule": "Adicionar regra",
-      "debugModeHint": "Manter abertos os pods de runners com falha nos espaços de trabalho criados por esta regra. Desativado por padrão — um pod mantido aberto conserva as credenciais daquele espaço de trabalho."
+      "debugModeHint": "Manter abertos os pods de runners com falha nos espaços de trabalho criados por esta regra. Desativado por padrão — um pod mantido aberto conserva as credenciais daquele espaço de trabalho.",
+      "allowForkPrPlansHint": "Aplica-se a todos os espaços de trabalho criados por esta regra. Desativado por padrão: uma pull request de um fork não recebe plano especulativo, porque executaria o código de seu autor com as credenciais do espaço de trabalho.",
+      "oidcAudiences": "Audiences da identidade de execução (herdadas pelos workspaces criados)",
+      "oidcAudiencesHint": "Sobreposições de audiences aplicadas a cada espaço de trabalho que esta regra cria, indexadas pela configuração de provider à qual um token corresponde — aws, ou aws.west para uma configuração com alias. Deixe vazia e esses espaços de trabalho usam a configuração própria da implantação."
     },
     "table": {
       "name": "Nome",
@@ -1270,7 +1309,8 @@
       "cancel": "Cancelar",
       "working": "Trabalhando...",
       "previewDryRun": "Prévia (simulação)",
-      "applyChanges": "Aplicar alterações"
+      "applyChanges": "Aplicar alterações",
+      "setOidcAudiences": "Definir audiences OIDC da identidade de execução (substitui o mapa em cada workspace correspondente)"
     },
     "diff": {
       "colWorkspace": "Workspace",
@@ -1919,12 +1959,24 @@
       "always": "sempre",
       "create": "criar",
       "createUpdate": "criar/atualizar"
+    },
+    "oidcAudiences": {
+      "addProvider": "Adicionar configuração de provider",
+      "audiences": "Audiences",
+      "badgeInherited": "Valor da implantação",
+      "badgeOwned": "Espaço de trabalho",
+      "issuerDisabled": "Esta implantação não publica nenhum emissor OpenID Connect, portanto nada configurado aqui pode entrar em vigor.",
+      "override": "Sobrepor",
+      "overrideAria": "Sobrepor as audiences de {provider} neste espaço de trabalho",
+      "providerDuplicate": "Essa configuração de provider já tem uma entrada.",
+      "providerInvalid": "Um nome de provider não tem espaços e tem no máximo um ponto — aws, ou aws.west.",
+      "providerPlaceholder": "aws, ou aws.west",
+      "removeProviderAria": "Remover a configuração de provider {provider}"
     }
   },
   "planSummary": {
     "aiGenerated": "Gerado por IA",
     "heading": {
-      "planSummary": "Resumo do plano",
       "failureAnalysis": "Análise de falha"
     },
     "errors": {
@@ -1933,13 +1985,11 @@
     "regenerate": {
       "label": "Regerar",
       "queueing": "Enfileirando…",
-      "tooltip": "Reexecutar o resumo de IA com as mesmas entradas do plano",
       "ariaLabel": "Regerar resumo de IA",
       "confirm": "Regerar a análise de IA? Isso executa o modelo novamente.",
       "error": "Não foi possível regerar: <mono>{detail}</mono>"
     },
     "pending": {
-      "summarisingPlan": "Resumindo o plano…",
       "analysingFailure": "Analisando a falha…"
     },
     "skipped": {
@@ -1963,7 +2013,6 @@
     "badges": {
       "noChanges": "Nenhuma alteração",
       "noChangesLower": "nenhuma alteração",
-      "noChangesTitle": "O plano não relatou alterações de recursos",
       "toAdd": "{count, plural, one {# a adicionar} other {# a adicionar}}",
       "toChange": "{count, plural, one {# a alterar} other {# a alterar}}",
       "toDestroy": "{count, plural, one {# a destruir} other {# a destruir}}",
@@ -1973,7 +2022,6 @@
     "chat": {
       "heading": "Acompanhamento",
       "sharedThreadNote": "Um único thread compartilhado, visível para qualquer pessoa com acesso de leitura ao workspace.",
-      "placeholder": "Faça uma pergunta de acompanhamento sobre este plano… (⌘/Ctrl + Enter para enviar)",
       "send": "Enviar",
       "thinking": "Pensando…",
       "you": "Você",
@@ -1997,7 +2045,6 @@
     "workspaceFallback": "workspace",
     "backTo": "Voltar para {name}",
     "errorHeading": "Erro",
-    "discardedHeading": "Descartado — replanejamento necessário",
     "common": {
       "yes": "Sim",
       "no": "Não"
@@ -2051,14 +2098,13 @@
     },
     "badge": {
       "destroy": "destroy",
-      "planOnly": "somente plano"
+      "savedPlan": "plano salvo",
+      "savedPlanHint": "Aplicação adiada: esta execução não bloqueia o workspace até que o plano salvo seja aplicado."
     },
     "actions": {
       "retryShort": "Repetir",
       "retryFull": "Repetir Execução",
       "retrying": "Repetindo…",
-      "confirmShort": "Aplicar",
-      "confirmFull": "Confirmar e Aplicar",
       "confirming": "Confirmando…",
       "discard": "Descartar",
       "discarding": "Descartando…",
@@ -2068,8 +2114,6 @@
       "queuing": "Enfileirando…"
     },
     "confirm": {
-      "apply": "Aplicar esta execução? Isso aplica o plano e altera a infraestrutura.",
-      "discard": "Descartar este plano?",
       "cancel": "Cancelar esta execução?",
       "retry": "Repetir esta execução?"
     },
@@ -2092,20 +2136,19 @@
       "impactFull": "Grafo de impacto",
       "cost": "Custo",
       "costFull": "Estimativa de custo",
-      "planLabel": "Plan<log>Log</log>",
-      "applyLabel": "Apply<log>Log</log>",
-      "planFull": "Log do plan",
-      "applyFull": "Log do apply",
       "details": "Detalhes",
       "security": "Segurança",
       "securityFull": "Verificação de segurança"
     },
     "banner": {
       "destroy": "Esta é uma execução de <strong>destroy</strong> — todos os recursos gerenciados serão destruídos quando aplicada.",
-      "planOnlyCli": "Esta é uma execução <strong>somente plano</strong> iniciada a partir da CLI em um workspace conectado ao VCS. O apply não está disponível para código enviado pela CLI — apenas código gerenciado pelo VCS pode ser aplicado.",
       "moduleOverridesPrefix": "Esta execução usa <strong>substituições de módulo</strong>",
       "moduleOverridesFromPr": "do PR #{number}",
       "moduleOverridesSuffix": "serão buscadas a partir do branch do PR, em vez da versão publicada no registro."
+    },
+    "bindPlan": {
+      "bound": "Vinculado a este preview: o update aplica exatamente o plano mostrado aqui, e qualquer coisa que tenha mudado desde então faz o update falhar em vez de ser aplicada.",
+      "unbound": "Não vinculado a este preview: o update determina as próprias mudanças quando é executado, como um pulumi up comum, então o que ele aplica pode diferir do que é mostrado aqui."
     },
     "cards": {
       "changes": "Alterações",
@@ -2117,7 +2160,6 @@
     },
     "changes": {
       "noChanges": "Nenhuma alteração",
-      "planning": "Planejando…",
       "toAdd": "a adicionar",
       "toChange": "a alterar",
       "toDestroy": "a destruir",
@@ -2154,7 +2196,6 @@
       "executionBackend": "Backend de Execução",
       "source": "Origem",
       "autoApply": "Aplicação Automática",
-      "planOnly": "Somente Plano",
       "triggeredBy": "Acionado Por",
       "created": "Criado",
       "commit": "Commit",
@@ -2170,11 +2211,7 @@
     "timeline": {
       "heading": "Linha do Tempo",
       "queued": "Na Fila",
-      "planningStarted": "Planejamento iniciado",
-      "planComplete": "Plano concluído",
       "confirmed": "Confirmado",
-      "applyingStarted": "Aplicação iniciada",
-      "applied": "Aplicado",
       "errored": "Com Erro",
       "canceled": "Cancelado",
       "discarded": "Descartado"
@@ -2198,12 +2235,8 @@
       "followOffTitle": "Seguir o tail ao vivo",
       "end": "Fim",
       "endTitle": "Ir para o fim do log",
-      "planEmpty": "Nenhuma saída de plan disponível ainda.",
-      "applyEmpty": "Nenhuma saída de apply disponível ainda.",
       "index": {
         "label": "Ir para",
-        "title": "Ir para uma alteração de recurso ou para o resumo do plano",
-        "summary": "Resumo do plano",
         "action": {
           "create": "criar",
           "update": "atualizar",
@@ -2215,13 +2248,11 @@
           "error": "erro",
           "warning": "aviso"
         }
-      },
-      "applySkippedNoChanges": "Nenhuma aplicação foi executada: o plano não tinha alterações, então não havia nada a aplicar."
+      }
     },
     "policyPanel": {
       "heading": "Verificações de Política",
       "passedCount": "{passed}/{total} aprovadas",
-      "blockedMessage": "Esta execução está <strong>bloqueada por um conjunto de políticas obrigatório</strong>. Ela não será aplicada até que a falha seja resolvida ou um administrador a substitua.",
       "overriding": "Substituindo...",
       "overrideContinue": "Substituir e Continuar",
       "overrideFailed": "Falha na substituição",
@@ -2261,7 +2292,6 @@
       "unpricedHint": "Nada nos dados de preços correspondeu a estes — um tipo não mapeado, um recurso sem custo direto ou um provedor ainda não coberto.",
       "indicative": "As estimativas são indicativas; o custo real depende do uso, da região, dos compromissos e dos descontos.",
       "asOfState": "a partir do estado v{serial}",
-      "noState": "Sem custo ainda — aparece após a primeira aplicação.",
       "usageBand": "{dimension}: {typical} {unit} típico (faixa {low}–{high})",
       "usageBandCost": "{dimension}: {costTypical}/mês típico — {costLow}–{costHigh} entre {low}–{high} {unit}"
     },
@@ -2348,7 +2378,6 @@
       "passed": "Nenhum critério de política correspondeu.",
       "overriding": "Substituindo...",
       "overrideContinue": "Substituir e Continuar",
-      "overrideConfirm": "Substituir o portão de política de IA e permitir que esta execução seja aplicada apesar do veredito?",
       "overrideFailed": "Falha na substituição",
       "overrideFailedStatus": "Falha na substituição ({status})",
       "overriddenBy": "substituído por {by}"
@@ -2407,9 +2436,6 @@
       "translatedNote": "Traduzido do original na visualização."
     },
     "drift": {
-      "remediate": "Plan + apply",
-      "remediateTitle": "Enfileirar uma execução plan + apply para realinhar a infraestrutura à configuração",
-      "remediateConfirm": "Enfileirar uma execução plan + apply para este workspace?",
       "remediateMessage": "Enfileirado a partir de uma verificação de desvio",
       "remediateFailed": "Não foi possível enfileirar a execução de correção"
     }
@@ -2469,6 +2495,7 @@
       "architecture": "Arquitetura",
       "insights": "Perspectivas",
       "automation": "Automação",
+      "inventory": "Inventário",
       "access": "Acesso"
     },
     "lifecycle": {
@@ -2501,6 +2528,9 @@
       "version": "Versão",
       "versionPlaceholder": "ex.: 1.11 ou 1.11.5",
       "versionTitle": "Versão no formato X.Y ou X.Y.Z (ex.: 1.11 ou 1.11.5)",
+      "ansibleVersion": "Versão do Ansible",
+      "ansibleVersionPlaceholder": "ex.: 2.21.5",
+      "ansibleVersionTitle": "A versão do ansible-core para este workspace. Deixe vazio para seguir o padrão da implantação.",
       "terragruntEnabledAgent": "Ativado (modo agent)",
       "terragruntEnabledVersion": "Ativado (v{version})",
       "terragruntVersionPlaceholder": "ex.: 1.0",
@@ -2541,12 +2571,16 @@
       "engineTerraform": "Terraform",
       "nameTitlePulumi": "Duas partes separadas por '::' — project::stack. Apenas letras, números, hífens e sublinhados; cada parte deve começar com uma letra ou número.",
       "bindPlan": "Vincular a atualização à prévia aprovada",
-      "bindPlanHelp": "Quando ativado, a atualização aplica exatamente o plano que a prévia salvou, então qualquer coisa que tenha mudado desde a prévia faz a atualização falhar em vez de ser aplicada. Isso depende dos planos de atualização do Pulumi, que ainda são experimentais. Quando desativado, a atualização determina as próprias mudanças, como um pulumi up comum. <docs>Como funcionam as execuções do Pulumi</docs>"
+      "bindPlanHelp": "Quando ativado, a atualização aplica exatamente o plano que a prévia salvou, então qualquer coisa que tenha mudado desde a prévia faz a atualização falhar em vez de ser aplicada. Isso depende dos planos de atualização do Pulumi, que ainda são experimentais. Quando desativado, a atualização determina as próprias mudanças, como um pulumi up comum. <docs>Como funcionam as execuções do Pulumi</docs>",
+      "oidcAudiences": "Audiences da identidade de execução",
+      "oidcAudiencesAdd": "Adicionar audience",
+      "oidcAudiencesHint": "O Terrapod emite um token OpenID Connect de curta duração para cada configuração de provider que uma execução usa e o grava em um arquivo que a execução pode ler. Indexe cada entrada pelo provider como a sua configuração o nomeia — aws, ou aws.west para uma configuração com alias — e liste as audiences que esse destino aceita. Cada entrada sobrepõe a configuração própria da implantação para aquele provider; remova-a e aquele provider volta às audiences da implantação. Uma audience é uma string opaca escolhida pelo destino de federação, por isso é armazenada exatamente como você a digita.",
+      "oidcAudiencesLoading": "Verificando as audiences configuradas na implantação …",
+      "oidcAudiencesNone": "Nenhuma (as execuções usam a identidade própria do agent pool)",
+      "oidcAudiencesPlaceholder": "ex.: sts.amazonaws.com"
     },
     "vcsWorkflowWarning": {
       "title": "Autorização delegada ao seu repositório VCS.",
-      "rbac": "Qualquer pessoa que possa fazer merge do PR pode aplicar. As regras de proteção de branch (revisões obrigatórias, verificações de status, aprovação do code owner) tornam-se a barreira. O RBAC de função/rótulo do Terrapod<em>não</em> se aplica a ações orientadas por comentários neste modo.",
-      "recommended": "<strong>Recomendado:</strong> exija histórico linear (rebase/squash antes do merge) para que o commit que você aplica seja o commit que efetivamente entra.",
       "credit": "Crédito: este fluxo de trabalho é modelado no <atlantis>Atlantis</atlantis>. O Atlantis continua sendo a ferramenta certa para equipes que querem apenas applies orientados por comentários de PR e nenhuma UI de plataforma."
     },
     "vcsPolling": {
@@ -2562,7 +2596,6 @@
     },
     "lock": {
       "title": "Status do Bloqueio",
-      "lockedDesc": "Este workspace está bloqueado. Nenhum plan ou apply pode ser executado.",
       "unlockedDesc": "Este workspace está desbloqueado e pronto para execuções.",
       "lock": "Bloquear",
       "unlock": "Desbloquear",
@@ -2584,7 +2617,6 @@
       "dismissTitle": "Limpar o estado de drift relatado. A próxima verificação agendada o repopulará com base na realidade.",
       "lastChecked": "Última Verificação",
       "checkNow": "Verificar Agora",
-      "checkNowTitle": "Enfileirar uma execução somente plano para verificar drift",
       "checkNowTitleDisabled": "Ative a detecção de drift primeiro"
     },
     "intervals": {
@@ -2598,13 +2630,10 @@
       "7days": "7 dias"
     },
     "planExpiry": {
-      "title": "Expiração do Plano",
-      "description": "Descartar automaticamente um plano não confirmado quando ele ficar mais antigo do que isto, para que um plano obsoleto não possa ser aplicado contra um mundo que mudou. Desativado por padrão; o plano deve então ser reexecutado. (Aplica-se apenas a execuções com capacidade de apply.)",
       "expireAfter": "Expirar após"
     },
     "aiSummary": {
       "title": "Resumo de Plano por IA",
-      "description": "Resumo de alterações, avaliação de risco e análise de falha gerados automaticamente por LLM em cada resultado da fase de plan deste workspace.",
       "mode": "Modo",
       "modeDefault": "Seguir o padrão da implantação",
       "modeEnabled": "Sempre resumir",
@@ -2619,7 +2648,6 @@
     },
     "slack": {
       "title": "Notificações do Slack",
-      "description": "Habilite este workspace para notificações de execução no Slack — solicitações de aprovação, applies, erros e drift. Deixe o canal vazio e este workspace permanece em silêncio (não há distribuição para toda a implantação). Requer que o app do Slack seja ativado por um administrador.",
       "channel": "Canal",
       "channelPlaceholder": "#deploys ou um ID de canal (ex.: C0123ABCD)",
       "notSet": "Não definido — silencioso.",
@@ -2694,20 +2722,18 @@
       "vaultFileEncoding": "Codificação",
       "vaultFileEncodingNone": "Como armazenado no OpenBao/Vault",
       "vaultFileEncodingBase64": "Decodificar Base64",
-      "vaultFileEncodingHint": "Decodifica o campo antes de gravá-lo. O resultado deve ser texto; arquivos binários não são suportados."
+      "vaultFileEncodingHint": "Decodifica o campo antes de gravá-lo. O resultado deve ser texto; arquivos binários não são suportados.",
+      "categoryNative": "Nativa",
+      "structured": "Estruturada",
+      "categoryTerraform": "Terraform",
+      "categoryPulumiConfig": "Configuração do Pulumi"
     },
     "runs": {
       "options": "Opções",
       "hideOptions": "Ocultar Opções",
       "queueDestroy": "Destruir",
-      "queueDestroyTitle": "Enfileirar um plano de destroy",
       "destroyAllConfirm": "Destruir todos os recursos?",
       "confirmDestroy": "Confirmar Destroy",
-      "queuePlan": "Plan",
-      "queueRun": "Plan + apply",
-      "queuePlanConfirm": "Enfileirar um plano especulativo para este workspace?",
-      "queueApplyConfirm": "Enfileirar uma execução de plan + apply? Isso pode alterar a infraestrutura.",
-      "planOptions": "Opções de Plan",
       "targetResources": "Recursos alvo",
       "replaceResources": "Substituir recursos",
       "commaSeparated": "(separados por vírgula)",
@@ -2718,7 +2744,6 @@
       "branch": "Branch",
       "tag": "Tag",
       "defaultBranch": "Padrão ({branch})",
-      "nonDefaultRefNote": "Ref não padrão selecionada — a execução será somente plano",
       "empty": "Nenhuma execução ainda para este workspace.",
       "runId": "ID da Execução",
       "status": "Status",
@@ -2729,13 +2754,11 @@
       "created": "Criado",
       "needsConfirm": "requer confirmação",
       "typeDestroy": "destroy",
-      "typePlanOnly": "somente plano",
-      "typePlanApply": "plan + apply",
       "sourceModuleTest": "teste de módulo",
       "sourceModulePublish": "publicação de módulo",
-      "queueApplyTitle": "Enfileirar uma execução plan + apply",
-      "queueApplyRefBlocked": "Apply fica indisponível enquanto houver um branch, tag ou commit selecionado — essas execuções são sempre somente plan",
-      "awaitingDecision": "aguardando decisão"
+      "awaitingDecision": "aguardando decisão",
+      "typeSavedPlan": "plano salvo",
+      "typeSavedPlanHint": "Aplicação adiada: esta execução não bloqueia o workspace até que o plano salvo seja aplicado."
     },
     "state": {
       "deleteConfirm": "Excluir a versão de estado #{serial}? Isso não pode ser desfeito.",
@@ -2752,12 +2775,18 @@
       "runner": "runner",
       "latest": "mais recente"
     },
+    "stateOutputs": {
+      "title": "Saídas",
+      "fromSerial": "Serial #{serial}",
+      "empty": "Este estado não declara nenhuma saída.",
+      "sensitive": "Sensível",
+      "loadFailed": "Falha ao carregar as saídas deste workspace."
+    },
     "configurations": {
       "description": "Arquivos de origem enviados para este workspace, do mais novo ao mais antigo. Escolha duas linhas para comparar.",
       "selectedCount": "{count}/2 selecionadas",
       "compare": "Comparar",
       "comparing": "Comparando…",
-      "empty": "Nenhuma versão de configuração ainda. Elas aparecem aqui assim que um `terraform plan` envia ou um push de VCS aciona uma execução.",
       "id": "ID",
       "source": "Origem",
       "status": "Status",
@@ -2819,7 +2848,6 @@
     },
     "runTriggers": {
       "title": "Run Triggers",
-      "description": "Quando um workspace de origem conclui um apply, os workspaces subsequentes têm uma nova execução enfileirada automaticamente. Até 20 workspaces de origem por destino.",
       "inboundHeading": "Workspaces de origem que acionam execuções aqui",
       "inboundEmpty": "Nenhum workspace de origem aciona execuções neste workspace.",
       "pickerPlaceholder": "Pesquisar workspaces para adicionar como origem…",
@@ -2827,6 +2855,173 @@
       "outboundEmpty": "Este workspace não aciona execuções em nenhum outro workspace.",
       "destinationNote": "(destino; remova de lá)",
       "removeConfirm": "Remover este run trigger?"
+    },
+    "inventory": {
+      "scope": {
+        "heading": "Inventário",
+        "body": "Os hosts e os grupos que este workspace mantém, e no que o ansible os resolve. Cada linha pode ser editada aqui; executar um playbook contra eles ainda não está disponível."
+      },
+      "nav": {
+        "label": "Seções do inventário",
+        "hosts": "Hosts",
+        "groups": "Grupos",
+        "vars": "Variáveis",
+        "resolved": "Resolvido",
+        "settings": "Configurações"
+      },
+      "actions": {
+        "save": "Salvar",
+        "saving": "Salvando…",
+        "cancel": "Cancelar",
+        "edit": "Editar",
+        "delete": "Excluir",
+        "remove": "Remover",
+        "add": "Adicionar",
+        "adding": "Adicionando…",
+        "rename": "Renomear"
+      },
+      "hosts": {
+        "heading": "Hosts",
+        "body": "Uma linha por host. Abra um host para editar suas variáveis e os grupos aos quais ele pertence.",
+        "empty": "Nenhum host ainda.",
+        "colName": "Host",
+        "colGroups": "Grupos",
+        "colVars": "Variáveis",
+        "newLabel": "Nome do novo host",
+        "newPlaceholder": "web-1",
+        "add": "Adicionar host",
+        "confirmDelete": "Excluir o host {name}? Suas variáveis e suas participações em grupos vão junto.",
+        "renameLabel": "Nome do host"
+      },
+      "groups": {
+        "heading": "Grupos",
+        "body": "Uma linha por grupo. Abra um grupo para editar suas variáveis, os hosts que o integram e os grupos aninhados dentro dele.",
+        "empty": "Nenhum grupo ainda.",
+        "colName": "Grupo",
+        "colMembers": "Hosts",
+        "colChildren": "Grupos filhos",
+        "colVars": "Variáveis",
+        "newLabel": "Nome do novo grupo",
+        "newPlaceholder": "web",
+        "add": "Adicionar grupo",
+        "confirmDelete": "Excluir o grupo {name}? Suas variáveis e suas participações vão junto; os hosts em si permanecem.",
+        "renameLabel": "Nome do grupo"
+      },
+      "vars": {
+        "actions": "Ações",
+        "key": "Chave",
+        "keyPlaceholder": "ansible_user",
+        "value": "Valor",
+        "structured": "Estruturado",
+        "sensitive": "Sensível",
+        "structuredHelp": "Uma lista, um número ou um objeto é um valor estruturado: marque Estruturado e escreva o código literal dele no valor. Um valor sensível nunca é lido de volta — o campo mostra uma máscara no lugar.",
+        "structuredBadge": "estruturado",
+        "sensitiveKeep": "Deixe em branco para manter o valor armazenado.",
+        "empty": "Nenhuma variável aqui.",
+        "add": "Adicionar variável",
+        "confirmDelete": "Excluir a variável {key}?"
+      },
+      "hostDetail": {
+        "heading": "Host {name}",
+        "body": "Tudo o que este host carrega.",
+        "back": "Voltar aos hosts",
+        "gone": "Esse host não existe mais.",
+        "vars": "Variáveis do host",
+        "varsBody": "Variáveis que se aplicam somente a este host. Elas prevalecem sobre uma variável de grupo com o mesmo nome.",
+        "memberships": "Grupos",
+        "membershipsBody": "Os grupos aos quais este host pertence. Uma participação é um vínculo, então remover uma aqui deixa o host e o grupo no lugar.",
+        "membershipsEmpty": "Este host não está em nenhum grupo, então o ansible o coloca em ungrouped.",
+        "addGroup": "Adicionar a um grupo",
+        "addGroupLabel": "Escolha um grupo",
+        "removeGroupAria": "Remover este host de {name}",
+        "confirmRemoveGroup": "Tirar este host de {name}?"
+      },
+      "groupDetail": {
+        "heading": "Grupo {name}",
+        "body": "Tudo o que este grupo carrega.",
+        "back": "Voltar aos grupos",
+        "gone": "Esse grupo não existe mais.",
+        "vars": "Variáveis do grupo",
+        "varsBody": "Variáveis que se aplicam a todos os hosts deste grupo, diretamente ou por aninhamento.",
+        "members": "Hosts integrantes",
+        "membersBody": "Os hosts que estão neste grupo diretamente. Um host alcançado apenas por um grupo aninhado não aparece aqui.",
+        "membersEmpty": "Nenhum host diretamente neste grupo.",
+        "addHost": "Adicionar host",
+        "addHostLabel": "Escolha um host",
+        "removeHostAria": "Remover {name} deste grupo",
+        "confirmRemoveHost": "Tirar {name} deste grupo?",
+        "children": "Grupos filhos",
+        "childrenBody": "Grupos aninhados dentro deste. Os hosts deles também são integrantes deste grupo, e as variáveis deste grupo os alcançam.",
+        "childrenEmpty": "Nenhum grupo aninhado dentro deste.",
+        "addChild": "Adicionar grupo filho",
+        "addChildLabel": "Escolha um grupo para aninhar",
+        "removeChildAria": "Remover {name} dos filhos deste grupo",
+        "confirmRemoveChild": "Parar de aninhar {name} dentro deste grupo?",
+        "parents": "Grupos pais",
+        "parentsBody": "Os grupos dentro dos quais este está aninhado. Um grupo pode ter vários pais.",
+        "parentsEmpty": "Este grupo não está aninhado em nada.",
+        "addParent": "Adicionar grupo pai",
+        "addParentLabel": "Escolha um grupo pai",
+        "removeParentAria": "Remover este grupo de {name}",
+        "confirmRemoveParent": "Parar de aninhar este grupo dentro de {name}?"
+      },
+      "globalVars": {
+        "heading": "Variáveis do inventário",
+        "body": "Variáveis que se aplicam a todos os hosts — o group_vars/all do ansible. Uma variável de grupo ou de host com o mesmo nome prevalece sobre uma definida aqui."
+      },
+      "resolved": {
+        "heading": "Hosts resolvidos",
+        "body": "O que o ansible faz das linhas: cada host com as variáveis que ele acaba tendo, depois da mesclagem e da precedência.",
+        "hosts": "Hosts",
+        "groups": "Grupos",
+        "liveNote": "Isto é ao vivo. Toda origem aqui é estática, então a leitura resolve as linhas para se responder — não há nada para atualizar.",
+        "noHosts": "Nada foi resolvido para um host.",
+        "noVars": "sem variáveis",
+        "groupsHeading": "Participação em grupos",
+        "directOnly": "Somente participação direta, exatamente como o ansible relata: um grupo cujos hosts chegam todos por um grupo aninhado não lista nenhum próprio. O aninhamento está abaixo.",
+        "noGroups": "Nenhum grupo resolvido.",
+        "noDirectMembers": "sem hosts diretos",
+        "nestingHeading": "Aninhamento de grupos",
+        "nestingBody": "Quais grupos ficam dentro de quais. Um limite em um pai alcança todos os hosts abaixo dele.",
+        "noNesting": "Nenhum grupo está aninhado.",
+        "limitHeading": "O que um limite selecionaria?",
+        "limitBody": "Expanda um padrão ansible --limit sobre este inventário e veja exatamente quais hosts ele seleciona antes de qualquer execução. O ansible faz a expansão, então um grupo, uma exclusão e um ~regex se comportam como se comportarão em tempo de execução.",
+        "limitLabel": "Padrão de limite",
+        "limitPlaceholder": "web:!web-2",
+        "limitApply": "Aplicar limite",
+        "limitClear": "Limpar",
+        "limitApplied": "Limitado a {limit}. Tudo abaixo é o que esse padrão seleciona."
+      },
+      "settings": {
+        "heading": "Configurações",
+        "body": "Se as linhas mantidas aqui contam, e o repositório do qual um inventário também é lido.",
+        "absent": "Sem configurações, que é o padrão: os hosts e os grupos mantidos aqui são o inventário inteiro.",
+        "includePlatform": "Usar os hosts e os grupos mantidos aqui",
+        "includePlatformHelp": "Ativado por padrão. Desative para resolver apenas a partir do repositório, deixando estas linhas no lugar, mas fora da resposta.",
+        "included": "sim",
+        "excluded": "não",
+        "vcsConnection": "Conexão VCS",
+        "vcsNone": "Nenhuma",
+        "field": {
+          "repo-url": "Repositório",
+          "branch": "Branch",
+          "working-directory": "Diretório"
+        },
+        "branchHelp": "Deixe vazio para acompanhar o branch padrão do repositório.",
+        "ignorePaths": "Caminhos ignorados",
+        "ignorePathsHelp": "Um glob por linha. Tudo o que corresponder fica fora do inventário lido do repositório.",
+        "unset": "não definido",
+        "create": "Adicionar configurações",
+        "clear": "Limpar configurações",
+        "confirmClear": "Limpar estas configurações? O vínculo com o repositório vai junto; os hosts e os grupos mantidos aqui permanecem."
+      },
+      "errors": {
+        "load": "Falha ao carregar o inventário",
+        "save": "Falha ao salvar",
+        "delete": "Falha ao excluir",
+        "resolved": "Falha ao resolver o inventário",
+        "settings": "Falha ao salvar as configurações do inventário"
+      }
     },
     "sharing": {
       "title": "Compartilhamento de Estado Remoto",
@@ -2896,8 +3091,6 @@
       "addVariableStatus": "Falha ao adicionar a variável ({status})",
       "deleteVariable": "Falha ao excluir a variável",
       "updateVariable": "Falha ao atualizar a variável",
-      "queuePlan": "Falha ao enfileirar o plan",
-      "queuePlanStatus": "Falha ao enfileirar o plan ({status})",
       "queueDestroy": "Falha ao enfileirar o destroy",
       "queueDestroyStatus": "Falha ao enfileirar o destroy ({status})",
       "createNotification": "Falha ao criar a notificação",
@@ -2914,7 +3107,8 @@
       "uploadState": "Falha ao enviar o estado",
       "uploadStateFile": "Falha ao enviar o arquivo de estado",
       "updateSecurityScan": "Falha ao atualizar a verificação de segurança",
-      "updateDebugMode": "Falha ao atualizar o modo de depuração"
+      "updateDebugMode": "Falha ao atualizar o modo de depuração",
+      "updateForkPlans": "Falha ao atualizar os planos de pull requests de forks"
     },
     "subtabs": {
       "state": "Estado",
@@ -2967,6 +3161,14 @@
       "bannerTitle": "O modo de depuração está ativado para este espaço de trabalho",
       "bannerBody": "O pod de uma execução com falha é mantido aberto para inspeção em vez de encerrar e, enquanto isso, mantém as credenciais e as variáveis descriptografadas deste espaço de trabalho. Desative o modo de depuração quando terminar a investigação.",
       "confirmEnable": "Ativar o modo de depuração? O pod de uma execução com falha será mantido aberto com as credenciais e as variáveis descriptografadas deste espaço de trabalho até a janela expirar ou você excluir o pod."
+    },
+    "allowForkPrPlans": {
+      "title": "Planos em pull requests de forks",
+      "description": "Se uma pull request aberta a partir de um fork recebe um plano especulativo. Desativado por padrão, porque esse plano executa o código do autor do fork com as credenciais deste espaço de trabalho.",
+      "label": "Planejar pull requests de forks",
+      "hint": "Uma execução recebe as variáveis de ambiente deste espaço de trabalho, os valores sensíveis, quaisquer segredos resolvidos pelo Vault e a identidade de nuvem do job. Quem abre uma pull request a partir de um fork não tem acesso de escrita e não pode fazer merge, então um plano especulativo é o único caminho pelo qual o código dessa pessoa alcança essas credenciais. Ative isto para um espaço de trabalho que não guarda nada que valha a pena levar — um repositório público de módulos que aceita contribuições da comunidade, por exemplo. Pull requests de branches do próprio repositório não são afetadas e sempre geram plano.",
+      "activeBadge": "Ligado",
+      "confirmEnable": "Planejar pull requests abertas a partir de forks? O código de seus autores será executado com as credenciais e as variáveis descriptografadas deste espaço de trabalho, sem que ninguém aprove antes."
     }
   },
   "graphs": {
@@ -3189,11 +3391,14 @@
     "unknown": "desconhecido",
     "confirm": {
       "prompt": "Vincular esta conta do Slack à <em>sua</em> identidade do Terrapod? Toda ação futura do Slack (aprovar/descartar) será executada como este usuário do Terrapod, com suas permissões.",
+      "slackName": "Conta do Slack",
       "slackUser": "Usuário do Slack",
       "slackTeam": "Equipe do Slack",
       "terrapodAccount": "Conta do Terrapod",
       "warning": "Continue apenas se você mesmo acabou de iniciar este vínculo pelo Slack. Se não foi você, feche esta aba e não vincule — isso vincula a conta do Slack acima à <em>sua</em> identidade do Terrapod.",
-      "button": "Confirmar e vincular"
+      "button": "Confirmar e vincular",
+      "namesUnavailable": "O Terrapod não conseguiu obter o nome desta conta do Slack. Confira os IDs acima e continue somente se você mesmo iniciou este vínculo pelo Slack.",
+      "nameIsSelfChosen": "O identificador é único no workspace do Slack; o nome exibido abaixo é escolhido pelo próprio dono, então avalie pelo identificador."
     },
     "success": {
       "message": "Sua conta do Slack agora está vinculada ao Terrapod.",
@@ -3416,7 +3621,77 @@
       },
       "status": {
         "planning": "Planejando",
-        "applying": "Aplicando"
+        "applying": "Aplicando",
+        "planned": "Planejado",
+        "applied": "Aplicado"
+      },
+      "words": {
+        "actionConfirmFull": "Confirmar e Aplicar",
+        "actionConfirmShort": "Aplicar",
+        "activityApplied": "Apply concluído",
+        "activityConfirmed": "Iniciando o apply",
+        "activityDiscarded": "Plano descartado",
+        "activityPlannedComplete": "Plano concluído",
+        "activityPlannedConfirmable": "Aguardando sua confirmação e aplicação",
+        "activityPlannedSpeculative": "Plano especulativo concluído",
+        "aiPolicyOverrideConfirm": "Substituir o portão de política de IA e permitir que esta execução seja aplicada apesar do veredito?",
+        "aiSummaryDescription": "Resumo de alterações, avaliação de risco e análise de falha gerados automaticamente por LLM em cada resultado da fase de plan deste workspace.",
+        "aiSummaryTitle": "Resumo de Plano por IA",
+        "badgePlanOnly": "somente plano",
+        "bannerPlanOnlyCli": "Esta é uma execução <strong>somente plano</strong> iniciada a partir da CLI em um workspace conectado ao VCS. O apply não está disponível para código enviado pela CLI — apenas código gerenciado pelo VCS pode ser aplicado.",
+        "changesPlanning": "Planejando…",
+        "configurationsEmpty": "Nenhuma versão de configuração ainda. Elas aparecem aqui assim que um `terraform plan` envia ou um push de VCS aciona uma execução.",
+        "confirmApply": "Aplicar esta execução? Isso aplica o plano e altera a infraestrutura.",
+        "confirmDiscard": "Descartar este plano?",
+        "costNoState": "Sem custo ainda — aparece após a primeira aplicação.",
+        "detailsPlanOnly": "Somente Plano",
+        "discardedHeading": "Descartado — replanejamento necessário",
+        "driftCheckNowTitle": "Enfileirar uma execução somente plano para verificar drift",
+        "driftRemediate": "Plan + apply",
+        "driftRemediateConfirm": "Enfileirar uma execução plan + apply para este workspace?",
+        "driftRemediateTitle": "Enfileirar uma execução plan + apply para realinhar a infraestrutura à configuração",
+        "errorsQueuePlan": "Falha ao enfileirar o plan",
+        "errorsQueuePlanStatus": "Falha ao enfileirar o plan ({status})",
+        "fieldsAutoMerge": "Auto-merge após o apply",
+        "formAutoApplyModeHint": "never: sempre esperar por uma pessoa. always: aplicar todo plano bem-sucedido. create / create/update: aplicar apenas planos limitados a essas ações — nunca uma destruição ou uma substituição.",
+        "lockLockedDesc": "Este workspace está bloqueado. Nenhum plan ou apply pode ser executado.",
+        "logApplyEmpty": "Nenhuma saída de apply disponível ainda.",
+        "logApplySkipped": "Nenhuma aplicação foi executada: o plano não tinha alterações, então não havia nada a aplicar.",
+        "logIndexSummary": "Resumo do plano",
+        "logIndexTitle": "Ir para uma alteração de recurso ou para o resumo do plano",
+        "logPlanEmpty": "Nenhuma saída de plan disponível ainda.",
+        "nonDefaultRefNote": "Ref não padrão selecionada — a execução será somente plano",
+        "planExpiryDescription": "Descartar automaticamente um plano não confirmado quando ele ficar mais antigo do que isto, para que um plano obsoleto não possa ser aplicado contra um mundo que mudou. Desativado por padrão; o plano deve então ser reexecutado. (Aplica-se apenas a execuções com capacidade de apply.)",
+        "planExpiryTitle": "Expiração do Plano",
+        "planOptions": "Opções de Plan",
+        "planSummaryChatPlaceholder": "Faça uma pergunta de acompanhamento sobre este plano… (⌘/Ctrl + Enter para enviar)",
+        "planSummaryHeading": "Resumo do plano",
+        "planSummaryNoChangesTitle": "O plano não relatou alterações de recursos",
+        "planSummaryRegenerateTooltip": "Reexecutar o resumo de IA com as mesmas entradas do plano",
+        "planSummarySummarising": "Resumindo o plano…",
+        "policyBlockedMessage": "Esta execução está <strong>bloqueada por um conjunto de políticas obrigatório</strong>. Ela não será aplicada até que a falha seja resolvida ou um administrador a substitua.",
+        "queueApplyConfirm": "Enfileirar uma execução de plan + apply? Isso pode alterar a infraestrutura.",
+        "queueApplyRefBlocked": "Apply fica indisponível enquanto houver um branch, tag ou commit selecionado — essas execuções são sempre somente plan",
+        "queueApplyTitle": "Enfileirar uma execução plan + apply",
+        "queueDestroyTitle": "Enfileirar um plano de destroy",
+        "queuePlan": "Plan",
+        "queuePlanConfirm": "Enfileirar um plano especulativo para este workspace?",
+        "queueRun": "Plan + apply",
+        "replacePlaceholder": "e.g. aws_instance.web",
+        "runTriggersDescription": "Quando um workspace de origem conclui um apply, os workspaces subsequentes têm uma nova execução enfileirada automaticamente. Até 20 workspaces de origem por destino.",
+        "tabApplyFull": "Log do apply",
+        "tabApplyLabel": "Apply<log>Log</log>",
+        "tabPlanFull": "Log do plan",
+        "tabPlanLabel": "Plan<log>Log</log>",
+        "targetPlaceholder": "e.g. aws_instance.web, aws_s3_bucket.data",
+        "timelineApplied": "Aplicado",
+        "timelineApplyingStarted": "Aplicação iniciada",
+        "timelinePlanComplete": "Plano concluído",
+        "timelinePlanningStarted": "Planejamento iniciado",
+        "typePlanApply": "plan + apply",
+        "vcsWorkflowWarningRbac": "Qualquer pessoa que possa fazer merge do PR pode aplicar. As regras de proteção de branch (revisões obrigatórias, verificações de status, aprovação do code owner) tornam-se a barreira. O RBAC de função/rótulo do Terrapod<em>não</em> se aplica a ações orientadas por comentários neste modo.",
+        "vcsWorkflowWarningRecommended": "<strong>Recomendado:</strong> exija histórico linear (rebase/squash antes do merge) para que o commit que você aplica seja o commit que efetivamente entra.",
+        "slackDescription": "Habilite este workspace para notificações de execução no Slack — solicitações de aprovação, applies, erros e drift. Deixe o canal vazio e este workspace permanece em silêncio (não há distribuição para toda a implantação). Requer que o app do Slack seja ativado por um administrador."
       }
     },
     "pulumi": {
@@ -3425,14 +3700,84 @@
         "applying": "Executando pulumi up"
       },
       "runStatus": {
-        "planning": "Previewejando",
-        "planned": "Previewejado",
-        "applying": "Aplicando",
-        "applied": "Aplicado"
+        "planning": "Gerando preview",
+        "planned": "Preview gerado",
+        "applying": "Atualizando",
+        "applied": "Atualizado"
       },
       "status": {
-        "planning": "Previewejando",
-        "applying": "Aplicando"
+        "planning": "Gerando preview",
+        "applying": "Atualizando",
+        "planned": "Preview gerado",
+        "applied": "Atualizado"
+      },
+      "words": {
+        "actionConfirmFull": "Confirmar e Atualizar",
+        "actionConfirmShort": "Atualizar",
+        "activityApplied": "Update concluído",
+        "activityConfirmed": "Iniciando o update",
+        "activityDiscarded": "Preview descartado",
+        "activityPlannedComplete": "Preview concluído",
+        "activityPlannedConfirmable": "Aguardando sua confirmação e atualização",
+        "activityPlannedSpeculative": "Preview especulativo concluído",
+        "aiPolicyOverrideConfirm": "Substituir o portão de política de IA e permitir que esta execução atualize apesar do veredito?",
+        "aiSummaryDescription": "Resumo de alterações, avaliação de risco e análise de falha gerados automaticamente por LLM em cada resultado da fase de preview deste workspace.",
+        "aiSummaryTitle": "Resumo de Preview por IA",
+        "badgePlanOnly": "somente preview",
+        "bannerPlanOnlyCli": "Esta é uma execução <strong>somente preview</strong> iniciada a partir da CLI em um workspace conectado ao VCS. O update não está disponível para código enviado pela CLI — apenas código gerenciado pelo VCS pode ser atualizado.",
+        "changesPlanning": "Gerando preview…",
+        "configurationsEmpty": "Nenhuma versão de configuração ainda. Elas aparecem aqui assim que um push de VCS aciona uma execução.",
+        "confirmApply": "Atualizar esta execução? Isso executa o preview e altera a infraestrutura.",
+        "confirmDiscard": "Descartar este preview?",
+        "costNoState": "Sem custo ainda — aparece após a primeira atualização.",
+        "detailsPlanOnly": "Somente Preview",
+        "discardedHeading": "Descartado — novo preview necessário",
+        "driftCheckNowTitle": "Enfileirar uma execução somente preview para verificar drift",
+        "driftRemediate": "Preview + update",
+        "driftRemediateConfirm": "Enfileirar uma execução preview + update para este workspace?",
+        "driftRemediateTitle": "Enfileirar uma execução preview + update para realinhar a infraestrutura à configuração",
+        "errorsQueuePlan": "Falha ao enfileirar o preview",
+        "errorsQueuePlanStatus": "Falha ao enfileirar o preview ({status})",
+        "fieldsAutoMerge": "Auto-merge após o update",
+        "formAutoApplyModeHint": "never: sempre esperar por uma pessoa. always: atualizar a cada preview bem-sucedido. create / create/update: atualizar apenas a partir de previews limitados a essas ações — nunca uma destruição ou uma substituição.",
+        "lockLockedDesc": "Este workspace está bloqueado. Nenhum preview ou update pode ser executado.",
+        "logApplyEmpty": "Nenhuma saída de update disponível ainda.",
+        "logApplySkipped": "Nenhuma atualização foi executada: o preview não tinha alterações, então não havia nada a atualizar.",
+        "logIndexSummary": "Resumo do preview",
+        "logIndexTitle": "Ir para uma alteração de recurso ou para o resumo do preview",
+        "logPlanEmpty": "Nenhuma saída de preview disponível ainda.",
+        "nonDefaultRefNote": "Ref não padrão selecionada — a execução será somente preview",
+        "planExpiryDescription": "Descartar automaticamente um preview não confirmado quando ele ficar mais antigo do que isto, para que um preview obsoleto não possa ser executado contra um mundo que mudou. Desativado por padrão; o preview deve então ser reexecutado. (Aplica-se apenas a execuções com capacidade de update.)",
+        "planExpiryTitle": "Expiração do Preview",
+        "planOptions": "Opções de Preview",
+        "planSummaryChatPlaceholder": "Faça uma pergunta de acompanhamento sobre este preview… (⌘/Ctrl + Enter para enviar)",
+        "planSummaryHeading": "Resumo do preview",
+        "planSummaryNoChangesTitle": "O preview não relatou alterações de recursos",
+        "planSummaryRegenerateTooltip": "Reexecutar o resumo de IA com as mesmas entradas do preview",
+        "planSummarySummarising": "Resumindo o preview…",
+        "policyBlockedMessage": "Esta execução está <strong>bloqueada por um conjunto de políticas obrigatório</strong>. Ela não será atualizada até que a falha seja resolvida ou um administrador a substitua.",
+        "queueApplyConfirm": "Enfileirar uma execução de preview + update? Isso pode alterar a infraestrutura.",
+        "queueApplyRefBlocked": "Update fica indisponível enquanto houver um branch, tag ou commit selecionado — essas execuções são sempre somente preview",
+        "queueApplyTitle": "Enfileirar uma execução preview + update",
+        "queueDestroyTitle": "Enfileirar um preview de destroy",
+        "queuePlan": "Preview",
+        "queuePlanConfirm": "Enfileirar um preview especulativo para este workspace?",
+        "queueRun": "Preview + update",
+        "replacePlaceholder": "e.g. urn:pulumi:dev::shop::aws:ec2/instance:Instance::web",
+        "runTriggersDescription": "Quando um workspace de origem conclui um update, os workspaces subsequentes têm uma nova execução enfileirada automaticamente. Até 20 workspaces de origem por destino.",
+        "tabApplyFull": "Log do update",
+        "tabApplyLabel": "Update<log>Log</log>",
+        "tabPlanFull": "Log do preview",
+        "tabPlanLabel": "Preview<log>Log</log>",
+        "targetPlaceholder": "e.g. urn:pulumi:dev::shop::aws:s3/bucket:Bucket::assets",
+        "timelineApplied": "Atualizado",
+        "timelineApplyingStarted": "Atualização iniciada",
+        "timelinePlanComplete": "Preview concluído",
+        "timelinePlanningStarted": "Preview iniciado",
+        "typePlanApply": "preview + update",
+        "vcsWorkflowWarningRbac": "Qualquer pessoa que possa fazer merge do PR pode atualizar. As regras de proteção de branch (revisões obrigatórias, verificações de status, aprovação do code owner) tornam-se a barreira. O RBAC de função/rótulo do Terrapod<em>não</em> se aplica a ações orientadas por comentários neste modo.",
+        "vcsWorkflowWarningRecommended": "<strong>Recomendado:</strong> exija histórico linear (rebase/squash antes do merge) para que o commit a partir do qual você atualiza seja o commit que efetivamente entra.",
+        "slackDescription": "Habilite este workspace para notificações de execução no Slack — solicitações de aprovação, updates, erros e drift. Deixe o canal vazio e este workspace permanece em silêncio (não há distribuição para toda a implantação). Requer que o app do Slack seja ativado por um administrador."
       }
     }
   },

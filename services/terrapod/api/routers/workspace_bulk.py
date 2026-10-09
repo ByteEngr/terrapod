@@ -71,8 +71,12 @@ _FIELD_MAP: dict[str, str] = {
     # each writes two columns from one input key, so they are validated
     # separately (_validate_pool_set / _validate_auto_apply below).
     "parallelism": "parallelism",
+    "ansible-version": "ansible_version",
     "resource-cpu": "resource_cpu",
     "resource-memory": "resource_memory",
+    # Per-workspace cloud identity (#1901). An ordinary mapped field: one input
+    # key, one column, and the same validator the single-workspace API uses.
+    "oidc-audiences": "oidc_audiences",
     "var-files": "var_files",
     "labels": "labels",
     # Security scanning (#1036) and the AI plan summary (#401), added here by
@@ -104,6 +108,7 @@ _FIELD_MAP: dict[str, str] = {
     "drift-ignore-rules": "drift_ignore_rules",
     "slack-channel": "slack_channel",
     "debug-mode": "debug_mode",
+    "allow-fork-pr-plans": "allow_fork_pr_plans",
 }
 
 #: Payload keys that write a workspace column but cannot live in `_FIELD_MAP`,
@@ -356,6 +361,8 @@ _SETTING_RULES: dict[str, Any] = {
     "terragrunt-version": workspace_settings.validate_terragrunt_version,
     "trigger-prefixes": workspace_settings.validate_trigger_prefixes,
     "auto-merge-strategy": workspace_settings.validate_auto_merge_strategy,
+    "oidc-audiences": workspace_settings.validate_oidc_audiences,
+    "ansible-version": workspace_settings.validate_ansible_version,
     "plan-expiry-seconds": workspace_settings.validate_plan_expiry_seconds,
     "drift-detection-interval-seconds": workspace_settings.clamp_drift_interval,
     "drift-ignore-rules": workspace_settings.validate_drift_ignore_rules,
@@ -367,6 +374,7 @@ _SETTING_RULES: dict[str, Any] = {
         v, "drift-detection-enabled"
     ),
     "debug-mode": lambda v: workspace_settings.validate_bool(v, "debug-mode"),
+    "allow-fork-pr-plans": lambda v: workspace_settings.validate_bool(v, "allow-fork-pr-plans"),
 }
 
 

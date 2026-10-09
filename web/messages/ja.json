@@ -27,6 +27,7 @@
     "account": "アカウント",
     "apiTokens": "APIトークン",
     "sessions": "セッション",
+    "slackLinks": "Slack 連携",
     "logOut": "ログアウト",
     "menu": "メニュー",
     "openMenu": "メニューを開く",
@@ -70,7 +71,6 @@
       "agentPool": "エージェントプール",
       "none": "なし",
       "autoApply": "自動適用",
-      "autoApplyModeHint": "never: 常に人の確認を待ちます。always: 成功したプランをすべて適用します。create / create/update: それらの操作だけに限られたプランのみを適用し、破棄や置換は決して適用しません。",
       "enabled": "有効",
       "workingDirectory": "作業ディレクトリ",
       "workingDirectoryPlaceholder": "例: environments/dev",
@@ -372,6 +372,22 @@
         "load": "セッションの読み込みに失敗しました",
         "revoke": "セッションの取り消しに失敗しました（{status}）",
         "revokeGeneric": "セッションの取り消しに失敗しました"
+      }
+    },
+    "slackLinks": {
+      "title": "Slack 連携",
+      "description": "あなたとして操作できる Slack アカウントです。連携された Slack アカウントはあなたの権限で実行を承認・破棄できるため、見覚えのないものは取り消してください。",
+      "empty": "連携されている Slack アカウントはありません。",
+      "revoke": "取り消す",
+      "confirmRevoke": "Slack ユーザー {user} の連携を取り消しますか？このアカウントは Slack からあなたとして操作できなくなります。",
+      "columns": {
+        "slackUser": "Slack ユーザー",
+        "team": "Slack チーム",
+        "linkedAt": "連携日"
+      },
+      "errors": {
+        "load": "Slack 連携を読み込めませんでした。",
+        "revoke": "その Slack 連携を取り消せませんでした。"
       }
     }
   },
@@ -761,7 +777,9 @@
       "setAssignmentStatus": "割り当ての設定に失敗しました（{status}）",
       "deleteAssignment": "割り当ての削除に失敗しました",
       "conflictingLabelKeys": "{keys} に複数の値が指定されています。ラベルルールはキーごとに 1 つの値しか保持しないため、最後の値が以前の値を暗黙的に置き換えます。1 つのキーに複数の値を指定することは API では可能ですが、ここではまだ設定できません。"
-    }
+    },
+    "pinnedToSubject": "固定",
+    "pinnedToSubjectTitle": "IdP サブジェクト {subject} に固定"
   },
   "adminVcs": {
     "title": "VCS接続",
@@ -774,6 +792,23 @@
       "delete": "削除"
     },
     "confirmDelete": "このVCS接続を削除しますか？これを使用しているワークスペースはVCS統合を失います。この操作は元に戻せません。",
+    "access": {
+      "heading": "この接続を使用できるユーザー",
+      "intro": "この 3 つの設定により、どのワークスペースがこの接続を指定できるかが決まります。認証情報そのものは書き込み専用のままです。",
+      "ownerEmail": "所有者のメールアドレス",
+      "ownerEmailHint": "所有者は常にこの接続を使用できます。接続を所有者なしにするには空欄のままにしてください。",
+      "labels": "アクセスラベル",
+      "labelsHint": "ルールがこれらのラベルに一致するロールは、ワークスペースをこの接続に指定できます。",
+      "allowedRepositories": "許可するリポジトリ",
+      "allowedRepositoriesHint": "ワークスペースが使用を要求したリポジトリと照合される glob パターンです。",
+      "addPattern": "パターンを追加",
+      "anyRepositoryWarning": "パターンが一覧にないため、この接続は任意のリポジトリを指定できます。",
+      "restricted": "{count, plural, one {# 件のパターンが一覧にある} other {# 件のパターンが一覧にある}}ため、いずれにも一致しないリポジトリは拒否されます。",
+      "ownedBy": "{email} が所有",
+      "unowned": "所有者が設定されていません",
+      "anyRepositorySummary": "任意のリポジトリが許可されています",
+      "repositoryCount": "{count, plural, one {# 件のリポジトリ} other {# 件のリポジトリ}}に制限されています"
+    },
     "form": {
       "name": "名前",
       "namePattern": "使用できるのは英字、数字、ハイフン、アンダースコアのみです。先頭は英字または数字である必要があります。",
@@ -922,7 +957,6 @@
       "varKey": "キー",
       "varValue": "値",
       "varCategory": "カテゴリ",
-      "categoryTerraform": "Terraform",
       "categoryEnv": "環境",
       "sensitive": "機密",
       "sensAbbr": "機密",
@@ -988,7 +1022,9 @@
       "valueSource": "値のソース",
       "valueSourceStatic": "値を入力",
       "valueSourceVault": "OpenBao/Vault から読み取る",
-      "vaultHint": "Terrapod は実行時に OpenBao（または HashiCorp Vault）からシークレットを読み取ります。ここには保存されません。"
+      "vaultHint": "Terrapod は実行時に OpenBao（または HashiCorp Vault）からシークレットを読み取ります。ここには保存されません。",
+      "categoryNative": "ネイティブ",
+      "structured": "構造化"
     }
   },
   "adminAutodiscovery": {
@@ -1076,7 +1112,10 @@
       "terragruntVersion": "Terragrunt バージョン",
       "noExpiry": "期限なし",
       "addDriftIgnoreRule": "ルールを追加",
-      "debugModeHint": "このルールが作成するワークスペースで、失敗したランナーの Pod を保持します。既定ではオフです — 保持された Pod はそのワークスペースの認証情報を保持します。"
+      "debugModeHint": "このルールが作成するワークスペースで、失敗したランナーの Pod を保持します。既定ではオフです — 保持された Pod はそのワークスペースの認証情報を保持します。",
+      "allowForkPrPlansHint": "このルールが作成するすべてのワークスペースに適用されます。既定ではオフです。フォークからのプルリクエストには投機的プランが実行されません。作成者のコードがワークスペースの認証情報で実行されてしまうためです。",
+      "oidcAudiences": "実行アイデンティティのオーディエンス（作成されるワークスペースに継承）",
+      "oidcAudiencesHint": "このルールが作成する各ワークスペースに適用されるオーディエンスの上書き。キーはトークンの対象となるプロバイダー設定です — aws、またはエイリアス付き設定なら aws.west。空にすれば、それらのワークスペースはデプロイメント自身の設定を使用します。"
     },
     "table": {
       "name": "名前",
@@ -1270,7 +1309,8 @@
       "cancel": "キャンセル",
       "working": "処理中...",
       "previewDryRun": "プレビュー（ドライラン）",
-      "applyChanges": "変更を適用"
+      "applyChanges": "変更を適用",
+      "setOidcAudiences": "実行アイデンティティの OIDC オーディエンスを設定（一致したすべてのワークスペースのマップを置き換えます）"
     },
     "diff": {
       "colWorkspace": "ワークスペース",
@@ -1919,12 +1959,24 @@
       "always": "常に",
       "create": "作成",
       "createUpdate": "作成/更新"
+    },
+    "oidcAudiences": {
+      "addProvider": "プロバイダー設定を追加",
+      "audiences": "オーディエンス",
+      "badgeInherited": "デプロイメントの既定値",
+      "badgeOwned": "ワークスペース",
+      "issuerDisabled": "このデプロイメントは OpenID Connect の発行者を公開していないため、ここで設定したものは一切有効になりません。",
+      "override": "上書き",
+      "overrideAria": "このワークスペースで {provider} のオーディエンスを上書き",
+      "providerDuplicate": "そのプロバイダー設定のエントリはすでにあります。",
+      "providerInvalid": "プロバイダー名に空白は入れられず、ドットは最大 1 つです — aws、または aws.west。",
+      "providerPlaceholder": "aws、または aws.west",
+      "removeProviderAria": "プロバイダー設定 {provider} を削除"
     }
   },
   "planSummary": {
     "aiGenerated": "AI生成",
     "heading": {
-      "planSummary": "プランサマリー",
       "failureAnalysis": "障害分析"
     },
     "errors": {
@@ -1933,13 +1985,11 @@
     "regenerate": {
       "label": "再生成",
       "queueing": "キューに追加中…",
-      "tooltip": "同じプラン入力に対してAIサマリーを再実行します",
       "ariaLabel": "AIサマリーを再生成",
       "confirm": "AI分析を再生成しますか？モデルが再度実行されます。",
       "error": "再生成できませんでした: <mono>{detail}</mono>"
     },
     "pending": {
-      "summarisingPlan": "プランを要約中…",
       "analysingFailure": "障害を分析中…"
     },
     "skipped": {
@@ -1963,7 +2013,6 @@
     "badges": {
       "noChanges": "変更なし",
       "noChangesLower": "変更なし",
-      "noChangesTitle": "プランはリソースの変更がないと報告しました",
       "toAdd": "{count, plural, one {# 件追加} other {# 件追加}}",
       "toChange": "{count, plural, one {# 件変更} other {# 件変更}}",
       "toDestroy": "{count, plural, one {# 件破棄} other {# 件破棄}}",
@@ -1973,7 +2022,6 @@
     "chat": {
       "heading": "フォローアップ",
       "sharedThreadNote": "1つの共有スレッドで、ワークスペースの読み取り権限を持つ全員に表示されます。",
-      "placeholder": "このプランについてフォローアップの質問をする…（⌘/Ctrl + Enter で送信）",
       "send": "送信",
       "thinking": "思考中…",
       "you": "あなた",
@@ -1997,7 +2045,6 @@
     "workspaceFallback": "ワークスペース",
     "backTo": "{name} に戻る",
     "errorHeading": "エラー",
-    "discardedHeading": "破棄済み — 再プランが必要",
     "common": {
       "yes": "はい",
       "no": "いいえ"
@@ -2051,14 +2098,13 @@
     },
     "badge": {
       "destroy": "破棄",
-      "planOnly": "プランのみ"
+      "savedPlan": "保存済みプラン",
+      "savedPlanHint": "適用は保留中です。保存されたプランが適用されるまで、この実行はワークスペースを占有しません。"
     },
     "actions": {
       "retryShort": "再試行",
       "retryFull": "実行を再試行",
       "retrying": "再試行中…",
-      "confirmShort": "適用",
-      "confirmFull": "確認して適用",
       "confirming": "確認中…",
       "discard": "破棄",
       "discarding": "破棄中…",
@@ -2068,8 +2114,6 @@
       "queuing": "キューに追加中…"
     },
     "confirm": {
-      "apply": "この実行を適用しますか？プランが適用され、インフラが変更されます。",
-      "discard": "このプランを破棄しますか？",
       "cancel": "この実行をキャンセルしますか？",
       "retry": "この実行を再試行しますか？"
     },
@@ -2092,20 +2136,19 @@
       "impactFull": "影響グラフ",
       "cost": "コスト",
       "costFull": "コスト見積もり",
-      "planLabel": "プラン<log>ログ</log>",
-      "applyLabel": "適用<log>ログ</log>",
-      "planFull": "プランログ",
-      "applyFull": "適用ログ",
       "details": "詳細",
       "security": "セキュリティ",
       "securityFull": "セキュリティスキャン"
     },
     "banner": {
       "destroy": "これは<strong>破棄</strong>実行です — 適用するとすべての管理対象リソースが破棄されます。",
-      "planOnlyCli": "これは、VCS接続されたワークスペースでCLIから開始された<strong>プランのみ</strong>の実行です。CLIでアップロードされたコードには適用できません — 適用できるのはVCS管理下のコードのみです。",
       "moduleOverridesPrefix": "この実行は<strong>モジュールオーバーライド</strong>を使用します",
       "moduleOverridesFromPr": "PR #{number} から",
       "moduleOverridesSuffix": "は公開されたレジストリバージョンではなく、PRブランチから取得されます。"
+    },
+    "bindPlan": {
+      "bound": "このプレビューに固定されています。アップデートはここに表示されたプランをそのまま適用し、プレビュー以降に変化したものがあれば、適用されずにアップデートが失敗します。",
+      "unbound": "このプレビューに固定されていません。アップデートは実行時に、通常の pulumi up と同様に自ら変更内容を判断するため、適用される内容がここに表示されたものと異なる場合があります。"
     },
     "cards": {
       "changes": "変更",
@@ -2117,7 +2160,6 @@
     },
     "changes": {
       "noChanges": "変更なし",
-      "planning": "プラン実行中…",
       "toAdd": "追加",
       "toChange": "変更",
       "toDestroy": "破棄",
@@ -2154,7 +2196,6 @@
       "executionBackend": "実行バックエンド",
       "source": "ソース",
       "autoApply": "自動適用",
-      "planOnly": "プランのみ",
       "triggeredBy": "トリガー元",
       "created": "作成日時",
       "commit": "コミット",
@@ -2170,11 +2211,7 @@
     "timeline": {
       "heading": "タイムライン",
       "queued": "キュー待ち",
-      "planningStarted": "プラン開始",
-      "planComplete": "プラン完了",
       "confirmed": "確認済み",
-      "applyingStarted": "適用開始",
-      "applied": "適用済み",
       "errored": "エラー",
       "canceled": "キャンセル済み",
       "discarded": "破棄済み"
@@ -2198,12 +2235,8 @@
       "followOffTitle": "ライブ末尾を追従",
       "end": "末尾",
       "endTitle": "ログの末尾へ移動",
-      "planEmpty": "まだプラン出力がありません。",
-      "applyEmpty": "まだ適用出力がありません。",
       "index": {
         "label": "移動先",
-        "title": "リソースの変更またはプラン概要に移動します",
-        "summary": "プラン概要",
         "action": {
           "create": "作成",
           "update": "更新",
@@ -2215,13 +2248,11 @@
           "error": "エラー",
           "warning": "警告"
         }
-      },
-      "applySkippedNoChanges": "適用は実行されませんでした: プランに変更がなかったため、適用するものはありませんでした。"
+      }
     },
     "policyPanel": {
       "heading": "ポリシーチェック",
       "passedCount": "{total} 件中 {passed} 件が合格",
-      "blockedMessage": "この実行は<strong>必須ポリシーセットによってブロックされています</strong>。失敗が解決されるか、管理者がオーバーライドするまで適用されません。",
       "overriding": "オーバーライド中...",
       "overrideContinue": "オーバーライドして続行",
       "overrideFailed": "オーバーライドに失敗しました",
@@ -2261,7 +2292,6 @@
       "unpricedHint": "価格データに一致するものがありませんでした。マッピングされていない種類、直接コストのないリソース、または未対応のプロバイダーです。",
       "indicative": "見積もりは目安です。実際のコストは使用状況、リージョン、コミットメント、割引によって異なります。",
       "asOfState": "状態 v{serial} 時点",
-      "noState": "まだコストはありません — 最初の適用後に表示されます。",
       "usageBand": "{dimension}：標準 {typical} {unit}（範囲 {low}〜{high}）",
       "usageBandCost": "{dimension}：標準 {costTypical}/月 — {low}〜{high} {unit} で {costLow}〜{costHigh}"
     },
@@ -2348,7 +2378,6 @@
       "passed": "一致したポリシー基準はありません。",
       "overriding": "オーバーライド中...",
       "overrideContinue": "オーバーライドして続行",
-      "overrideConfirm": "AI ポリシーゲートをオーバーライドし、判定にかかわらずこの実行の適用を許可しますか？",
       "overrideFailed": "オーバーライドに失敗しました",
       "overrideFailedStatus": "オーバーライドに失敗しました（{status}）",
       "overriddenBy": "{by} によりオーバーライド"
@@ -2407,9 +2436,6 @@
       "translatedNote": "表示時に原文から翻訳されています。"
     },
     "drift": {
-      "remediate": "プラン + 適用",
-      "remediateTitle": "インフラを構成に一致させるためプラン + 適用の実行をキューに追加します",
-      "remediateConfirm": "このワークスペースでプラン + 適用の実行をキューに追加しますか?",
       "remediateMessage": "差分チェックからキューに追加",
       "remediateFailed": "修正の実行をキューに追加できませんでした"
     }
@@ -2469,6 +2495,7 @@
       "architecture": "アーキテクチャ",
       "insights": "インサイト",
       "automation": "自動化",
+      "inventory": "インベントリ",
       "access": "アクセス"
     },
     "lifecycle": {
@@ -2501,6 +2528,9 @@
       "version": "バージョン",
       "versionPlaceholder": "例: 1.11 または 1.11.5",
       "versionTitle": "X.YまたはX.Y.Z形式のバージョン（例: 1.11 または 1.11.5）",
+      "ansibleVersion": "Ansible バージョン",
+      "ansibleVersionPlaceholder": "例: 2.21.5",
+      "ansibleVersionTitle": "このワークスペースの ansible-core バージョン。空欄にするとデプロイメントのデフォルトに従います。",
       "terragruntEnabledAgent": "有効（エージェントモード）",
       "terragruntEnabledVersion": "有効（v{version}）",
       "terragruntVersionPlaceholder": "例: 1.0",
@@ -2541,12 +2571,16 @@
       "engineTerraform": "Terraform",
       "nameTitlePulumi": "'::' で区切られた 2 つの部分 — project::stack。使用できるのは英数字、ハイフン、アンダースコアのみで、各部分は英字または数字で始まる必要があります。",
       "bindPlan": "承認済みのプレビューに更新を固定する",
-      "bindPlanHelp": "オンにすると、更新はプレビューが保存したプランをそのまま適用します。プレビュー以降に変化したものがあれば、適用されずに更新が失敗します。これは Pulumi の更新プランに基づいており、まだ実験的な機能です。オフにすると、通常の pulumi up と同様に、更新が自ら変更内容を判断します。<docs>Pulumi の実行の仕組み</docs>"
+      "bindPlanHelp": "オンにすると、更新はプレビューが保存したプランをそのまま適用します。プレビュー以降に変化したものがあれば、適用されずに更新が失敗します。これは Pulumi の更新プランに基づいており、まだ実験的な機能です。オフにすると、通常の pulumi up と同様に、更新が自ら変更内容を判断します。<docs>Pulumi の実行の仕組み</docs>",
+      "oidcAudiences": "実行アイデンティティのオーディエンス",
+      "oidcAudiencesAdd": "オーディエンスを追加",
+      "oidcAudiencesHint": "Terrapod は実行が使用するプロバイダー設定ごとに短命な OpenID Connect トークンを発行し、実行が読み取れるファイルに書き出します。エントリのキーには、あなたの設定がそのプロバイダーを呼ぶ名前を指定します — aws、またはエイリアス付き設定なら aws.west — そのうえで、その宛先が受け付けるオーディエンスを列挙します。各エントリはそのプロバイダーについてデプロイメント自身の設定を上書きします。エントリを削除すれば、そのプロバイダーはデプロイメントのオーディエンスに戻ります。オーディエンスはフェデレーション先が選んだ不透明な文字列なので、入力したとおりに保存されます。",
+      "oidcAudiencesLoading": "デプロイメントで設定されたオーディエンスを確認しています …",
+      "oidcAudiencesNone": "なし（実行はエージェントプール自身のアイデンティティを使用）",
+      "oidcAudiencesPlaceholder": "例: sts.amazonaws.com"
     },
     "vcsWorkflowWarning": {
       "title": "認可はVCSリポジトリに委譲されます。",
-      "rbac": "PRをマージできる者は誰でも適用できます。ブランチ保護ルール（必須レビュー、ステータスチェック、コードオーナーの承認）がゲートになります。このモードでは、Terrapodのロール/ラベルRBACはコメント駆動のアクションに<em>適用されません</em>。",
-      "recommended": "<strong>推奨:</strong> 線形履歴を要求してください（マージ前にrebase/squash）。これにより、適用するコミットが実際に取り込まれるコミットになります。",
       "credit": "クレジット: このワークフローは<atlantis>Atlantis</atlantis>をモデルにしています。AtlantisはPRコメント駆動の適用のみを望み、プラットフォームUIを不要とするチームにとって、依然として適切なツールです。"
     },
     "vcsPolling": {
@@ -2562,7 +2596,6 @@
     },
     "lock": {
       "title": "ロック状態",
-      "lockedDesc": "このワークスペースはロックされています。プランや適用は実行できません。",
       "unlockedDesc": "このワークスペースはロック解除されており、実行の準備ができています。",
       "lock": "ロック",
       "unlock": "ロック解除",
@@ -2584,7 +2617,6 @@
       "dismissTitle": "報告されたドリフト状態をクリアします。次回のスケジュールされたチェックが実際の状態から再取得します。",
       "lastChecked": "最終チェック",
       "checkNow": "今すぐチェック",
-      "checkNowTitle": "ドリフトをチェックするためのプランのみの実行をキューに追加します",
       "checkNowTitleDisabled": "まずドリフト検出を有効にしてください"
     },
     "intervals": {
@@ -2598,13 +2630,10 @@
       "7days": "7日"
     },
     "planExpiry": {
-      "title": "プラン有効期限",
-      "description": "未確認のプランがこの期間より古くなると自動的に破棄します。これにより、状況が変化した後に古いプランが適用されるのを防ぎます。デフォルトではオフで、その場合プランは再実行が必要です。（適用可能な実行にのみ適用されます。）",
       "expireAfter": "有効期限"
     },
     "aiSummary": {
       "title": "AIプランサマリー",
-      "description": "このワークスペースのすべてのプランフェーズの結果に対する、LLMによる自動生成の変更サマリー、リスク評価、障害分析です。",
       "mode": "モード",
       "modeDefault": "デプロイメントのデフォルトに従う",
       "modeEnabled": "常に要約する",
@@ -2619,7 +2648,6 @@
     },
     "slack": {
       "title": "Slack通知",
-      "description": "このワークスペースをSlackの実行通知（承認リクエスト、適用、エラー、ドリフト）にオプトインします。チャンネルを空欄のままにすると、このワークスペースは通知しません（デプロイメント全体への一斉配信はありません）。管理者によるSlackアプリの有効化が必要です。",
       "channel": "チャンネル",
       "channelPlaceholder": "#deploys またはチャンネルID（例: C0123ABCD）",
       "notSet": "未設定 — 通知なし。",
@@ -2694,20 +2722,18 @@
       "vaultFileEncoding": "エンコーディング",
       "vaultFileEncodingNone": "OpenBao/Vault に保存されたまま",
       "vaultFileEncodingBase64": "Base64 デコード",
-      "vaultFileEncodingHint": "書き込む前にフィールドをデコードします。結果はテキストである必要があります。バイナリファイルには対応していません。"
+      "vaultFileEncodingHint": "書き込む前にフィールドをデコードします。結果はテキストである必要があります。バイナリファイルには対応していません。",
+      "categoryNative": "ネイティブ",
+      "structured": "構造化",
+      "categoryTerraform": "Terraform",
+      "categoryPulumiConfig": "Pulumi 設定"
     },
     "runs": {
       "options": "オプション",
       "hideOptions": "オプションを非表示",
       "queueDestroy": "破棄",
-      "queueDestroyTitle": "破棄プランをキューに追加",
       "destroyAllConfirm": "すべてのリソースを破棄しますか？",
       "confirmDestroy": "破棄の確認",
-      "queuePlan": "プラン",
-      "queueRun": "プラン + 適用",
-      "queuePlanConfirm": "このワークスペースの投機的プランをキューに追加しますか？",
-      "queueApplyConfirm": "plan + apply の実行をキューに追加しますか？これによりインフラが変更される可能性があります。",
-      "planOptions": "プランオプション",
       "targetResources": "対象リソース",
       "replaceResources": "置換リソース",
       "commaSeparated": "（カンマ区切り）",
@@ -2718,7 +2744,6 @@
       "branch": "ブランチ",
       "tag": "タグ",
       "defaultBranch": "デフォルト（{branch}）",
-      "nonDefaultRefNote": "デフォルト以外のリファレンスが選択されています — 実行はプランのみになります",
       "empty": "このワークスペースの実行はまだありません。",
       "runId": "実行ID",
       "status": "ステータス",
@@ -2729,13 +2754,11 @@
       "created": "作成日時",
       "needsConfirm": "確認が必要",
       "typeDestroy": "破棄",
-      "typePlanOnly": "プランのみ",
-      "typePlanApply": "plan + apply",
       "sourceModuleTest": "モジュールテスト",
       "sourceModulePublish": "モジュール公開",
-      "queueApplyTitle": "プラン + 適用の実行をキューに追加",
-      "queueApplyRefBlocked": "ブランチ・タグ・コミットを選択している間は適用できません。これらの実行は常にプランのみです",
-      "awaitingDecision": "判断待ち"
+      "awaitingDecision": "判断待ち",
+      "typeSavedPlan": "保存済みプラン",
+      "typeSavedPlanHint": "適用は保留中です。保存されたプランが適用されるまで、この実行はワークスペースを占有しません。"
     },
     "state": {
       "deleteConfirm": "状態バージョン #{serial} を削除しますか？この操作は元に戻せません。",
@@ -2752,12 +2775,18 @@
       "runner": "ランナー",
       "latest": "最新"
     },
+    "stateOutputs": {
+      "title": "出力",
+      "fromSerial": "シリアル #{serial}",
+      "empty": "この状態には出力が宣言されていません。",
+      "sensitive": "機密",
+      "loadFailed": "このワークスペースの出力の読み込みに失敗しました。"
+    },
     "configurations": {
       "description": "このワークスペースにアップロードされたソースアーカイブ（新しい順）です。2つの行を選択して比較できます。",
       "selectedCount": "{count}/2 選択中",
       "compare": "比較",
       "comparing": "比較中…",
-      "empty": "設定バージョンがまだありません。`terraform plan`がアップロードするか、VCSプッシュが実行をトリガーすると、すぐにここに表示されます。",
       "id": "ID",
       "source": "ソース",
       "status": "ステータス",
@@ -2819,7 +2848,6 @@
     },
     "runTriggers": {
       "title": "実行トリガー",
-      "description": "ソースワークスペースが適用を完了すると、下流のワークスペースに新しい実行が自動的にキュー追加されます。宛先ごとに最大20個のソースワークスペースを指定できます。",
       "inboundHeading": "ここで実行をトリガーするソースワークスペース",
       "inboundEmpty": "このワークスペースで実行をトリガーするソースワークスペースはありません。",
       "pickerPlaceholder": "ソースとして追加するワークスペースを検索…",
@@ -2827,6 +2855,173 @@
       "outboundEmpty": "このワークスペースは他のどのワークスペースでも実行をトリガーしません。",
       "destinationNote": "（宛先。そちらから削除してください）",
       "removeConfirm": "この実行トリガーを削除しますか？"
+    },
+    "inventory": {
+      "scope": {
+        "heading": "インベントリ",
+        "body": "このワークスペースが保持しているホストとグループ、そして ansible がそれらを解決した結果です。各行はここで編集できますが、これらに対してプレイブックを実行する機能はまだありません。"
+      },
+      "nav": {
+        "label": "インベントリのセクション",
+        "hosts": "ホスト",
+        "groups": "グループ",
+        "vars": "変数",
+        "resolved": "解決結果",
+        "settings": "設定"
+      },
+      "actions": {
+        "save": "保存",
+        "saving": "保存中…",
+        "cancel": "キャンセル",
+        "edit": "編集",
+        "delete": "削除",
+        "remove": "解除",
+        "add": "追加",
+        "adding": "追加中…",
+        "rename": "名前を変更"
+      },
+      "hosts": {
+        "heading": "ホスト",
+        "body": "1 行が 1 台のホストです。ホストを開くと、その変数と所属グループを編集できます。",
+        "empty": "ホストはまだありません。",
+        "colName": "ホスト",
+        "colGroups": "グループ",
+        "colVars": "変数",
+        "newLabel": "新しいホスト名",
+        "newPlaceholder": "web-1",
+        "add": "ホストを追加",
+        "confirmDelete": "ホスト {name} を削除しますか？その変数とグループへの所属も一緒に削除されます。",
+        "renameLabel": "ホスト名"
+      },
+      "groups": {
+        "heading": "グループ",
+        "body": "1 行が 1 つのグループです。グループを開くと、その変数、所属ホスト、そしてその中に入れ子にされたグループを編集できます。",
+        "empty": "グループはまだありません。",
+        "colName": "グループ",
+        "colMembers": "ホスト",
+        "colChildren": "子グループ",
+        "colVars": "変数",
+        "newLabel": "新しいグループ名",
+        "newPlaceholder": "web",
+        "add": "グループを追加",
+        "confirmDelete": "グループ {name} を削除しますか？その変数と所属関係も一緒に削除されますが、ホスト自体は残ります。",
+        "renameLabel": "グループ名"
+      },
+      "vars": {
+        "actions": "操作",
+        "key": "キー",
+        "keyPlaceholder": "ansible_user",
+        "value": "値",
+        "structured": "構造化",
+        "sensitive": "機密",
+        "structuredHelp": "リスト、数値、オブジェクトは構造化された値です。「構造化」をオンにして、値にはそのリテラルのソースを書いてください。機密の値は読み戻されることがなく、フィールドには代わりにマスクが表示されます。",
+        "structuredBadge": "構造化",
+        "sensitiveKeep": "保存されている値をそのまま使う場合は空欄のままにしてください。",
+        "empty": "ここに変数はありません。",
+        "add": "変数を追加",
+        "confirmDelete": "変数 {key} を削除しますか？"
+      },
+      "hostDetail": {
+        "heading": "ホスト {name}",
+        "body": "このホスト 1 台が持つすべての情報です。",
+        "back": "ホスト一覧に戻る",
+        "gone": "そのホストはもう存在しません。",
+        "vars": "ホスト変数",
+        "varsBody": "このホストにのみ適用される変数です。同じ名前のグループ変数よりも優先されます。",
+        "memberships": "グループ",
+        "membershipsBody": "このホストが所属しているグループです。所属はリンクなので、ここで解除してもホストとグループはどちらも残ります。",
+        "membershipsEmpty": "このホストはどのグループにも属していないため、ansible は ungrouped に入れます。",
+        "addGroup": "グループに追加",
+        "addGroupLabel": "グループを選択",
+        "removeGroupAria": "このホストを {name} から外す",
+        "confirmRemoveGroup": "このホストを {name} から外しますか？"
+      },
+      "groupDetail": {
+        "heading": "グループ {name}",
+        "body": "このグループ 1 つが持つすべての情報です。",
+        "back": "グループ一覧に戻る",
+        "gone": "そのグループはもう存在しません。",
+        "vars": "グループ変数",
+        "varsBody": "直接または入れ子を通じて、このグループに属するすべてのホストに適用される変数です。",
+        "members": "所属ホスト",
+        "membersBody": "このグループに直接属しているホストです。入れ子のグループを経由してのみ到達するホストは、ここには表示されません。",
+        "membersEmpty": "このグループに直接属しているホストはありません。",
+        "addHost": "ホストを追加",
+        "addHostLabel": "ホストを選択",
+        "removeHostAria": "{name} をこのグループから外す",
+        "confirmRemoveHost": "{name} をこのグループから外しますか？",
+        "children": "子グループ",
+        "childrenBody": "このグループの中に入れ子にされたグループです。それらのホストもこのグループの一員となり、このグループの変数が及びます。",
+        "childrenEmpty": "このグループの中に入れ子にされたグループはありません。",
+        "addChild": "子グループを追加",
+        "addChildLabel": "入れ子にするグループを選択",
+        "removeChildAria": "{name} をこのグループの子グループから外す",
+        "confirmRemoveChild": "{name} をこのグループの入れ子から外しますか？",
+        "parents": "親グループ",
+        "parentsBody": "このグループが入れ子にされている側のグループです。1 つのグループが複数の親を持つこともあります。",
+        "parentsEmpty": "このグループはどのグループにも入れ子にされていません。",
+        "addParent": "親グループを追加",
+        "addParentLabel": "親グループを選択",
+        "removeParentAria": "このグループを {name} から外す",
+        "confirmRemoveParent": "このグループを {name} の入れ子から外しますか？"
+      },
+      "globalVars": {
+        "heading": "インベントリ変数",
+        "body": "すべてのホストに適用される変数、つまり ansible の group_vars/all です。同じ名前のグループ変数やホスト変数は、ここで設定した値よりも優先されます。"
+      },
+      "resolved": {
+        "heading": "解決済みのホスト",
+        "body": "ansible が各行をどう解釈するかです。マージと優先順位を適用したあと、各ホストが最終的に持つ変数を示します。",
+        "hosts": "ホスト",
+        "groups": "グループ",
+        "liveNote": "これはリアルタイムです。ここにあるソースはすべて静的なので、読み取りのたびに各行がその場で解決されます。更新する必要はありません。",
+        "noHosts": "ホストとして解決されたものはありません。",
+        "noVars": "変数なし",
+        "groupsHeading": "グループの所属",
+        "directOnly": "ansible が報告するとおり、直接の所属のみを示します。ホストがすべて入れ子のグループ経由で入ってくるグループは、自身のホストを 1 台も挙げません。入れ子の関係は下に示します。",
+        "noGroups": "解決されたグループはありません。",
+        "noDirectMembers": "直接のホストなし",
+        "nestingHeading": "グループの入れ子",
+        "nestingBody": "どのグループがどのグループの中にあるかを示します。親に対する limit は、その下にあるすべてのホストに及びます。",
+        "noNesting": "入れ子にされたグループはありません。",
+        "limitHeading": "limit は何を対象にするか",
+        "limitBody": "ansible の --limit パターンをこのインベントリに対して展開し、何かが実行される前にどのホストが選択されるかを正確に確認できます。展開は ansible 自身が行うため、グループ、除外指定、~regex のいずれも実行時とまったく同じように振る舞います。",
+        "limitLabel": "limit パターン",
+        "limitPlaceholder": "web:!web-2",
+        "limitApply": "limit を適用",
+        "limitClear": "クリア",
+        "limitApplied": "{limit} に絞り込んでいます。以下はそのパターンが対象とするものすべてです。"
+      },
+      "settings": {
+        "heading": "設定",
+        "body": "ここで保持している行を有効とするかどうか、そしてインベントリをあわせて読み取るリポジトリの設定です。",
+        "absent": "設定はありません（これがデフォルトです）。ここで保持しているホストとグループがインベントリのすべてです。",
+        "includePlatform": "ここで保持しているホストとグループを使用する",
+        "includePlatformHelp": "デフォルトでオンです。オフにするとリポジトリのみから解決し、これらの行はそのまま残りますが結果には含まれません。",
+        "included": "はい",
+        "excluded": "いいえ",
+        "vcsConnection": "VCS 接続",
+        "vcsNone": "なし",
+        "field": {
+          "repo-url": "リポジトリ",
+          "branch": "ブランチ",
+          "working-directory": "ディレクトリ"
+        },
+        "branchHelp": "空欄にすると、リポジトリのデフォルトブランチを追跡します。",
+        "ignorePaths": "無視するパス",
+        "ignorePathsHelp": "1 行に 1 つの glob を書きます。一致したものは、リポジトリから読み取るインベントリから除外されます。",
+        "unset": "未設定",
+        "create": "設定を追加",
+        "clear": "設定をクリア",
+        "confirmClear": "これらの設定をクリアしますか？リポジトリとの紐付けも一緒になくなりますが、ここで保持しているホストとグループは残ります。"
+      },
+      "errors": {
+        "load": "インベントリの読み込みに失敗しました",
+        "save": "保存に失敗しました",
+        "delete": "削除に失敗しました",
+        "resolved": "インベントリの解決に失敗しました",
+        "settings": "インベントリ設定の保存に失敗しました"
+      }
     },
     "sharing": {
       "title": "リモート状態の共有",
@@ -2896,8 +3091,6 @@
       "addVariableStatus": "変数の追加に失敗しました（{status}）",
       "deleteVariable": "変数の削除に失敗しました",
       "updateVariable": "変数の更新に失敗しました",
-      "queuePlan": "プランのキュー追加に失敗しました",
-      "queuePlanStatus": "プランのキュー追加に失敗しました（{status}）",
       "queueDestroy": "破棄のキュー追加に失敗しました",
       "queueDestroyStatus": "破棄のキュー追加に失敗しました（{status}）",
       "createNotification": "通知の作成に失敗しました",
@@ -2914,7 +3107,8 @@
       "uploadState": "状態のアップロードに失敗しました",
       "uploadStateFile": "状態ファイルのアップロードに失敗しました",
       "updateSecurityScan": "セキュリティスキャンの更新に失敗しました",
-      "updateDebugMode": "デバッグモードを更新できませんでした"
+      "updateDebugMode": "デバッグモードを更新できませんでした",
+      "updateForkPlans": "フォークのプルリクエストのプランを更新できませんでした"
     },
     "subtabs": {
       "state": "状態",
@@ -2967,6 +3161,14 @@
       "bannerTitle": "このワークスペースではデバッグモードが有効です",
       "bannerBody": "失敗した実行の Pod は終了せずに調査のため保持され、その間このワークスペースの認証情報と復号された変数を保持し続けます。調査が終わったらデバッグモードをオフにしてください。",
       "confirmEnable": "デバッグモードを有効にしますか？失敗した実行の Pod は、時間枠が切れるか Pod を削除するまで、このワークスペースの認証情報と復号された変数を保持したまま残ります。"
+    },
+    "allowForkPrPlans": {
+      "title": "フォークからのプルリクエストのプラン",
+      "description": "フォークから開かれたプルリクエストに投機的プランを実行するかどうか。既定ではオフです。そのプランはフォーク作成者のコードをこのワークスペースの認証情報で実行するためです。",
+      "label": "フォークのプルリクエストをプランする",
+      "hint": "実行はこのワークスペースの環境変数、機密値、Vault から解決されたシークレット、そしてジョブのクラウド ID を受け取ります。フォークからプルリクエストを開く人には書き込み権限がなくマージもできないため、投機的プランこそがそのコードがこれらの認証情報に届く唯一の経路です。奪われて困るものを何も持たないワークスペース — たとえばコミュニティからの貢献を受け付ける公開モジュールリポジトリ — ではこれをオンにしてください。リポジトリ自身のブランチからのプルリクエストは影響を受けず、常にプランされます。",
+      "activeBadge": "オン",
+      "confirmEnable": "フォークから開かれたプルリクエストをプランしますか？その作成者のコードが、誰の承認もないまま、このワークスペースの認証情報と復号された変数を使って実行されます。"
     }
   },
   "graphs": {
@@ -3189,11 +3391,14 @@
     "unknown": "不明",
     "confirm": {
       "prompt": "このSlackアカウントを<em>あなたの</em>Terrapodアイデンティティにリンクしますか？今後のすべてのSlackアクション（承認/破棄）は、このTerrapodユーザーとしてその権限で実行されます。",
+      "slackName": "Slack アカウント",
       "slackUser": "Slackユーザー",
       "slackTeam": "Slackチーム",
       "terrapodAccount": "Terrapodアカウント",
       "warning": "このリンクをSlackから自分で開始した場合にのみ続行してください。そうでない場合は、このタブを閉じてリンクしないでください — これにより上記のSlackアカウントが<em>あなたの</em>Terrapodアイデンティティにバインドされます。",
-      "button": "確認してリンク"
+      "button": "確認してリンク",
+      "namesUnavailable": "Terrapod はこの Slack アカウントの名前を取得できませんでした。上の ID を確認し、この連携を自分で Slack から開始した場合にのみ続行してください。",
+      "nameIsSelfChosen": "ハンドルは Slack ワークスペース内で一意です。その下の表示名は本人が自由に設定できるため、ハンドルで判断してください。"
     },
     "success": {
       "message": "SlackアカウントがTerrapodにリンクされました。",
@@ -3416,7 +3621,77 @@
       },
       "status": {
         "planning": "プラン実行中",
-        "applying": "適用中"
+        "applying": "適用中",
+        "planned": "プラン完了",
+        "applied": "適用済み"
+      },
+      "words": {
+        "actionConfirmFull": "確認して適用",
+        "actionConfirmShort": "適用",
+        "activityApplied": "適用が完了しました",
+        "activityConfirmed": "適用を開始中",
+        "activityDiscarded": "プランが破棄されました",
+        "activityPlannedComplete": "プランが完了しました",
+        "activityPlannedConfirmable": "確認と適用の待機中",
+        "activityPlannedSpeculative": "投機的プランが完了しました",
+        "aiPolicyOverrideConfirm": "AI ポリシーゲートをオーバーライドし、判定にかかわらずこの実行の適用を許可しますか？",
+        "aiSummaryDescription": "このワークスペースのすべてのプランフェーズの結果に対する、LLMによる自動生成の変更サマリー、リスク評価、障害分析です。",
+        "aiSummaryTitle": "AIプランサマリー",
+        "badgePlanOnly": "プランのみ",
+        "bannerPlanOnlyCli": "これは、VCS接続されたワークスペースでCLIから開始された<strong>プランのみ</strong>の実行です。CLIでアップロードされたコードには適用できません — 適用できるのはVCS管理下のコードのみです。",
+        "changesPlanning": "プラン実行中…",
+        "configurationsEmpty": "設定バージョンがまだありません。`terraform plan`がアップロードするか、VCSプッシュが実行をトリガーすると、すぐにここに表示されます。",
+        "confirmApply": "この実行を適用しますか？プランが適用され、インフラが変更されます。",
+        "confirmDiscard": "このプランを破棄しますか？",
+        "costNoState": "まだコストはありません — 最初の適用後に表示されます。",
+        "detailsPlanOnly": "プランのみ",
+        "discardedHeading": "破棄済み — 再プランが必要",
+        "driftCheckNowTitle": "ドリフトをチェックするためのプランのみの実行をキューに追加します",
+        "driftRemediate": "プラン + 適用",
+        "driftRemediateConfirm": "このワークスペースでプラン + 適用の実行をキューに追加しますか?",
+        "driftRemediateTitle": "インフラを構成に一致させるためプラン + 適用の実行をキューに追加します",
+        "errorsQueuePlan": "プランのキュー追加に失敗しました",
+        "errorsQueuePlanStatus": "プランのキュー追加に失敗しました（{status}）",
+        "fieldsAutoMerge": "適用後に自動マージ",
+        "formAutoApplyModeHint": "never: 常に人の確認を待ちます。always: 成功したプランをすべて適用します。create / create/update: それらの操作だけに限られたプランのみを適用し、破棄や置換は決して適用しません。",
+        "lockLockedDesc": "このワークスペースはロックされています。プランや適用は実行できません。",
+        "logApplyEmpty": "まだ適用出力がありません。",
+        "logApplySkipped": "適用は実行されませんでした: プランに変更がなかったため、適用するものはありませんでした。",
+        "logIndexSummary": "プラン概要",
+        "logIndexTitle": "リソースの変更またはプラン概要に移動します",
+        "logPlanEmpty": "まだプラン出力がありません。",
+        "nonDefaultRefNote": "デフォルト以外のリファレンスが選択されています — 実行はプランのみになります",
+        "planExpiryDescription": "未確認のプランがこの期間より古くなると自動的に破棄します。これにより、状況が変化した後に古いプランが適用されるのを防ぎます。デフォルトではオフで、その場合プランは再実行が必要です。（適用可能な実行にのみ適用されます。）",
+        "planExpiryTitle": "プラン有効期限",
+        "planOptions": "プランオプション",
+        "planSummaryChatPlaceholder": "このプランについてフォローアップの質問をする…（⌘/Ctrl + Enter で送信）",
+        "planSummaryHeading": "プランサマリー",
+        "planSummaryNoChangesTitle": "プランはリソースの変更がないと報告しました",
+        "planSummaryRegenerateTooltip": "同じプラン入力に対してAIサマリーを再実行します",
+        "planSummarySummarising": "プランを要約中…",
+        "policyBlockedMessage": "この実行は<strong>必須ポリシーセットによってブロックされています</strong>。失敗が解決されるか、管理者がオーバーライドするまで適用されません。",
+        "queueApplyConfirm": "plan + apply の実行をキューに追加しますか？これによりインフラが変更される可能性があります。",
+        "queueApplyRefBlocked": "ブランチ・タグ・コミットを選択している間は適用できません。これらの実行は常にプランのみです",
+        "queueApplyTitle": "プラン + 適用の実行をキューに追加",
+        "queueDestroyTitle": "破棄プランをキューに追加",
+        "queuePlan": "プラン",
+        "queuePlanConfirm": "このワークスペースの投機的プランをキューに追加しますか？",
+        "queueRun": "プラン + 適用",
+        "replacePlaceholder": "e.g. aws_instance.web",
+        "runTriggersDescription": "ソースワークスペースが適用を完了すると、下流のワークスペースに新しい実行が自動的にキュー追加されます。宛先ごとに最大20個のソースワークスペースを指定できます。",
+        "tabApplyFull": "適用ログ",
+        "tabApplyLabel": "適用<log>ログ</log>",
+        "tabPlanFull": "プランログ",
+        "tabPlanLabel": "プラン<log>ログ</log>",
+        "targetPlaceholder": "e.g. aws_instance.web, aws_s3_bucket.data",
+        "timelineApplied": "適用済み",
+        "timelineApplyingStarted": "適用開始",
+        "timelinePlanComplete": "プラン完了",
+        "timelinePlanningStarted": "プラン開始",
+        "typePlanApply": "plan + apply",
+        "vcsWorkflowWarningRbac": "PRをマージできる者は誰でも適用できます。ブランチ保護ルール（必須レビュー、ステータスチェック、コードオーナーの承認）がゲートになります。このモードでは、Terrapodのロール/ラベルRBACはコメント駆動のアクションに<em>適用されません</em>。",
+        "vcsWorkflowWarningRecommended": "<strong>推奨:</strong> 線形履歴を要求してください（マージ前にrebase/squash）。これにより、適用するコミットが実際に取り込まれるコミットになります。",
+        "slackDescription": "このワークスペースをSlackの実行通知（承認リクエスト、適用、エラー、ドリフト）にオプトインします。チャンネルを空欄のままにすると、このワークスペースは通知しません（デプロイメント全体への一斉配信はありません）。管理者によるSlackアプリの有効化が必要です。"
       }
     },
     "pulumi": {
@@ -3425,14 +3700,84 @@
         "applying": "pulumi upを実行中"
       },
       "runStatus": {
-        "planning": "プラン実行中",
-        "planned": "プラン完了",
-        "applying": "適用中",
-        "applied": "適用済み"
+        "planning": "プレビュー実行中",
+        "planned": "プレビュー完了",
+        "applying": "アップデート中",
+        "applied": "アップデート済み"
       },
       "status": {
-        "planning": "プラン実行中",
-        "applying": "適用中"
+        "planning": "プレビュー実行中",
+        "applying": "アップデート中",
+        "planned": "プレビュー完了",
+        "applied": "アップデート済み"
+      },
+      "words": {
+        "actionConfirmFull": "確認してアップデート",
+        "actionConfirmShort": "アップデート",
+        "activityApplied": "アップデートが完了しました",
+        "activityConfirmed": "アップデートを開始中",
+        "activityDiscarded": "プレビューが破棄されました",
+        "activityPlannedComplete": "プレビューが完了しました",
+        "activityPlannedConfirmable": "確認とアップデートの待機中",
+        "activityPlannedSpeculative": "投機的プレビューが完了しました",
+        "aiPolicyOverrideConfirm": "AI ポリシーゲートをオーバーライドし、判定にかかわらずこの実行のアップデートを許可しますか？",
+        "aiSummaryDescription": "このワークスペースのすべてのプレビューフェーズの結果に対する、LLMによる自動生成の変更サマリー、リスク評価、障害分析です。",
+        "aiSummaryTitle": "AIプレビューサマリー",
+        "badgePlanOnly": "プレビューのみ",
+        "bannerPlanOnlyCli": "これは、VCS接続されたワークスペースでCLIから開始された<strong>プレビューのみ</strong>の実行です。CLIでアップロードされたコードはアップデートできません — アップデートできるのはVCS管理下のコードのみです。",
+        "changesPlanning": "プレビュー実行中…",
+        "configurationsEmpty": "設定バージョンがまだありません。VCSプッシュが実行をトリガーすると、すぐにここに表示されます。",
+        "confirmApply": "この実行をアップデートしますか？プレビューの内容が実行され、インフラが変更されます。",
+        "confirmDiscard": "このプレビューを破棄しますか？",
+        "costNoState": "まだコストはありません — 最初のアップデート後に表示されます。",
+        "detailsPlanOnly": "プレビューのみ",
+        "discardedHeading": "破棄済み — 再プレビューが必要",
+        "driftCheckNowTitle": "ドリフトをチェックするためのプレビューのみの実行をキューに追加します",
+        "driftRemediate": "プレビュー + アップデート",
+        "driftRemediateConfirm": "このワークスペースでプレビュー + アップデートの実行をキューに追加しますか?",
+        "driftRemediateTitle": "インフラを構成に一致させるためプレビュー + アップデートの実行をキューに追加します",
+        "errorsQueuePlan": "プレビューのキュー追加に失敗しました",
+        "errorsQueuePlanStatus": "プレビューのキュー追加に失敗しました（{status}）",
+        "fieldsAutoMerge": "アップデート後に自動マージ",
+        "formAutoApplyModeHint": "never: 常に人の確認を待ちます。always: 成功したプレビューごとにアップデートします。create / create/update: それらの操作だけに限られたプレビューからのみアップデートし、破棄や置換は決して行いません。",
+        "lockLockedDesc": "このワークスペースはロックされています。プレビューやアップデートは実行できません。",
+        "logApplyEmpty": "まだアップデート出力がありません。",
+        "logApplySkipped": "アップデートは実行されませんでした: プレビューに変更がなかったため、アップデートするものはありませんでした。",
+        "logIndexSummary": "プレビュー概要",
+        "logIndexTitle": "リソースの変更またはプレビュー概要に移動します",
+        "logPlanEmpty": "まだプレビュー出力がありません。",
+        "nonDefaultRefNote": "デフォルト以外のリファレンスが選択されています — 実行はプレビューのみになります",
+        "planExpiryDescription": "未確認のプレビューがこの期間より古くなると自動的に破棄します。これにより、状況が変化した後に古いプレビューが実行されるのを防ぎます。デフォルトではオフで、その場合プレビューは再実行が必要です。（アップデート可能な実行のみが対象です。）",
+        "planExpiryTitle": "プレビュー有効期限",
+        "planOptions": "プレビューオプション",
+        "planSummaryChatPlaceholder": "このプレビューについてフォローアップの質問をする…（⌘/Ctrl + Enter で送信）",
+        "planSummaryHeading": "プレビューサマリー",
+        "planSummaryNoChangesTitle": "プレビューはリソースの変更がないと報告しました",
+        "planSummaryRegenerateTooltip": "同じプレビュー入力に対してAIサマリーを再実行します",
+        "planSummarySummarising": "プレビューを要約中…",
+        "policyBlockedMessage": "この実行は<strong>必須ポリシーセットによってブロックされています</strong>。失敗が解決されるか、管理者がオーバーライドするまでアップデートされません。",
+        "queueApplyConfirm": "preview + update の実行をキューに追加しますか？これによりインフラが変更される可能性があります。",
+        "queueApplyRefBlocked": "ブランチ・タグ・コミットを選択している間はアップデートできません。これらの実行は常にプレビューのみです",
+        "queueApplyTitle": "プレビュー + アップデートの実行をキューに追加",
+        "queueDestroyTitle": "破棄プレビューをキューに追加",
+        "queuePlan": "プレビュー",
+        "queuePlanConfirm": "このワークスペースの投機的プレビューをキューに追加しますか？",
+        "queueRun": "プレビュー + アップデート",
+        "replacePlaceholder": "e.g. urn:pulumi:dev::shop::aws:ec2/instance:Instance::web",
+        "runTriggersDescription": "ソースワークスペースがアップデートを完了すると、下流のワークスペースに新しい実行が自動的にキュー追加されます。宛先ごとに最大20個のソースワークスペースを指定できます。",
+        "tabApplyFull": "アップデートログ",
+        "tabApplyLabel": "アップデート<log>ログ</log>",
+        "tabPlanFull": "プレビューログ",
+        "tabPlanLabel": "プレビュー<log>ログ</log>",
+        "targetPlaceholder": "e.g. urn:pulumi:dev::shop::aws:s3/bucket:Bucket::assets",
+        "timelineApplied": "アップデート済み",
+        "timelineApplyingStarted": "アップデート開始",
+        "timelinePlanComplete": "プレビュー完了",
+        "timelinePlanningStarted": "プレビュー開始",
+        "typePlanApply": "preview + update",
+        "vcsWorkflowWarningRbac": "PRをマージできる者は誰でもアップデートできます。ブランチ保護ルール（必須レビュー、ステータスチェック、コードオーナーの承認）がゲートになります。このモードでは、Terrapodのロール/ラベルRBACはコメント駆動のアクションに<em>適用されません</em>。",
+        "vcsWorkflowWarningRecommended": "<strong>推奨:</strong> 線形履歴を要求してください（マージ前にrebase/squash）。これにより、アップデートの元になるコミットが実際に取り込まれるコミットになります。",
+        "slackDescription": "このワークスペースをSlackの実行通知（承認リクエスト、アップデート、エラー、ドリフト）にオプトインします。チャンネルを空欄のままにすると、このワークスペースは通知しません（デプロイメント全体への一斉配信はありません）。管理者によるSlackアプリの有効化が必要です。"
       }
     }
   },

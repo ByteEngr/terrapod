@@ -27,6 +27,7 @@
     "account": "계정",
     "apiTokens": "API 토큰",
     "sessions": "세션",
+    "slackLinks": "Slack 연결",
     "logOut": "로그아웃",
     "menu": "메뉴",
     "openMenu": "메뉴 열기",
@@ -70,7 +71,6 @@
       "agentPool": "에이전트 풀",
       "none": "없음",
       "autoApply": "자동 적용",
-      "autoApplyModeHint": "never: 항상 사람의 확인을 기다립니다. always: 성공한 모든 플랜을 적용합니다. create / create/update: 해당 작업으로만 이루어진 플랜만 적용하며, 삭제나 교체는 절대 적용하지 않습니다.",
       "enabled": "사용",
       "workingDirectory": "작업 디렉터리",
       "workingDirectoryPlaceholder": "예: environments/dev",
@@ -372,6 +372,22 @@
         "load": "세션을 불러오지 못했습니다",
         "revoke": "세션을 취소하지 못했습니다 ({status})",
         "revokeGeneric": "세션을 취소하지 못했습니다"
+      }
+    },
+    "slackLinks": {
+      "title": "Slack 연결",
+      "description": "당신으로서 행동할 수 있는 Slack 계정입니다. 연결된 Slack 계정은 당신의 권한으로 실행을 승인하고 폐기할 수 있으므로, 알지 못하는 것은 해지하십시오.",
+      "empty": "연결된 Slack 계정이 없습니다.",
+      "revoke": "해지",
+      "confirmRevoke": "Slack 사용자 {user}의 연결을 해지하시겠습니까? 해당 계정은 더 이상 Slack에서 당신으로서 행동할 수 없습니다.",
+      "columns": {
+        "slackUser": "Slack 사용자",
+        "team": "Slack 팀",
+        "linkedAt": "연결 시점"
+      },
+      "errors": {
+        "load": "Slack 연결을 불러올 수 없었습니다.",
+        "revoke": "해당 Slack 연결을 해지할 수 없었습니다."
       }
     }
   },
@@ -761,7 +777,9 @@
       "setAssignmentStatus": "할당을 설정하지 못했습니다 ({status})",
       "deleteAssignment": "할당을 삭제하지 못했습니다",
       "conflictingLabelKeys": "{keys}에 값이 두 개 이상 지정되었습니다. 레이블 규칙은 키당 하나의 값만 보유하므로 마지막 값이 이전 값을 조용히 대체합니다. 하나의 키에 여러 값을 지정하는 것은 API에서 지원하지만 아직 여기서는 설정할 수 없습니다."
-    }
+    },
+    "pinnedToSubject": "고정됨",
+    "pinnedToSubjectTitle": "IdP 주체 {subject}에 고정됨"
   },
   "adminVcs": {
     "title": "VCS 연결",
@@ -774,6 +792,23 @@
       "delete": "삭제"
     },
     "confirmDelete": "이 VCS 연결을 삭제하시겠습니까? 이를 사용하는 워크스페이스는 VCS 통합을 잃게 됩니다. 이 작업은 취소할 수 없습니다.",
+    "access": {
+      "heading": "이 연결을 사용할 수 있는 사용자",
+      "intro": "이 세 가지 설정이 어떤 워크스페이스가 이 연결을 가리킬 수 있는지 결정합니다. 자격 증명 자체는 쓰기 전용으로 유지됩니다.",
+      "ownerEmail": "소유자 이메일",
+      "ownerEmailHint": "소유자는 항상 이 연결을 사용할 수 있습니다. 연결을 소유자 없이 두려면 비워 두세요.",
+      "labels": "액세스 레이블",
+      "labelsHint": "규칙이 이 레이블과 일치하는 역할은 워크스페이스를 이 연결로 가리킬 수 있습니다.",
+      "allowedRepositories": "허용된 리포지토리",
+      "allowedRepositoriesHint": "워크스페이스가 사용하려는 리포지토리와 비교되는 glob 패턴입니다.",
+      "addPattern": "패턴 추가",
+      "anyRepositoryWarning": "나열된 패턴이 없으므로 이 연결은 어떤 리포지토리든 가리킬 수 있습니다.",
+      "restricted": "{count, plural, one {패턴 #개가 나열되어} other {패턴 #개가 나열되어}} 있으므로 그 중 어느 것과도 일치하지 않는 리포지토리는 거부됩니다.",
+      "ownedBy": "{email} 소유",
+      "unowned": "소유자가 설정되지 않았습니다",
+      "anyRepositorySummary": "모든 리포지토리가 허용됩니다",
+      "repositoryCount": "{count, plural, one {리포지토리 #개} other {리포지토리 #개}}로 제한됩니다"
+    },
     "form": {
       "name": "이름",
       "namePattern": "영문자, 숫자, 하이픈, 밑줄만 사용할 수 있습니다. 영문자나 숫자로 시작해야 합니다.",
@@ -922,7 +957,6 @@
       "varKey": "키",
       "varValue": "값",
       "varCategory": "카테고리",
-      "categoryTerraform": "Terraform",
       "categoryEnv": "환경",
       "sensitive": "민감",
       "sensAbbr": "민감",
@@ -988,7 +1022,9 @@
       "valueSource": "값 출처",
       "valueSourceStatic": "값 입력",
       "valueSourceVault": "OpenBao/Vault에서 읽기",
-      "vaultHint": "Terrapod가 실행 시 OpenBao(또는 HashiCorp Vault)에서 시크릿을 읽습니다. 여기에는 저장되지 않습니다."
+      "vaultHint": "Terrapod가 실행 시 OpenBao(또는 HashiCorp Vault)에서 시크릿을 읽습니다. 여기에는 저장되지 않습니다.",
+      "categoryNative": "네이티브",
+      "structured": "구조화됨"
     }
   },
   "adminAutodiscovery": {
@@ -1076,7 +1112,10 @@
       "terragruntVersion": "Terragrunt 버전",
       "noExpiry": "만료 없음",
       "addDriftIgnoreRule": "규칙 추가",
-      "debugModeHint": "이 규칙이 만드는 워크스페이스에서 실패한 러너 파드를 유지합니다. 기본값은 꺼짐 — 유지된 파드는 해당 워크스페이스의 자격 증명을 보관합니다."
+      "debugModeHint": "이 규칙이 만드는 워크스페이스에서 실패한 러너 파드를 유지합니다. 기본값은 꺼짐 — 유지된 파드는 해당 워크스페이스의 자격 증명을 보관합니다.",
+      "allowForkPrPlansHint": "이 규칙이 만드는 모든 워크스페이스에 적용됩니다. 기본값은 꺼짐: 포크에서 온 풀 리퀘스트는 예상 계획을 받지 않습니다. 작성자의 코드를 워크스페이스의 자격 증명으로 실행하게 되기 때문입니다.",
+      "oidcAudiences": "실행 ID 대상 (생성된 워크스페이스에 상속됨)",
+      "oidcAudiencesHint": "이 규칙이 생성하는 각 워크스페이스에 적용되는 대상 재정의. 키는 토큰이 해당하는 프로바이더 구성입니다 — aws, 별칭이 있는 구성이면 aws.west. 비워 두면 해당 워크스페이스는 배포 자체의 구성을 사용합니다."
     },
     "table": {
       "name": "이름",
@@ -1270,7 +1309,8 @@
       "cancel": "취소",
       "working": "작업 중...",
       "previewDryRun": "미리 보기 (드라이 런)",
-      "applyChanges": "변경 사항 적용"
+      "applyChanges": "변경 사항 적용",
+      "setOidcAudiences": "실행 ID의 OIDC 대상 설정 (일치하는 모든 워크스페이스의 맵을 대체)"
     },
     "diff": {
       "colWorkspace": "워크스페이스",
@@ -1919,12 +1959,24 @@
       "always": "항상",
       "create": "생성",
       "createUpdate": "생성/수정"
+    },
+    "oidcAudiences": {
+      "addProvider": "프로바이더 구성 추가",
+      "audiences": "대상",
+      "badgeInherited": "배포 기본값",
+      "badgeOwned": "워크스페이스",
+      "issuerDisabled": "이 배포는 OpenID Connect 발급자를 전혀 공개하지 않으므로, 여기서 구성한 어떤 것도 적용될 수 없습니다.",
+      "override": "재정의",
+      "overrideAria": "이 워크스페이스에서 {provider} 대상 재정의",
+      "providerDuplicate": "해당 프로바이더 구성에는 이미 항목이 있습니다.",
+      "providerInvalid": "프로바이더 이름에는 공백이 없고 점은 최대 하나입니다 — aws 또는 aws.west.",
+      "providerPlaceholder": "aws 또는 aws.west",
+      "removeProviderAria": "프로바이더 구성 {provider} 제거"
     }
   },
   "planSummary": {
     "aiGenerated": "AI 생성",
     "heading": {
-      "planSummary": "계획 요약",
       "failureAnalysis": "실패 분석"
     },
     "errors": {
@@ -1933,13 +1985,11 @@
     "regenerate": {
       "label": "재생성",
       "queueing": "대기 중…",
-      "tooltip": "동일한 계획 입력에 대해 AI 요약을 다시 실행합니다",
       "ariaLabel": "AI 요약 재생성",
       "confirm": "AI 분석을 재생성하시겠습니까? 모델을 다시 실행합니다.",
       "error": "재생성할 수 없습니다: <mono>{detail}</mono>"
     },
     "pending": {
-      "summarisingPlan": "계획 요약 중…",
       "analysingFailure": "실패 분석 중…"
     },
     "skipped": {
@@ -1963,7 +2013,6 @@
     "badges": {
       "noChanges": "변경 없음",
       "noChangesLower": "변경 없음",
-      "noChangesTitle": "계획에서 리소스 변경 사항이 없다고 보고했습니다",
       "toAdd": "{count, plural, one {추가 #개} other {추가 #개}}",
       "toChange": "{count, plural, one {변경 #개} other {변경 #개}}",
       "toDestroy": "{count, plural, one {삭제 #개} other {삭제 #개}}",
@@ -1973,7 +2022,6 @@
     "chat": {
       "heading": "후속 질문",
       "sharedThreadNote": "워크스페이스 읽기 권한이 있는 모든 사람에게 표시되는 하나의 공유 스레드입니다.",
-      "placeholder": "이 계획에 대해 후속 질문을 하세요… (⌘/Ctrl + Enter로 전송)",
       "send": "전송",
       "thinking": "생각 중…",
       "you": "나",
@@ -1997,7 +2045,6 @@
     "workspaceFallback": "워크스페이스",
     "backTo": "{name}(으)로 돌아가기",
     "errorHeading": "오류",
-    "discardedHeading": "폐기됨 — 다시 계획해야 합니다",
     "common": {
       "yes": "예",
       "no": "아니요"
@@ -2051,14 +2098,13 @@
     },
     "badge": {
       "destroy": "삭제",
-      "planOnly": "계획 전용"
+      "savedPlan": "저장된 플랜",
+      "savedPlanHint": "적용이 보류되었습니다. 저장된 플랜이 적용될 때까지 이 실행은 워크스페이스를 점유하지 않습니다."
     },
     "actions": {
       "retryShort": "재시도",
       "retryFull": "실행 재시도",
       "retrying": "재시도 중…",
-      "confirmShort": "적용",
-      "confirmFull": "확인 및 적용",
       "confirming": "확인 중…",
       "discard": "폐기",
       "discarding": "폐기 중…",
@@ -2068,8 +2114,6 @@
       "queuing": "대기열에 추가 중…"
     },
     "confirm": {
-      "apply": "이 실행을 적용하시겠습니까? 계획을 적용하고 인프라를 변경합니다.",
-      "discard": "이 계획을 폐기하시겠습니까?",
       "cancel": "이 실행을 취소하시겠습니까?",
       "retry": "이 실행을 재시도하시겠습니까?"
     },
@@ -2092,20 +2136,19 @@
       "impactFull": "영향 그래프",
       "cost": "비용",
       "costFull": "비용 추정치",
-      "planLabel": "계획<log>로그</log>",
-      "applyLabel": "적용<log>로그</log>",
-      "planFull": "계획 로그",
-      "applyFull": "적용 로그",
       "details": "세부 정보",
       "security": "보안",
       "securityFull": "보안 스캔"
     },
     "banner": {
       "destroy": "이것은 <strong>삭제</strong> 실행입니다 — 적용되면 관리 중인 모든 리소스가 삭제됩니다.",
-      "planOnlyCli": "이것은 VCS 연결된 워크스페이스에서 CLI로 시작된 <strong>계획 전용</strong> 실행입니다. CLI로 업로드된 코드에는 적용을 사용할 수 없습니다 — VCS로 관리되는 코드만 적용할 수 있습니다.",
       "moduleOverridesPrefix": "이 실행은 <strong>모듈 재정의</strong>를 사용합니다",
       "moduleOverridesFromPr": "PR #{number}에서",
       "moduleOverridesSuffix": "게시된 레지스트리 버전 대신 PR 브랜치에서 가져옵니다."
+    },
+    "bindPlan": {
+      "bound": "이 미리보기에 고정됨: 업데이트는 여기에 표시된 계획을 그대로 적용하며, 미리보기 이후 바뀐 것이 있으면 적용되는 대신 업데이트가 실패합니다.",
+      "unbound": "이 미리보기에 고정되지 않음: 업데이트는 실행될 때 일반 pulumi up처럼 스스로 변경 사항을 판단하므로, 적용되는 내용이 여기에 표시된 것과 다를 수 있습니다."
     },
     "cards": {
       "changes": "변경 사항",
@@ -2117,7 +2160,6 @@
     },
     "changes": {
       "noChanges": "변경 없음",
-      "planning": "계획 중…",
       "toAdd": "추가",
       "toChange": "변경",
       "toDestroy": "삭제",
@@ -2154,7 +2196,6 @@
       "executionBackend": "실행 백엔드",
       "source": "소스",
       "autoApply": "자동 적용",
-      "planOnly": "계획 전용",
       "triggeredBy": "트리거한 주체",
       "created": "생성일",
       "commit": "커밋",
@@ -2170,11 +2211,7 @@
     "timeline": {
       "heading": "타임라인",
       "queued": "대기됨",
-      "planningStarted": "계획 시작됨",
-      "planComplete": "계획 완료",
       "confirmed": "확인됨",
-      "applyingStarted": "적용 시작됨",
-      "applied": "적용됨",
       "errored": "오류",
       "canceled": "취소됨",
       "discarded": "폐기됨"
@@ -2198,12 +2235,8 @@
       "followOffTitle": "실시간 로그 따라가기",
       "end": "끝",
       "endTitle": "로그 끝으로 이동",
-      "planEmpty": "아직 사용 가능한 계획 출력이 없습니다.",
-      "applyEmpty": "아직 사용 가능한 적용 출력이 없습니다.",
       "index": {
         "label": "이동",
-        "title": "리소스 변경 또는 플랜 요약으로 이동합니다",
-        "summary": "플랜 요약",
         "action": {
           "create": "생성",
           "update": "업데이트",
@@ -2215,13 +2248,11 @@
           "error": "오류",
           "warning": "경고"
         }
-      },
-      "applySkippedNoChanges": "적용이 실행되지 않았습니다: 계획에 변경 사항이 없어 적용할 것이 없었습니다."
+      }
     },
     "policyPanel": {
       "heading": "정책 검사",
       "passedCount": "{total}개 중 {passed}개 통과",
-      "blockedMessage": "이 실행은 <strong>필수 정책 집합에 의해 차단</strong>되었습니다. 실패가 해결되거나 관리자가 재정의할 때까지 적용되지 않습니다.",
       "overriding": "재정의 중...",
       "overrideContinue": "재정의 및 계속",
       "overrideFailed": "재정의에 실패했습니다",
@@ -2261,7 +2292,6 @@
       "unpricedHint": "가격 데이터에서 일치하는 항목이 없습니다. 매핑되지 않은 유형, 직접 비용이 없는 리소스 또는 아직 지원되지 않는 공급자입니다.",
       "indicative": "추정치는 참고용이며, 실제 비용은 사용량, 리전, 약정, 할인에 따라 달라집니다.",
       "asOfState": "상태 v{serial} 기준",
-      "noState": "아직 비용이 없습니다 — 첫 적용 후에 표시됩니다.",
       "usageBand": "{dimension}: 일반적으로 {typical} {unit} (범위 {low}–{high})",
       "usageBandCost": "{dimension}: 월 {costTypical} 일반 — {low}–{high} {unit}에서 {costLow}–{costHigh}"
     },
@@ -2348,7 +2378,6 @@
       "passed": "일치하는 정책 기준이 없습니다.",
       "overriding": "재정의 중...",
       "overrideContinue": "재정의 및 계속",
-      "overrideConfirm": "AI 정책 게이트를 재정의하고 판정과 관계없이 이 실행의 적용을 허용하시겠습니까?",
       "overrideFailed": "재정의에 실패했습니다",
       "overrideFailedStatus": "재정의 실패 ({status})",
       "overriddenBy": "{by}에 의해 재정의됨"
@@ -2407,9 +2436,6 @@
       "translatedNote": "보기 시 원문에서 번역되었습니다."
     },
     "drift": {
-      "remediate": "플랜 + 적용",
-      "remediateTitle": "인프라를 구성에 다시 맞추기 위해 플랜 + 적용 실행을 대기열에 추가합니다",
-      "remediateConfirm": "이 워크스페이스에 대해 플랜 + 적용 실행을 대기열에 추가할까요?",
       "remediateMessage": "드리프트 검사에서 대기열에 추가됨",
       "remediateFailed": "수정 실행을 대기열에 추가하지 못했습니다"
     }
@@ -2469,6 +2495,7 @@
       "architecture": "아키텍처",
       "insights": "인사이트",
       "automation": "자동화",
+      "inventory": "인벤토리",
       "access": "액세스"
     },
     "lifecycle": {
@@ -2501,6 +2528,9 @@
       "version": "버전",
       "versionPlaceholder": "예: 1.11 또는 1.11.5",
       "versionTitle": "X.Y 또는 X.Y.Z 형식의 버전 (예: 1.11 또는 1.11.5)",
+      "ansibleVersion": "Ansible 버전",
+      "ansibleVersionPlaceholder": "예: 2.21.5",
+      "ansibleVersionTitle": "이 워크스페이스의 ansible-core 버전입니다. 비워 두면 배포 기본값을 따릅니다.",
       "terragruntEnabledAgent": "사용 (에이전트 모드)",
       "terragruntEnabledVersion": "사용 (v{version})",
       "terragruntVersionPlaceholder": "예: 1.0",
@@ -2541,12 +2571,16 @@
       "engineTerraform": "Terraform",
       "nameTitlePulumi": "'::' 로 구분된 두 부분 — project::stack. 문자, 숫자, 하이픈, 밑줄만 사용할 수 있으며 각 부분은 문자 또는 숫자로 시작해야 합니다.",
       "bindPlan": "승인된 미리보기에 업데이트 고정",
-      "bindPlanHelp": "켜면 업데이트는 미리보기가 저장한 계획을 그대로 적용하므로, 미리보기 이후 바뀐 것이 있으면 적용되는 대신 업데이트가 실패합니다. 이 기능은 아직 실험적인 Pulumi 업데이트 계획에 기반합니다. 끄면 일반 pulumi up처럼 업데이트가 스스로 변경 사항을 판단합니다. <docs>Pulumi 실행 방식</docs>"
+      "bindPlanHelp": "켜면 업데이트는 미리보기가 저장한 계획을 그대로 적용하므로, 미리보기 이후 바뀐 것이 있으면 적용되는 대신 업데이트가 실패합니다. 이 기능은 아직 실험적인 Pulumi 업데이트 계획에 기반합니다. 끄면 일반 pulumi up처럼 업데이트가 스스로 변경 사항을 판단합니다. <docs>Pulumi 실행 방식</docs>",
+      "oidcAudiences": "실행 ID 대상(audience)",
+      "oidcAudiencesAdd": "대상 추가",
+      "oidcAudiencesHint": "Terrapod는 실행이 사용하는 각 프로바이더 구성마다 단기 OpenID Connect 토큰을 발급하고, 실행이 읽을 수 있는 파일에 기록합니다. 항목의 키는 사용자의 구성이 그 프로바이더를 부르는 이름으로 지정하고 — aws, 별칭이 있는 구성이면 aws.west — 그 대상이 받아들이는 대상(audience)을 나열하세요. 각 항목은 그 프로바이더에 대해 배포 자체의 구성을 재정의합니다. 항목을 제거하면 그 프로바이더는 배포의 대상으로 되돌아갑니다. 대상은 페더레이션 대상이 선택한 불투명한 문자열이므로, 입력한 그대로 저장됩니다.",
+      "oidcAudiencesLoading": "배포에 구성된 대상을 확인하고 있습니다 …",
+      "oidcAudiencesNone": "없음 (실행은 에이전트 풀 자신의 ID를 사용)",
+      "oidcAudiencesPlaceholder": "예: sts.amazonaws.com"
     },
     "vcsWorkflowWarning": {
       "title": "권한 부여가 VCS 저장소에 위임되었습니다.",
-      "rbac": "PR을 병합할 수 있는 사람은 누구나 적용할 수 있습니다. 브랜치 보호 규칙(필수 검토, 상태 검사, 코드 소유자 승인)이 관문이 됩니다. Terrapod 역할/라벨 RBAC는 이 모드에서 댓글 기반 작업에는 적용되지<em>않습니다</em>.",
-      "recommended": "<strong>권장:</strong> 선형 히스토리(병합 전 rebase/squash)를 요구하여 적용하는 커밋이 실제로 반영되는 커밋이 되도록 하세요.",
       "credit": "출처: 이 워크플로는 <atlantis>Atlantis</atlantis>를 모델로 합니다. Atlantis는 PR 댓글 기반 적용만 원하고 플랫폼 UI가 필요 없는 팀에게 여전히 적합한 도구입니다."
     },
     "vcsPolling": {
@@ -2562,7 +2596,6 @@
     },
     "lock": {
       "title": "잠금 상태",
-      "lockedDesc": "이 워크스페이스는 잠겨 있습니다. 계획이나 적용을 실행할 수 없습니다.",
       "unlockedDesc": "이 워크스페이스는 잠금 해제되어 실행 준비가 되었습니다.",
       "lock": "잠금",
       "unlock": "잠금 해제",
@@ -2584,7 +2617,6 @@
       "dismissTitle": "보고된 드리프트 상태를 지웁니다. 다음 예약 검사에서 실제 상태로 다시 채워집니다.",
       "lastChecked": "마지막 검사",
       "checkNow": "지금 검사",
-      "checkNowTitle": "드리프트를 확인하기 위해 계획 전용 실행을 대기열에 넣습니다",
       "checkNowTitleDisabled": "먼저 드리프트 감지를 활성화하세요"
     },
     "intervals": {
@@ -2598,13 +2630,10 @@
       "7days": "7일"
     },
     "planExpiry": {
-      "title": "계획 만료",
-      "description": "확인되지 않은 계획이 이 기간보다 오래되면 자동으로 폐기하여, 오래된 계획이 변경된 상태에 적용되지 않도록 합니다. 기본적으로 꺼져 있으며, 이 경우 계획을 다시 실행해야 합니다. (적용 가능한 실행에만 적용됩니다.)",
       "expireAfter": "만료 기간"
     },
     "aiSummary": {
       "title": "AI 계획 요약",
-      "description": "이 워크스페이스의 모든 계획 단계 결과에 대해 LLM이 자동 생성하는 변경 요약, 위험 평가, 실패 분석입니다.",
       "mode": "모드",
       "modeDefault": "배포 기본값 따르기",
       "modeEnabled": "항상 요약",
@@ -2619,7 +2648,6 @@
     },
     "slack": {
       "title": "Slack 알림",
-      "description": "이 워크스페이스를 Slack 실행 알림(승인 요청, 적용, 오류, 드리프트)에 등록합니다. 채널을 비워두면 이 워크스페이스는 알림을 보내지 않습니다(배포 전체 팬아웃은 없습니다). 관리자가 Slack 앱을 활성화해야 합니다.",
       "channel": "채널",
       "channelPlaceholder": "#deploys 또는 채널 ID (예: C0123ABCD)",
       "notSet": "설정되지 않음 — 알림 없음.",
@@ -2694,20 +2722,18 @@
       "vaultFileEncoding": "인코딩",
       "vaultFileEncodingNone": "OpenBao/Vault에 저장된 그대로",
       "vaultFileEncodingBase64": "Base64 디코딩",
-      "vaultFileEncodingHint": "쓰기 전에 필드를 디코딩합니다. 결과는 텍스트여야 하며, 바이너리 파일은 지원되지 않습니다."
+      "vaultFileEncodingHint": "쓰기 전에 필드를 디코딩합니다. 결과는 텍스트여야 하며, 바이너리 파일은 지원되지 않습니다.",
+      "categoryNative": "네이티브",
+      "structured": "구조화됨",
+      "categoryTerraform": "Terraform",
+      "categoryPulumiConfig": "Pulumi 구성"
     },
     "runs": {
       "options": "옵션",
       "hideOptions": "옵션 숨기기",
       "queueDestroy": "파기",
-      "queueDestroyTitle": "삭제 계획 대기",
       "destroyAllConfirm": "모든 리소스를 삭제하시겠습니까?",
       "confirmDestroy": "삭제 확인",
-      "queuePlan": "플랜",
-      "queueRun": "플랜 + 적용",
-      "queuePlanConfirm": "이 워크스페이스에 대한 예상 계획을 대기하시겠습니까?",
-      "queueApplyConfirm": "계획 + 적용 실행을 대기하시겠습니까? 인프라가 변경될 수 있습니다.",
-      "planOptions": "계획 옵션",
       "targetResources": "대상 리소스",
       "replaceResources": "교체 리소스",
       "commaSeparated": "(쉼표로 구분)",
@@ -2718,7 +2744,6 @@
       "branch": "브랜치",
       "tag": "태그",
       "defaultBranch": "기본값 ({branch})",
-      "nonDefaultRefNote": "기본이 아닌 레퍼런스가 선택됨 — 실행은 계획 전용이 됩니다",
       "empty": "이 워크스페이스에 대한 실행이 아직 없습니다.",
       "runId": "실행 ID",
       "status": "상태",
@@ -2729,13 +2754,11 @@
       "created": "생성일",
       "needsConfirm": "확인 필요",
       "typeDestroy": "삭제",
-      "typePlanOnly": "계획 전용",
-      "typePlanApply": "계획 + 적용",
       "sourceModuleTest": "모듈 테스트",
       "sourceModulePublish": "모듈 게시",
-      "queueApplyTitle": "플랜 + 적용 실행을 대기열에 추가",
-      "queueApplyRefBlocked": "브랜치, 태그 또는 커밋이 선택된 동안에는 적용할 수 없습니다. 해당 실행은 항상 플랜 전용입니다",
-      "awaitingDecision": "결정 대기 중"
+      "awaitingDecision": "결정 대기 중",
+      "typeSavedPlan": "저장된 플랜",
+      "typeSavedPlanHint": "적용이 보류되었습니다. 저장된 플랜이 적용될 때까지 이 실행은 워크스페이스를 점유하지 않습니다."
     },
     "state": {
       "deleteConfirm": "상태 버전 #{serial}을(를) 삭제하시겠습니까? 이 작업은 취소할 수 없습니다.",
@@ -2752,12 +2775,18 @@
       "runner": "러너",
       "latest": "최신"
     },
+    "stateOutputs": {
+      "title": "출력",
+      "fromSerial": "시리얼 #{serial}",
+      "empty": "이 상태는 출력을 선언하지 않습니다.",
+      "sensitive": "민감",
+      "loadFailed": "이 워크스페이스의 출력을 불러오지 못했습니다."
+    },
     "configurations": {
       "description": "이 워크스페이스에 업로드된 소스 아카이브로, 최신순입니다. 비교할 두 행을 선택하세요.",
       "selectedCount": "{count}/2 선택됨",
       "compare": "비교",
       "comparing": "비교 중…",
-      "empty": "아직 구성 버전이 없습니다. `terraform plan`이 업로드하거나 VCS 푸시가 실행을 트리거하는 즉시 여기에 표시됩니다.",
       "id": "ID",
       "source": "소스",
       "status": "상태",
@@ -2819,7 +2848,6 @@
     },
     "runTriggers": {
       "title": "실행 트리거",
-      "description": "소스 워크스페이스가 적용을 완료하면 다운스트림 워크스페이스에 새 실행이 자동으로 대기됩니다. 대상당 최대 20개의 소스 워크스페이스.",
       "inboundHeading": "여기에서 실행을 트리거하는 소스 워크스페이스",
       "inboundEmpty": "이 워크스페이스에서 실행을 트리거하는 소스 워크스페이스가 없습니다.",
       "pickerPlaceholder": "소스로 추가할 워크스페이스 검색…",
@@ -2827,6 +2855,173 @@
       "outboundEmpty": "이 워크스페이스는 다른 어떤 워크스페이스에서도 실행을 트리거하지 않습니다.",
       "destinationNote": "(대상; 거기에서 제거하세요)",
       "removeConfirm": "이 실행 트리거를 제거하시겠습니까?"
+    },
+    "inventory": {
+      "scope": {
+        "heading": "인벤토리",
+        "body": "이 워크스페이스가 보유한 호스트와 그룹, 그리고 ansible이 그것들을 해석한 결과입니다. 각 행은 여기서 편집할 수 있지만, 아직 이들을 대상으로 플레이북을 실행할 수는 없습니다."
+      },
+      "nav": {
+        "label": "인벤토리 섹션",
+        "hosts": "호스트",
+        "groups": "그룹",
+        "vars": "변수",
+        "resolved": "해석 결과",
+        "settings": "설정"
+      },
+      "actions": {
+        "save": "저장",
+        "saving": "저장 중…",
+        "cancel": "취소",
+        "edit": "편집",
+        "delete": "삭제",
+        "remove": "제거",
+        "add": "추가",
+        "adding": "추가 중…",
+        "rename": "이름 변경"
+      },
+      "hosts": {
+        "heading": "호스트",
+        "body": "호스트 하나가 한 행입니다. 호스트를 열면 그 변수와 소속 그룹을 편집할 수 있습니다.",
+        "empty": "아직 호스트가 없습니다.",
+        "colName": "호스트",
+        "colGroups": "그룹",
+        "colVars": "변수",
+        "newLabel": "새 호스트 이름",
+        "newPlaceholder": "web-1",
+        "add": "호스트 추가",
+        "confirmDelete": "호스트 {name}을(를) 삭제할까요? 그 변수와 그룹 소속도 함께 사라집니다.",
+        "renameLabel": "호스트 이름"
+      },
+      "groups": {
+        "heading": "그룹",
+        "body": "그룹 하나가 한 행입니다. 그룹을 열면 그 변수, 소속 호스트, 그리고 그 안에 중첩된 그룹을 편집할 수 있습니다.",
+        "empty": "아직 그룹이 없습니다.",
+        "colName": "그룹",
+        "colMembers": "호스트",
+        "colChildren": "하위 그룹",
+        "colVars": "변수",
+        "newLabel": "새 그룹 이름",
+        "newPlaceholder": "web",
+        "add": "그룹 추가",
+        "confirmDelete": "그룹 {name}을(를) 삭제할까요? 그 변수와 소속 관계도 함께 사라지지만, 호스트 자체는 남습니다.",
+        "renameLabel": "그룹 이름"
+      },
+      "vars": {
+        "actions": "작업",
+        "key": "키",
+        "keyPlaceholder": "ansible_user",
+        "value": "값",
+        "structured": "구조화됨",
+        "sensitive": "민감",
+        "structuredHelp": "목록, 숫자, 객체는 구조화된 값입니다. “구조화됨”을 체크하고 값에는 그 리터럴 소스를 적으세요. 민감한 값은 다시 읽히지 않으며, 필드에는 대신 마스크가 표시됩니다.",
+        "structuredBadge": "구조화됨",
+        "sensitiveKeep": "저장된 값을 그대로 유지하려면 비워 두세요.",
+        "empty": "여기에는 변수가 없습니다.",
+        "add": "변수 추가",
+        "confirmDelete": "변수 {key}을(를) 삭제할까요?"
+      },
+      "hostDetail": {
+        "heading": "호스트 {name}",
+        "body": "이 호스트 하나가 지닌 모든 것입니다.",
+        "back": "호스트 목록으로 돌아가기",
+        "gone": "그 호스트는 더 이상 존재하지 않습니다.",
+        "vars": "호스트 변수",
+        "varsBody": "이 호스트에만 적용되는 변수입니다. 같은 이름의 그룹 변수보다 우선합니다.",
+        "memberships": "그룹",
+        "membershipsBody": "이 호스트가 속한 그룹입니다. 소속은 연결이므로, 여기서 하나를 제거해도 호스트와 그룹은 모두 그대로 남습니다.",
+        "membershipsEmpty": "이 호스트는 어떤 그룹에도 속하지 않으므로 ansible이 ungrouped에 넣습니다.",
+        "addGroup": "그룹에 추가",
+        "addGroupLabel": "그룹 선택",
+        "removeGroupAria": "이 호스트를 {name}에서 제거",
+        "confirmRemoveGroup": "이 호스트를 {name}에서 빼낼까요?"
+      },
+      "groupDetail": {
+        "heading": "그룹 {name}",
+        "body": "이 그룹 하나가 지닌 모든 것입니다.",
+        "back": "그룹 목록으로 돌아가기",
+        "gone": "그 그룹은 더 이상 존재하지 않습니다.",
+        "vars": "그룹 변수",
+        "varsBody": "직접이든 중첩을 통해서든, 이 그룹에 속한 모든 호스트에 적용되는 변수입니다.",
+        "members": "소속 호스트",
+        "membersBody": "이 그룹에 직접 속한 호스트입니다. 중첩된 그룹을 통해서만 도달하는 호스트는 여기에 나오지 않습니다.",
+        "membersEmpty": "이 그룹에 직접 속한 호스트가 없습니다.",
+        "addHost": "호스트 추가",
+        "addHostLabel": "호스트 선택",
+        "removeHostAria": "{name}을(를) 이 그룹에서 제거",
+        "confirmRemoveHost": "{name}을(를) 이 그룹에서 빼낼까요?",
+        "children": "하위 그룹",
+        "childrenBody": "이 그룹 안에 중첩된 그룹입니다. 그 호스트들도 이 그룹의 구성원이 되며, 이 그룹의 변수가 그들에게도 미칩니다.",
+        "childrenEmpty": "이 그룹 안에 중첩된 그룹이 없습니다.",
+        "addChild": "하위 그룹 추가",
+        "addChildLabel": "중첩할 그룹 선택",
+        "removeChildAria": "{name}을(를) 이 그룹의 하위 그룹에서 제거",
+        "confirmRemoveChild": "{name}을(를) 이 그룹 안에 중첩하지 않도록 할까요?",
+        "parents": "상위 그룹",
+        "parentsBody": "이 그룹이 중첩되어 있는 상위 그룹입니다. 한 그룹이 여러 상위 그룹을 가질 수도 있습니다.",
+        "parentsEmpty": "이 그룹은 어디에도 중첩되어 있지 않습니다.",
+        "addParent": "상위 그룹 추가",
+        "addParentLabel": "상위 그룹 선택",
+        "removeParentAria": "이 그룹을 {name}에서 제거",
+        "confirmRemoveParent": "이 그룹을 {name} 안에 중첩하지 않도록 할까요?"
+      },
+      "globalVars": {
+        "heading": "인벤토리 변수",
+        "body": "모든 호스트에 적용되는 변수 — ansible의 group_vars/all입니다. 같은 이름의 그룹 변수나 호스트 변수가 여기서 설정한 값보다 우선합니다."
+      },
+      "resolved": {
+        "heading": "해석된 호스트",
+        "body": "ansible이 이 행들을 어떻게 해석하는지입니다. 병합과 우선순위를 적용한 뒤 각 호스트가 최종적으로 지니는 변수를 보여 줍니다.",
+        "hosts": "호스트",
+        "groups": "그룹",
+        "liveNote": "이것은 실시간입니다. 여기의 모든 소스는 정적이므로, 읽을 때마다 행들을 그 자리에서 해석해 답합니다 — 새로 고칠 것이 없습니다.",
+        "noHosts": "호스트로 해석된 것이 없습니다.",
+        "noVars": "변수 없음",
+        "groupsHeading": "그룹 소속",
+        "directOnly": "ansible이 보고하는 그대로, 직접 소속만 표시합니다. 호스트가 모두 중첩된 그룹을 통해 들어오는 그룹은 자신의 호스트를 하나도 나열하지 않습니다. 중첩 관계는 아래에 있습니다.",
+        "noGroups": "해석된 그룹이 없습니다.",
+        "noDirectMembers": "직접 소속 호스트 없음",
+        "nestingHeading": "그룹 중첩",
+        "nestingBody": "어떤 그룹이 어떤 그룹 안에 있는지 보여 줍니다. 상위 그룹에 걸린 limit은 그 아래의 모든 호스트에 미칩니다.",
+        "noNesting": "중첩된 그룹이 없습니다.",
+        "limitHeading": "limit은 무엇을 대상으로 하나요?",
+        "limitBody": "ansible의 --limit 패턴을 이 인벤토리에 대해 전개하여, 아무것도 실행되기 전에 어떤 호스트가 선택되는지 정확히 확인할 수 있습니다. 전개는 ansible이 직접 수행하므로 그룹, 제외 지정, ~regex 모두 실행 시점과 똑같이 동작합니다.",
+        "limitLabel": "limit 패턴",
+        "limitPlaceholder": "web:!web-2",
+        "limitApply": "limit 적용",
+        "limitClear": "지우기",
+        "limitApplied": "{limit}(으)로 제한했습니다. 아래의 모든 것이 그 패턴이 대상으로 하는 것입니다."
+      },
+      "settings": {
+        "heading": "설정",
+        "body": "여기에 보유한 행을 반영할지 여부와, 인벤토리를 함께 읽어 올 저장소입니다.",
+        "absent": "설정이 없으며, 이것이 기본값입니다. 여기에 보유한 호스트와 그룹이 인벤토리 전체입니다.",
+        "includePlatform": "여기에 보유한 호스트와 그룹을 사용",
+        "includePlatformHelp": "기본적으로 켜져 있습니다. 끄면 저장소만으로 해석하며, 이 행들은 그대로 남지만 결과에는 포함되지 않습니다.",
+        "included": "예",
+        "excluded": "아니요",
+        "vcsConnection": "VCS 연결",
+        "vcsNone": "없음",
+        "field": {
+          "repo-url": "저장소",
+          "branch": "브랜치",
+          "working-directory": "디렉터리"
+        },
+        "branchHelp": "비워 두면 저장소의 기본 브랜치를 추적합니다.",
+        "ignorePaths": "무시할 경로",
+        "ignorePathsHelp": "한 줄에 glob 하나씩 적습니다. 일치하는 것은 저장소에서 읽어 오는 인벤토리에서 제외됩니다.",
+        "unset": "설정되지 않음",
+        "create": "설정 추가",
+        "clear": "설정 지우기",
+        "confirmClear": "이 설정을 지울까요? 저장소 연결도 함께 사라지지만, 여기에 보유한 호스트와 그룹은 남습니다."
+      },
+      "errors": {
+        "load": "인벤토리를 불러오지 못했습니다",
+        "save": "저장하지 못했습니다",
+        "delete": "삭제하지 못했습니다",
+        "resolved": "인벤토리를 해석하지 못했습니다",
+        "settings": "인벤토리 설정을 저장하지 못했습니다"
+      }
     },
     "sharing": {
       "title": "원격 상태 공유",
@@ -2896,8 +3091,6 @@
       "addVariableStatus": "변수를 추가하지 못했습니다 ({status})",
       "deleteVariable": "변수를 삭제하지 못했습니다",
       "updateVariable": "변수를 업데이트하지 못했습니다",
-      "queuePlan": "계획을 대기하지 못했습니다",
-      "queuePlanStatus": "계획을 대기하지 못했습니다 ({status})",
       "queueDestroy": "삭제를 대기하지 못했습니다",
       "queueDestroyStatus": "삭제를 대기하지 못했습니다 ({status})",
       "createNotification": "알림을 생성하지 못했습니다",
@@ -2914,7 +3107,8 @@
       "uploadState": "상태를 업로드하지 못했습니다",
       "uploadStateFile": "상태 파일을 업로드하지 못했습니다",
       "updateSecurityScan": "보안 검사 업데이트에 실패했습니다",
-      "updateDebugMode": "디버그 모드를 업데이트하지 못했습니다"
+      "updateDebugMode": "디버그 모드를 업데이트하지 못했습니다",
+      "updateForkPlans": "포크 풀 리퀘스트 계획을 업데이트하지 못했습니다"
     },
     "subtabs": {
       "state": "상태",
@@ -2967,6 +3161,14 @@
       "bannerTitle": "이 워크스페이스에 디버그 모드가 켜져 있습니다",
       "bannerBody": "실패한 실행의 파드는 종료되지 않고 점검을 위해 유지되며, 유지되는 동안 이 워크스페이스의 자격 증명과 복호화된 변수를 보관합니다. 문제 해결이 끝나면 디버그 모드를 끄세요.",
       "confirmEnable": "디버그 모드를 켤까요? 실패한 실행의 파드는 시간이 만료되거나 파드를 삭제할 때까지 이 워크스페이스의 자격 증명과 복호화된 변수를 지닌 채 유지됩니다."
+    },
+    "allowForkPrPlans": {
+      "title": "포크 풀 리퀘스트 계획",
+      "description": "포크에서 연 풀 리퀘스트가 예상 계획을 받을지 여부입니다. 기본값은 꺼짐입니다. 그 계획이 포크 작성자의 코드를 이 워크스페이스의 자격 증명으로 실행하기 때문입니다.",
+      "label": "포크 풀 리퀘스트 계획 실행",
+      "hint": "실행은 이 워크스페이스의 환경 변수, 민감한 값, Vault에서 해석된 시크릿, 그리고 작업의 클라우드 ID를 받습니다. 포크에서 풀 리퀘스트를 연 사람은 쓰기 권한이 없고 병합할 수도 없으므로, 예상 계획이 그 코드가 이러한 자격 증명에 닿는 유일한 경로입니다. 가져갈 만한 것이 전혀 없는 워크스페이스 — 예를 들어 커뮤니티 기여를 받는 공개 모듈 저장소 — 에서는 이것을 켜세요. 저장소 자체의 브랜치에서 연 풀 리퀘스트는 영향을 받지 않으며 항상 계획을 받습니다.",
+      "activeBadge": "켜짐",
+      "confirmEnable": "포크에서 연 풀 리퀘스트에 계획을 실행할까요? 작성자의 코드가 누구의 승인도 없이 이 워크스페이스의 자격 증명과 복호화된 변수로 실행됩니다."
     }
   },
   "graphs": {
@@ -3189,11 +3391,14 @@
     "unknown": "알 수 없음",
     "confirm": {
       "prompt": "이 Slack 계정을 <em>사용자</em>의 Terrapod ID에 연결하시겠습니까? 향후 모든 Slack 작업(승인/폐기)은 이 Terrapod 사용자로서 해당 권한으로 실행됩니다.",
+      "slackName": "Slack 계정",
       "slackUser": "Slack 사용자",
       "slackTeam": "Slack 팀",
       "terrapodAccount": "Terrapod 계정",
       "warning": "방금 Slack에서 직접 이 연결을 시작한 경우에만 계속하세요. 그렇지 않다면 이 탭을 닫고 연결하지 마세요 — 이 작업은 위의 Slack 계정을 <em>사용자</em>의 Terrapod ID에 바인딩합니다.",
-      "button": "확인 및 연결"
+      "button": "확인 및 연결",
+      "namesUnavailable": "Terrapod가 이 Slack 계정의 이름을 조회할 수 없었습니다. 위의 ID를 확인하고, 이 연결을 Slack에서 직접 시작한 경우에만 계속하십시오.",
+      "nameIsSelfChosen": "핸들은 Slack 작업 공간에서 고유합니다. 그 아래의 표시 이름은 본인이 직접 정하므로 핸들을 기준으로 판단하십시오."
     },
     "success": {
       "message": "이제 Slack 계정이 Terrapod에 연결되었습니다.",
@@ -3416,7 +3621,77 @@
       },
       "status": {
         "planning": "계획 중",
-        "applying": "적용 중"
+        "applying": "적용 중",
+        "planned": "계획됨",
+        "applied": "적용됨"
+      },
+      "words": {
+        "actionConfirmFull": "확인 및 적용",
+        "actionConfirmShort": "적용",
+        "activityApplied": "적용 완료",
+        "activityConfirmed": "적용 시작 중",
+        "activityDiscarded": "계획 폐기됨",
+        "activityPlannedComplete": "계획 완료",
+        "activityPlannedConfirmable": "확인 및 적용을 기다리는 중",
+        "activityPlannedSpeculative": "예상 계획 완료",
+        "aiPolicyOverrideConfirm": "AI 정책 게이트를 재정의하고 판정과 관계없이 이 실행의 적용을 허용하시겠습니까?",
+        "aiSummaryDescription": "이 워크스페이스의 모든 계획 단계 결과에 대해 LLM이 자동 생성하는 변경 요약, 위험 평가, 실패 분석입니다.",
+        "aiSummaryTitle": "AI 계획 요약",
+        "badgePlanOnly": "계획 전용",
+        "bannerPlanOnlyCli": "이것은 VCS 연결된 워크스페이스에서 CLI로 시작된 <strong>계획 전용</strong> 실행입니다. CLI로 업로드된 코드에는 적용을 사용할 수 없습니다 — VCS로 관리되는 코드만 적용할 수 있습니다.",
+        "changesPlanning": "계획 중…",
+        "configurationsEmpty": "아직 구성 버전이 없습니다. `terraform plan`이 업로드하거나 VCS 푸시가 실행을 트리거하는 즉시 여기에 표시됩니다.",
+        "confirmApply": "이 실행을 적용하시겠습니까? 계획을 적용하고 인프라를 변경합니다.",
+        "confirmDiscard": "이 계획을 폐기하시겠습니까?",
+        "costNoState": "아직 비용이 없습니다 — 첫 적용 후에 표시됩니다.",
+        "detailsPlanOnly": "계획 전용",
+        "discardedHeading": "폐기됨 — 다시 계획해야 합니다",
+        "driftCheckNowTitle": "드리프트를 확인하기 위해 계획 전용 실행을 대기열에 넣습니다",
+        "driftRemediate": "플랜 + 적용",
+        "driftRemediateConfirm": "이 워크스페이스에 대해 플랜 + 적용 실행을 대기열에 추가할까요?",
+        "driftRemediateTitle": "인프라를 구성에 다시 맞추기 위해 플랜 + 적용 실행을 대기열에 추가합니다",
+        "errorsQueuePlan": "계획을 대기하지 못했습니다",
+        "errorsQueuePlanStatus": "계획을 대기하지 못했습니다 ({status})",
+        "fieldsAutoMerge": "적용 후 자동 병합",
+        "formAutoApplyModeHint": "never: 항상 사람의 확인을 기다립니다. always: 성공한 모든 플랜을 적용합니다. create / create/update: 해당 작업으로만 이루어진 플랜만 적용하며, 삭제나 교체는 절대 적용하지 않습니다.",
+        "lockLockedDesc": "이 워크스페이스는 잠겨 있습니다. 계획이나 적용을 실행할 수 없습니다.",
+        "logApplyEmpty": "아직 사용 가능한 적용 출력이 없습니다.",
+        "logApplySkipped": "적용이 실행되지 않았습니다: 계획에 변경 사항이 없어 적용할 것이 없었습니다.",
+        "logIndexSummary": "플랜 요약",
+        "logIndexTitle": "리소스 변경 또는 플랜 요약으로 이동합니다",
+        "logPlanEmpty": "아직 사용 가능한 계획 출력이 없습니다.",
+        "nonDefaultRefNote": "기본이 아닌 레퍼런스가 선택됨 — 실행은 계획 전용이 됩니다",
+        "planExpiryDescription": "확인되지 않은 계획이 이 기간보다 오래되면 자동으로 폐기하여, 오래된 계획이 변경된 상태에 적용되지 않도록 합니다. 기본적으로 꺼져 있으며, 이 경우 계획을 다시 실행해야 합니다. (적용 가능한 실행에만 적용됩니다.)",
+        "planExpiryTitle": "계획 만료",
+        "planOptions": "계획 옵션",
+        "planSummaryChatPlaceholder": "이 계획에 대해 후속 질문을 하세요… (⌘/Ctrl + Enter로 전송)",
+        "planSummaryHeading": "계획 요약",
+        "planSummaryNoChangesTitle": "계획에서 리소스 변경 사항이 없다고 보고했습니다",
+        "planSummaryRegenerateTooltip": "동일한 계획 입력에 대해 AI 요약을 다시 실행합니다",
+        "planSummarySummarising": "계획 요약 중…",
+        "policyBlockedMessage": "이 실행은 <strong>필수 정책 집합에 의해 차단</strong>되었습니다. 실패가 해결되거나 관리자가 재정의할 때까지 적용되지 않습니다.",
+        "queueApplyConfirm": "계획 + 적용 실행을 대기하시겠습니까? 인프라가 변경될 수 있습니다.",
+        "queueApplyRefBlocked": "브랜치, 태그 또는 커밋이 선택된 동안에는 적용할 수 없습니다. 해당 실행은 항상 플랜 전용입니다",
+        "queueApplyTitle": "플랜 + 적용 실행을 대기열에 추가",
+        "queueDestroyTitle": "삭제 계획 대기",
+        "queuePlan": "플랜",
+        "queuePlanConfirm": "이 워크스페이스에 대한 예상 계획을 대기하시겠습니까?",
+        "queueRun": "플랜 + 적용",
+        "replacePlaceholder": "e.g. aws_instance.web",
+        "runTriggersDescription": "소스 워크스페이스가 적용을 완료하면 다운스트림 워크스페이스에 새 실행이 자동으로 대기됩니다. 대상당 최대 20개의 소스 워크스페이스.",
+        "tabApplyFull": "적용 로그",
+        "tabApplyLabel": "적용<log>로그</log>",
+        "tabPlanFull": "계획 로그",
+        "tabPlanLabel": "계획<log>로그</log>",
+        "targetPlaceholder": "e.g. aws_instance.web, aws_s3_bucket.data",
+        "timelineApplied": "적용됨",
+        "timelineApplyingStarted": "적용 시작됨",
+        "timelinePlanComplete": "계획 완료",
+        "timelinePlanningStarted": "계획 시작됨",
+        "typePlanApply": "계획 + 적용",
+        "vcsWorkflowWarningRbac": "PR을 병합할 수 있는 사람은 누구나 적용할 수 있습니다. 브랜치 보호 규칙(필수 검토, 상태 검사, 코드 소유자 승인)이 관문이 됩니다. Terrapod 역할/라벨 RBAC는 이 모드에서 댓글 기반 작업에는 적용되지<em>않습니다</em>.",
+        "vcsWorkflowWarningRecommended": "<strong>권장:</strong> 선형 히스토리(병합 전 rebase/squash)를 요구하여 적용하는 커밋이 실제로 반영되는 커밋이 되도록 하세요.",
+        "slackDescription": "이 워크스페이스를 Slack 실행 알림(승인 요청, 적용, 오류, 드리프트)에 등록합니다. 채널을 비워두면 이 워크스페이스는 알림을 보내지 않습니다(배포 전체 팬아웃은 없습니다). 관리자가 Slack 앱을 활성화해야 합니다."
       }
     },
     "pulumi": {
@@ -3425,14 +3700,84 @@
         "applying": "pulumi up 실행 중"
       },
       "runStatus": {
-        "planning": "계획 중",
-        "planned": "계획됨",
-        "applying": "적용 중",
-        "applied": "적용됨"
+        "planning": "미리보기 중",
+        "planned": "미리보기 완료",
+        "applying": "업데이트 중",
+        "applied": "업데이트됨"
       },
       "status": {
-        "planning": "계획 중",
-        "applying": "적용 중"
+        "planning": "미리보기 중",
+        "applying": "업데이트 중",
+        "planned": "미리보기 완료",
+        "applied": "업데이트됨"
+      },
+      "words": {
+        "actionConfirmFull": "확인 및 업데이트",
+        "actionConfirmShort": "업데이트",
+        "activityApplied": "업데이트 완료",
+        "activityConfirmed": "업데이트 시작 중",
+        "activityDiscarded": "미리보기 폐기됨",
+        "activityPlannedComplete": "미리보기 완료",
+        "activityPlannedConfirmable": "확인 및 업데이트를 기다리는 중",
+        "activityPlannedSpeculative": "예상 미리보기 완료",
+        "aiPolicyOverrideConfirm": "AI 정책 게이트를 재정의하고 판정과 관계없이 이 실행의 업데이트를 허용하시겠습니까?",
+        "aiSummaryDescription": "이 워크스페이스의 모든 미리보기 단계 결과에 대해 LLM이 자동 생성하는 변경 요약, 위험 평가, 실패 분석입니다.",
+        "aiSummaryTitle": "AI 미리보기 요약",
+        "badgePlanOnly": "미리보기 전용",
+        "bannerPlanOnlyCli": "이것은 VCS 연결된 워크스페이스에서 CLI로 시작된 <strong>미리보기 전용</strong> 실행입니다. CLI로 업로드된 코드에는 업데이트를 사용할 수 없습니다 — VCS로 관리되는 코드만 업데이트할 수 있습니다.",
+        "changesPlanning": "미리보기 중…",
+        "configurationsEmpty": "아직 구성 버전이 없습니다. VCS 푸시가 실행을 트리거하는 즉시 여기에 표시됩니다.",
+        "confirmApply": "이 실행을 업데이트하시겠습니까? 미리보기의 내용을 수행하고 인프라를 변경합니다.",
+        "confirmDiscard": "이 미리보기를 폐기하시겠습니까?",
+        "costNoState": "아직 비용이 없습니다 — 첫 업데이트 후에 표시됩니다.",
+        "detailsPlanOnly": "미리보기 전용",
+        "discardedHeading": "폐기됨 — 다시 미리보기해야 합니다",
+        "driftCheckNowTitle": "드리프트를 확인하기 위해 미리보기 전용 실행을 대기열에 넣습니다",
+        "driftRemediate": "미리보기 + 업데이트",
+        "driftRemediateConfirm": "이 워크스페이스에 대해 미리보기 + 업데이트 실행을 대기열에 추가할까요?",
+        "driftRemediateTitle": "인프라를 구성에 다시 맞추기 위해 미리보기 + 업데이트 실행을 대기열에 추가합니다",
+        "errorsQueuePlan": "미리보기를 대기하지 못했습니다",
+        "errorsQueuePlanStatus": "미리보기를 대기하지 못했습니다 ({status})",
+        "fieldsAutoMerge": "업데이트 후 자동 병합",
+        "formAutoApplyModeHint": "never: 항상 사람의 확인을 기다립니다. always: 성공한 모든 미리보기에서 업데이트합니다. create / create/update: 해당 작업으로만 이루어진 미리보기에서만 업데이트하며, 삭제나 교체는 절대 하지 않습니다.",
+        "lockLockedDesc": "이 워크스페이스는 잠겨 있습니다. 미리보기나 업데이트를 실행할 수 없습니다.",
+        "logApplyEmpty": "아직 사용 가능한 업데이트 출력이 없습니다.",
+        "logApplySkipped": "업데이트가 실행되지 않았습니다: 미리보기에 변경 사항이 없어 업데이트할 것이 없었습니다.",
+        "logIndexSummary": "미리보기 요약",
+        "logIndexTitle": "리소스 변경 또는 미리보기 요약으로 이동합니다",
+        "logPlanEmpty": "아직 사용 가능한 미리보기 출력이 없습니다.",
+        "nonDefaultRefNote": "기본이 아닌 레퍼런스가 선택됨 — 실행은 미리보기 전용이 됩니다",
+        "planExpiryDescription": "확인되지 않은 미리보기가 이 기간보다 오래되면 자동으로 폐기하여, 오래된 미리보기가 변경된 상태에 반영되지 않도록 합니다. 기본적으로 꺼져 있으며, 이 경우 미리보기를 다시 실행해야 합니다. (업데이트 가능한 실행에만 해당됩니다.)",
+        "planExpiryTitle": "미리보기 만료",
+        "planOptions": "미리보기 옵션",
+        "planSummaryChatPlaceholder": "이 미리보기에 대해 후속 질문을 하세요… (⌘/Ctrl + Enter로 전송)",
+        "planSummaryHeading": "미리보기 요약",
+        "planSummaryNoChangesTitle": "미리보기에서 리소스 변경 사항이 없다고 보고했습니다",
+        "planSummaryRegenerateTooltip": "동일한 미리보기 입력에 대해 AI 요약을 다시 실행합니다",
+        "planSummarySummarising": "미리보기 요약 중…",
+        "policyBlockedMessage": "이 실행은 <strong>필수 정책 집합에 의해 차단</strong>되었습니다. 실패가 해결되거나 관리자가 재정의할 때까지 업데이트되지 않습니다.",
+        "queueApplyConfirm": "미리보기 + 업데이트 실행을 대기하시겠습니까? 인프라가 변경될 수 있습니다.",
+        "queueApplyRefBlocked": "브랜치, 태그 또는 커밋이 선택된 동안에는 업데이트할 수 없습니다. 해당 실행은 항상 미리보기 전용입니다",
+        "queueApplyTitle": "미리보기 + 업데이트 실행을 대기열에 추가",
+        "queueDestroyTitle": "삭제 미리보기 대기",
+        "queuePlan": "미리보기",
+        "queuePlanConfirm": "이 워크스페이스에 대한 예상 미리보기를 대기하시겠습니까?",
+        "queueRun": "미리보기 + 업데이트",
+        "replacePlaceholder": "e.g. urn:pulumi:dev::shop::aws:ec2/instance:Instance::web",
+        "runTriggersDescription": "소스 워크스페이스가 업데이트를 완료하면 다운스트림 워크스페이스에 새 실행이 자동으로 대기됩니다. 대상당 최대 20개의 소스 워크스페이스.",
+        "tabApplyFull": "업데이트 로그",
+        "tabApplyLabel": "업데이트<log>로그</log>",
+        "tabPlanFull": "미리보기 로그",
+        "tabPlanLabel": "미리보기<log>로그</log>",
+        "targetPlaceholder": "e.g. urn:pulumi:dev::shop::aws:s3/bucket:Bucket::assets",
+        "timelineApplied": "업데이트됨",
+        "timelineApplyingStarted": "업데이트 시작됨",
+        "timelinePlanComplete": "미리보기 완료",
+        "timelinePlanningStarted": "미리보기 시작됨",
+        "typePlanApply": "미리보기 + 업데이트",
+        "vcsWorkflowWarningRbac": "PR을 병합할 수 있는 사람은 누구나 업데이트할 수 있습니다. 브랜치 보호 규칙(필수 검토, 상태 검사, 코드 소유자 승인)이 관문이 됩니다. Terrapod 역할/라벨 RBAC는 이 모드에서 댓글 기반 작업에는 적용되지<em>않습니다</em>.",
+        "vcsWorkflowWarningRecommended": "<strong>권장:</strong> 선형 히스토리(병합 전 rebase/squash)를 요구하여 업데이트의 기준이 되는 커밋이 실제로 반영되는 커밋이 되도록 하세요.",
+        "slackDescription": "이 워크스페이스를 Slack 실행 알림(승인 요청, 업데이트, 오류, 드리프트)에 등록합니다. 채널을 비워두면 이 워크스페이스는 알림을 보내지 않습니다(배포 전체 팬아웃은 없습니다). 관리자가 Slack 앱을 활성화해야 합니다."
       }
     }
   },

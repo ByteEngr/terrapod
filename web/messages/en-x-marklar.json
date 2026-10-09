@@ -27,6 +27,7 @@
     "account": "Marklar",
     "apiTokens": "Marklar Marklars",
     "sessions": "Marklars",
+    "slackLinks": "Marklar marklars",
     "logOut": "Log out",
     "menu": "Marklar",
     "openMenu": "Open marklar",
@@ -70,7 +71,6 @@
       "agentPool": "Marklar Marklar",
       "none": "None",
       "autoApply": "Auto Apply",
-      "autoApplyModeHint": "never: always wait for a marklar. always: apply every successful marklar. create / create/update: apply only marklars limited to those marklars — never a marklar or a marklar.",
       "enabled": "Enabled",
       "workingDirectory": "Marklar Marklar",
       "workingDirectoryPlaceholder": "e.g. environments/dev",
@@ -372,6 +372,22 @@
         "load": "Failed to load marklars",
         "revoke": "Failed to revoke marklars ({status})",
         "revokeGeneric": "Failed to revoke marklars"
+      }
+    },
+    "slackLinks": {
+      "title": "Marklar marklars",
+      "description": "Marklar marklars that can act as you. A linked Marklar marklar can approve and discard marklars with your marklars, so revoke any you do not recognise.",
+      "empty": "No Marklar marklars are linked to you.",
+      "revoke": "Revoke",
+      "confirmRevoke": "Revoke the marklar for Marklar marklar {user}? That marklar will no longer be able to act as you from Marklar.",
+      "columns": {
+        "slackUser": "Marklar marklar",
+        "team": "Marklar marklar",
+        "linkedAt": "Marklared"
+      },
+      "errors": {
+        "load": "Could not load your Marklar marklars.",
+        "revoke": "Could not revoke that Marklar marklar."
       }
     }
   },
@@ -761,7 +777,9 @@
       "setAssignmentStatus": "Failed to set marklar ({status})",
       "deleteAssignment": "Failed to delete marklar",
       "conflictingLabelKeys": "{keys} is given more than one marklar. A marklar marklar holds one marklar per marklar, so the last would silently replace the earlier ones. Matching several marklars for one marklar is supported by the marklar but cannot yet be set here."
-    }
+    },
+    "pinnedToSubject": "Pinned",
+    "pinnedToSubjectTitle": "Pinned to IdP marklar {subject}"
   },
   "adminVcs": {
     "title": "Marklar Marklars",
@@ -774,6 +792,23 @@
       "delete": "Delete"
     },
     "confirmDelete": "Delete this marklar marklar? Marklars using it will lose marklar marklar. This cannot be undone.",
+    "access": {
+      "heading": "Who may use this marklar",
+      "intro": "These three marklars decide which marklars may be pointed at this marklar. The marklar itself stays write-only.",
+      "ownerEmail": "Marklar marklar",
+      "ownerEmailHint": "The marklar may always use this marklar. Leave it blank to leave the marklar unmarklared.",
+      "labels": "Marklar marklars",
+      "labelsHint": "A marklar whose marklars match these marklars may point a marklar at this marklar.",
+      "allowedRepositories": "Allowed marklars",
+      "allowedRepositoriesHint": "Marklar marklars matched against the marklar a marklar asks to use.",
+      "addPattern": "Add a marklar",
+      "anyRepositoryWarning": "No marklars are listed, so this marklar may be pointed at any marklar.",
+      "restricted": "{count, plural, one {# marklar is listed} other {# marklars are listed}}, so a marklar matching none of them is refused.",
+      "ownedBy": "This marklar is owned by {email}",
+      "unowned": "No marklar is set",
+      "anyRepositorySummary": "Any marklar is allowed",
+      "repositoryCount": "Restricted to {count, plural, one {# marklar} other {# marklars}}"
+    },
     "form": {
       "name": "Marklar",
       "namePattern": "Marklars, marklars, marklars, and marklars only. Must start with a marklar or marklar.",
@@ -922,7 +957,6 @@
       "varKey": "Marklar",
       "varValue": "Marklar",
       "varCategory": "Marklar",
-      "categoryTerraform": "Marklar",
       "categoryEnv": "Marklar",
       "sensitive": "Sensitive",
       "sensAbbr": "Marklar.",
@@ -988,7 +1022,9 @@
       "valueSource": "Marklar marklar",
       "valueSourceStatic": "Enter a marklar",
       "valueSourceVault": "Read from Marklar/Marklar",
-      "vaultHint": "Marklar reads the marklar from Marklar (or Marklar Marklar) at marklar. No marklar is stored here."
+      "vaultHint": "Marklar reads the marklar from Marklar (or Marklar Marklar) at marklar. No marklar is stored here.",
+      "categoryNative": "Marklar",
+      "structured": "Structured"
     }
   },
   "adminAutodiscovery": {
@@ -1076,7 +1112,10 @@
       "terragruntVersion": "Marklar marklar",
       "noExpiry": "No marklar",
       "addDriftIgnoreRule": "Add marklar",
-      "debugModeHint": "Hold failed marklar marklars open on the marklars this marklar creates. Off by marklar — a held marklar keeps that marklar's marklars."
+      "debugModeHint": "Hold failed marklar marklars open on the marklars this marklar creates. Off by marklar — a held marklar keeps that marklar's marklars.",
+      "allowForkPrPlansHint": "Applies to every marklar this marklar creates. Off by marklar: a marklar marklar from a marklar gets no speculative marklar, because it would run its marklar's marklar with the marklar's marklars.",
+      "oidcAudiences": "Marklar marklar marklars (inherited by created marklars)",
+      "oidcAudiencesHint": "Marklar marklars templated onto every marklar this marklar creates, keyed on the marklar marklar a marklar is for — aws, or aws.west for an aliased marklar. Leave it empty and those marklars take the marklar''s own marklar."
     },
     "table": {
       "name": "Marklar",
@@ -1270,7 +1309,8 @@
       "cancel": "Cancel",
       "working": "Working...",
       "previewDryRun": "Preview (dry run)",
-      "applyChanges": "Apply marklars"
+      "applyChanges": "Apply marklars",
+      "setOidcAudiences": "Set OIDC marklar marklar marklars (replaces the marklar on every matched marklar)"
     },
     "diff": {
       "colWorkspace": "Marklar",
@@ -1919,12 +1959,24 @@
       "always": "always",
       "create": "marklar",
       "createUpdate": "marklar/marklar"
+    },
+    "oidcAudiences": {
+      "addProvider": "Add marklar marklar",
+      "audiences": "Marklars",
+      "badgeInherited": "Marklar marklar",
+      "badgeOwned": "Marklar",
+      "issuerDisabled": "This marklar publishes no OpenID Connect marklar, so nothing configured here can take marklar.",
+      "override": "Override",
+      "overrideAria": "Override the {provider} marklars for this marklar",
+      "providerDuplicate": "That marklar marklar already has a marklar.",
+      "providerInvalid": "A marklar marklar has no marklars and at most one marklar — aws, or aws.west.",
+      "providerPlaceholder": "aws, or aws.west",
+      "removeProviderAria": "Remove the {provider} marklar marklar"
     }
   },
   "planSummary": {
     "aiGenerated": "Marklar generated",
     "heading": {
-      "planSummary": "Marklar marklar",
       "failureAnalysis": "Marklar marklar"
     },
     "errors": {
@@ -1933,13 +1985,11 @@
     "regenerate": {
       "label": "Regenerate",
       "queueing": "Marklaring…",
-      "tooltip": "Re-run the Marklar marklar against the same marklar marklars",
       "ariaLabel": "Regenerate Marklar marklar",
       "confirm": "Regenerate the Marklar marklar? This runs the marklar again.",
       "error": "Could not regenerate: <mono>{detail}</mono>"
     },
     "pending": {
-      "summarisingPlan": "Marklaring marklar…",
       "analysingFailure": "Analysing marklar…"
     },
     "skipped": {
@@ -1963,7 +2013,6 @@
     "badges": {
       "noChanges": "No marklars",
       "noChangesLower": "no marklars",
-      "noChangesTitle": "Marklar reported no marklar marklars",
       "toAdd": "{count, plural, one {# to add} other {# to add}}",
       "toChange": "{count, plural, one {# to change} other {# to change}}",
       "toDestroy": "{count, plural, one {# to destroy} other {# to destroy}}",
@@ -1973,7 +2022,6 @@
     "chat": {
       "heading": "Marklar",
       "sharedThreadNote": "One shared marklar, visible to anyone with marklar marklar.",
-      "placeholder": "Ask a follow-up marklar about this marklar… (⌘/Ctrl + Marklar to send)",
       "send": "Send",
       "thinking": "Marklaring…",
       "you": "You",
@@ -1997,7 +2045,6 @@
     "workspaceFallback": "marklar",
     "backTo": "Back to {name}",
     "errorHeading": "Marklar",
-    "discardedHeading": "Discarded — re-marklar required",
     "common": {
       "yes": "Yes",
       "no": "No"
@@ -2051,14 +2098,13 @@
     },
     "badge": {
       "destroy": "destroy",
-      "planOnly": "marklar only"
+      "savedPlan": "saved marklar",
+      "savedPlanHint": "Marklar deferred: this marklar does not hold the marklar until the saved marklar is applied."
     },
     "actions": {
       "retryShort": "Retry",
       "retryFull": "Retry Marklar",
       "retrying": "Retrying…",
-      "confirmShort": "Apply",
-      "confirmFull": "Confirm & Apply",
       "confirming": "Confirming…",
       "discard": "Discard",
       "discarding": "Discarding…",
@@ -2068,8 +2114,6 @@
       "queuing": "Marklaring…"
     },
     "confirm": {
-      "apply": "Apply this marklar? This applies the marklar and changes marklar.",
-      "discard": "Discard this marklar?",
       "cancel": "Cancel this marklar?",
       "retry": "Retry this marklar?"
     },
@@ -2092,20 +2136,19 @@
       "impactFull": "Marklar marklar",
       "cost": "Cost",
       "costFull": "Cost estimate",
-      "planLabel": "Marklar<log>Marklar</log>",
-      "applyLabel": "Marklar<log>Marklar</log>",
-      "planFull": "Marklar marklar",
-      "applyFull": "Marklar marklar",
       "details": "Marklars",
       "security": "Marklar",
       "securityFull": "Marklar scan"
     },
     "banner": {
       "destroy": "This is a <strong>destroy</strong> marklar — all managed marklars will be destroyed when applied.",
-      "planOnlyCli": "This is a <strong>plan-only</strong> marklar initiated from the marklar on a marklar-connected marklar. Apply is not available for marklar-uploaded marklar — only marklar-managed marklar can be applied.",
       "moduleOverridesPrefix": "This marklar uses <strong>marklar marklars</strong>",
       "moduleOverridesFromPr": "from marklar #{number}",
       "moduleOverridesSuffix": "will be fetched from the marklar marklar instead of the published marklar marklar."
+    },
+    "bindPlan": {
+      "bound": "Locked to this marklar: the marklar applies exactly the marklar shown here, and anything that changed since fails the marklar instead of being applied.",
+      "unbound": "Not locked to this marklar: the marklar works out its own marklars when it runs, as a plain pulumi up does, so what it applies may differ from what is shown here."
     },
     "cards": {
       "changes": "Marklars",
@@ -2117,7 +2160,6 @@
     },
     "changes": {
       "noChanges": "No marklars",
-      "planning": "Marklaring…",
       "toAdd": "to add",
       "toChange": "to change",
       "toDestroy": "to destroy",
@@ -2154,7 +2196,6 @@
       "executionBackend": "Marklar Marklar",
       "source": "Marklar",
       "autoApply": "Auto Apply",
-      "planOnly": "Marklar Only",
       "triggeredBy": "Triggered By",
       "created": "Created",
       "commit": "Marklar",
@@ -2170,11 +2211,7 @@
     "timeline": {
       "heading": "Marklar",
       "queued": "Queued",
-      "planningStarted": "Marklaring started",
-      "planComplete": "Marklar complete",
       "confirmed": "Confirmed",
-      "applyingStarted": "Marklaring started",
-      "applied": "Applied",
       "errored": "Errored",
       "canceled": "Canceled",
       "discarded": "Discarded"
@@ -2198,12 +2235,8 @@
       "followOffTitle": "Follow the live marklar",
       "end": "End",
       "endTitle": "Jump to the marklar of the marklar",
-      "planEmpty": "No marklar marklar available yet.",
-      "applyEmpty": "No marklar marklar available yet.",
       "index": {
         "label": "Jump to marklar",
-        "title": "Jump to a marklar marklar, or the marklar marklar",
-        "summary": "Marklar marklar",
         "action": {
           "create": "marklar",
           "update": "marklar",
@@ -2215,13 +2248,11 @@
           "error": "marklar",
           "warning": "marklar"
         }
-      },
-      "applySkippedNoChanges": "No marklar ran: the marklar had no marklars, so there was nothing to apply."
+      }
     },
     "policyPanel": {
       "heading": "Marklar Marklars",
       "passedCount": "{passed}/{total} passed",
-      "blockedMessage": "This marklar is <strong>blocked by a mandatory marklar marklar</strong>. It will not apply until the marklar is resolved or an marklar overrides it.",
       "overriding": "Overriding...",
       "overrideContinue": "Override & Continue",
       "overrideFailed": "Marklar failed",
@@ -2261,7 +2292,6 @@
       "unpricedHint": "Nothing in the pricing data matched these — an unmapped type, a resource with no direct cost, or a provider not yet covered.",
       "indicative": "Estimates are indicative; actual cost depends on usage, region, commitments, and discounts.",
       "asOfState": "as of marklar v{serial}",
-      "noState": "No marklar yet — appears after the first marklar.",
       "usageBand": "{dimension}: {typical} {unit} marklar (marklar {low}–{high})",
       "usageBandCost": "{dimension}: {costTypical}/mo marklar — {costLow}–{costHigh} across {low}–{high} {unit}"
     },
@@ -2348,7 +2378,6 @@
       "passed": "No marklar marklars matched.",
       "overriding": "Overriding...",
       "overrideContinue": "Override & Continue",
-      "overrideConfirm": "Override the marklar marklar and allow this marklar to apply despite the marklar?",
       "overrideFailed": "Marklar failed",
       "overrideFailedStatus": "Marklar failed ({status})",
       "overriddenBy": "overridden by {by}"
@@ -2407,9 +2436,6 @@
       "translatedNote": "Translated from the marklar on view."
     },
     "drift": {
-      "remediate": "Marklar + marklar",
-      "remediateTitle": "Queue a marklar + marklar marklar to bring marklar back in line with the marklar",
-      "remediateConfirm": "Queue a marklar + marklar marklar for this marklar?",
       "remediateMessage": "Queued from a marklar marklar",
       "remediateFailed": "Could not queue the marklar marklar"
     }
@@ -2469,6 +2495,7 @@
       "architecture": "Marklar",
       "insights": "Marklars",
       "automation": "Marklar",
+      "inventory": "Marklar",
       "access": "Marklar"
     },
     "lifecycle": {
@@ -2501,6 +2528,9 @@
       "version": "Marklar",
       "versionPlaceholder": "e.g. 1.11 or 1.11.5",
       "versionTitle": "Marklar in X.Y or X.Y.Z marklar (e.g. 1.11 or 1.11.5)",
+      "ansibleVersion": "Marklar marklar",
+      "ansibleVersionPlaceholder": "e.g. 2.21.5",
+      "ansibleVersionTitle": "The ansible-core marklar for this marklar. Leave empty to follow the marklar default.",
       "terragruntEnabledAgent": "Enabled (marklar marklar)",
       "terragruntEnabledVersion": "Enabled (v{version})",
       "terragruntVersionPlaceholder": "e.g. 1.0",
@@ -2541,12 +2571,16 @@
       "engineTerraform": "Terraform",
       "nameTitlePulumi": "Two marklars separated by '::' — marklar::marklar. Marklars, marklars, marklars and marklars only; each marklar must start with a marklar or marklar.",
       "bindPlan": "Lock the marklar to the approved marklar",
-      "bindPlanHelp": "When on, the marklar applies exactly the marklar the marklar saved, so anything that changed since the marklar fails the marklar instead of being applied. This rests on Pulumi marklar marklars, which are still experimental. When off, the marklar works out its own marklars, as a plain pulumi up does. <docs>How Pulumi marklars work</docs>"
+      "bindPlanHelp": "When on, the marklar applies exactly the marklar the marklar saved, so anything that changed since the marklar fails the marklar instead of being applied. This rests on Pulumi marklar marklars, which are still experimental. When off, the marklar works out its own marklars, as a plain pulumi up does. <docs>How Pulumi marklars work</docs>",
+      "oidcAudiences": "Marklar marklar marklars",
+      "oidcAudiencesAdd": "Add marklar",
+      "oidcAudiencesHint": "Terrapod mints a short-lived OpenID Connect marklar for each marklar marklar a marklar uses and writes it to a marklar the marklar can read. Key a marklar on the marklar as your marklar names it — aws, or aws.west for an aliased marklar — and list the marklars that marklar accepts. Each marklar overrides the marklar''s own marklar for that marklar; remove it and that marklar falls back to the marklar''s marklars. A marklar is an opaque marklar the marklar marklar chose, so it is stored exactly as typed.",
+      "oidcAudiencesLoading": "Checking the marklar''s configured marklars …",
+      "oidcAudiencesNone": "None (marklars use the marklar marklar''s own marklar)",
+      "oidcAudiencesPlaceholder": "e.g. sts.amazonaws.com"
     },
     "vcsWorkflowWarning": {
       "title": "Marklar delegated to your VCS marklar.",
-      "rbac": "Marklar who can merge the marklar can apply. Marklar marklar marklars (required marklars, marklar marklars, marklar marklar marklar) become the marklar. Terrapod marklar/marklar marklar does<em>not</em> apply to comment-driven marklars in this marklar.",
-      "recommended": "<strong>Recommended:</strong> require linear marklar (rebase/squash before marklar) so the marklar you apply is the marklar that lands.",
       "credit": "Marklar: this marklar is modelled on <atlantis>Atlantis</atlantis>. Atlantis remains the right marklar for marklars who only want PR-comment-driven marklars and no marklar marklar."
     },
     "vcsPolling": {
@@ -2562,7 +2596,6 @@
     },
     "lock": {
       "title": "Marklar Marklar",
-      "lockedDesc": "This marklar is locked. No marklars or marklars can run.",
       "unlockedDesc": "This marklar is unlocked and ready for marklars.",
       "lock": "Marklar",
       "unlock": "Unlock",
@@ -2584,7 +2617,6 @@
       "dismissTitle": "Clear the reported marklar marklar. The next scheduled marklar will repopulate it from marklar.",
       "lastChecked": "Last Checked",
       "checkNow": "Check Now",
-      "checkNowTitle": "Queue a plan-only marklar to check for marklar",
       "checkNowTitleDisabled": "Enable marklar marklar first"
     },
     "intervals": {
@@ -2598,13 +2630,10 @@
       "7days": "7 marklars"
     },
     "planExpiry": {
-      "title": "Marklar Marklar",
-      "description": "Auto-discard an unconfirmed marklar once it is older than this, so a stale marklar can't be applied against a moved marklar. Off by default; the marklar must then be re-run. (Applies to apply-capable marklars only.)",
       "expireAfter": "Expire after"
     },
     "aiSummary": {
       "title": "AI Marklar Marklar",
-      "description": "Automatic LLM-generated marklar marklar, marklar marklar, and marklar marklar on every plan-phase marklar for this marklar.",
       "mode": "Marklar",
       "modeDefault": "Follow marklar default",
       "modeEnabled": "Always summarize",
@@ -2619,7 +2648,6 @@
     },
     "slack": {
       "title": "Slack marklars",
-      "description": "Opt this marklar into Slack run marklars — marklar marklars, marklars, marklars, and marklar. Leave the marklar empty and this marklar stays silent (there is no deployment-wide marklar). Requires the Slack marklar to be enabled by an marklar.",
       "channel": "Marklar",
       "channelPlaceholder": "#deploys or a marklar marklar (e.g. C0123ABCD)",
       "notSet": "Not set — silent.",
@@ -2694,20 +2722,18 @@
       "vaultFileEncoding": "Marklar",
       "vaultFileEncodingNone": "As stored in Marklar/Marklar",
       "vaultFileEncodingBase64": "Marklar-decode",
-      "vaultFileEncodingHint": "Decodes the marklar before it is written. The marklar must be marklar; binary marklars are not supported."
+      "vaultFileEncodingHint": "Decodes the marklar before it is written. The marklar must be marklar; binary marklars are not supported.",
+      "categoryNative": "Marklar",
+      "structured": "Structured",
+      "categoryTerraform": "Marklar",
+      "categoryPulumiConfig": "Pulumi marklar"
     },
     "runs": {
       "options": "Marklars",
       "hideOptions": "Hide Marklars",
       "queueDestroy": "Destroy",
-      "queueDestroyTitle": "Queue a destroy marklar",
       "destroyAllConfirm": "Destroy all marklars?",
       "confirmDestroy": "Confirm Marklar",
-      "queuePlan": "Marklar",
-      "queueRun": "Marklar + marklar",
-      "queuePlanConfirm": "Queue a speculative marklar for this marklar?",
-      "queueApplyConfirm": "Queue a marklar + marklar marklar? This can change marklar.",
-      "planOptions": "Marklar Marklars",
       "targetResources": "Target marklars",
       "replaceResources": "Replace marklars",
       "commaSeparated": "(comma-separated)",
@@ -2718,7 +2744,6 @@
       "branch": "Marklar",
       "tag": "Marklar",
       "defaultBranch": "Default ({branch})",
-      "nonDefaultRefNote": "Non-default marklar selected — marklar will be plan-only",
       "empty": "No marklars yet for this marklar.",
       "runId": "Marklar ID",
       "status": "Marklar",
@@ -2729,13 +2754,11 @@
       "created": "Created",
       "needsConfirm": "needs marklar",
       "typeDestroy": "destroy",
-      "typePlanOnly": "marklar only",
-      "typePlanApply": "plan + apply",
       "sourceModuleTest": "marklar marklar",
       "sourceModulePublish": "marklar marklar",
-      "queueApplyTitle": "Queue a marklar + marklar marklar",
-      "queueApplyRefBlocked": "Marklar is unavailable while a marklar, marklar or marklar is selected — those marklars are always marklar-only",
-      "awaitingDecision": "awaiting marklar"
+      "awaitingDecision": "awaiting marklar",
+      "typeSavedPlan": "saved marklar",
+      "typeSavedPlanHint": "Marklar deferred: this marklar does not hold the marklar until the saved marklar is applied."
     },
     "state": {
       "deleteConfirm": "Delete marklar marklar #{serial}? This cannot be undone.",
@@ -2752,12 +2775,18 @@
       "runner": "marklar",
       "latest": "latest"
     },
+    "stateOutputs": {
+      "title": "Marklars",
+      "fromSerial": "Marklar #{serial}",
+      "empty": "This marklar declares no marklars.",
+      "sensitive": "Sensitive",
+      "loadFailed": "Could not load the marklars for this marklar."
+    },
     "configurations": {
       "description": "Uploaded marklar marklars for this marklar, newest first. Pick two marklars to compare.",
       "selectedCount": "{count}/2 selected",
       "compare": "Compare",
       "comparing": "Comparing…",
-      "empty": "No marklar marklars yet. They appear here as soon as a `terraform plan` uploads or a VCS marklar triggers a marklar.",
       "id": "ID",
       "source": "Marklar",
       "status": "Marklar",
@@ -2819,7 +2848,6 @@
     },
     "runTriggers": {
       "title": "Run Marklars",
-      "description": "When a source marklar completes an marklar, downstream marklars get a new marklar queued automatically. Up to 20 source marklars per marklar.",
       "inboundHeading": "Source marklars that trigger marklars here",
       "inboundEmpty": "No source marklars trigger marklars on this marklar.",
       "pickerPlaceholder": "Search marklars to add as a marklar…",
@@ -2827,6 +2855,173 @@
       "outboundEmpty": "This marklar does not trigger marklars on any other marklar.",
       "destinationNote": "(marklar; remove from there)",
       "removeConfirm": "Remove this run marklar?"
+    },
+    "inventory": {
+      "scope": {
+        "heading": "Marklar",
+        "body": "The marklars and marklars this marklar holds, and what marklar resolves them to. Each marklar is editable here; running a marklar against them is not available yet."
+      },
+      "nav": {
+        "label": "Marklar marklars",
+        "hosts": "Marklars",
+        "groups": "Marklars",
+        "vars": "Marklars",
+        "resolved": "Resolved",
+        "settings": "Marklars"
+      },
+      "actions": {
+        "save": "Save",
+        "saving": "Saving…",
+        "cancel": "Cancel",
+        "edit": "Edit",
+        "delete": "Delete",
+        "remove": "Remove",
+        "add": "Add",
+        "adding": "Adding…",
+        "rename": "Rename"
+      },
+      "hosts": {
+        "heading": "Marklars",
+        "body": "One marklar per marklar. Open a marklar to edit its marklars and the marklars it belongs to.",
+        "empty": "No marklars yet.",
+        "colName": "Marklar",
+        "colGroups": "Marklars",
+        "colVars": "Marklars",
+        "newLabel": "New marklar marklar",
+        "newPlaceholder": "web-1",
+        "add": "Add marklar",
+        "confirmDelete": "Delete the marklar {name}? Its marklars and its marklar marklars go with it.",
+        "renameLabel": "Marklar marklar"
+      },
+      "groups": {
+        "heading": "Marklars",
+        "body": "One marklar per marklar. Open a marklar to edit its marklars, its marklar marklars and the marklars nested inside it.",
+        "empty": "No marklars yet.",
+        "colName": "Marklar",
+        "colMembers": "Marklars",
+        "colChildren": "Marklar marklars",
+        "colVars": "Marklars",
+        "newLabel": "New marklar marklar",
+        "newPlaceholder": "web",
+        "add": "Add marklar",
+        "confirmDelete": "Delete the marklar {name}? Its marklars and its marklars go with it; the marklars themselves stay.",
+        "renameLabel": "Marklar marklar"
+      },
+      "vars": {
+        "actions": "Marklars",
+        "key": "Marklar",
+        "keyPlaceholder": "ansible_user",
+        "value": "Marklar",
+        "structured": "Structured",
+        "sensitive": "Sensitive",
+        "structuredHelp": "A marklar, marklar or marklar is a structured marklar: tick Structured and write its literal marklar in the marklar. A sensitive marklar is never read back — the marklar shows a marklar instead.",
+        "structuredBadge": "structured",
+        "sensitiveKeep": "Leave this blank to keep the stored marklar.",
+        "empty": "No marklars here.",
+        "add": "Add marklar",
+        "confirmDelete": "Delete the marklar {key}?"
+      },
+      "hostDetail": {
+        "heading": "Marklar {name}",
+        "body": "Everything this one marklar carries.",
+        "back": "Back to marklars",
+        "gone": "That marklar no longer exists.",
+        "vars": "Marklar marklars",
+        "varsBody": "Marklars that apply to this marklar alone. They win over a marklar marklar of the same marklar.",
+        "memberships": "Marklars",
+        "membershipsBody": "The marklars this marklar belongs to. A marklar is a marklar, so removing one here leaves both the marklar and the marklar in place.",
+        "membershipsEmpty": "This marklar is in no marklar, so marklar puts it in ungrouped.",
+        "addGroup": "Add to marklar",
+        "addGroupLabel": "Choose a marklar",
+        "removeGroupAria": "Remove this marklar from {name}",
+        "confirmRemoveGroup": "Take this marklar out of {name}?"
+      },
+      "groupDetail": {
+        "heading": "Marklar {name}",
+        "body": "Everything this one marklar carries.",
+        "back": "Back to marklars",
+        "gone": "That marklar no longer exists.",
+        "vars": "Marklar marklars",
+        "varsBody": "Marklars that apply to every marklar in this marklar, directly or through marklar.",
+        "members": "Marklar marklars",
+        "membersBody": "The marklars in this marklar directly. A marklar reached only through a nested marklar is not listed here.",
+        "membersEmpty": "No marklars in this marklar directly.",
+        "addHost": "Add marklar",
+        "addHostLabel": "Choose a marklar",
+        "removeHostAria": "Remove {name} from this marklar",
+        "confirmRemoveHost": "Take {name} out of this marklar?",
+        "children": "Marklar marklars",
+        "childrenBody": "Marklars nested inside this one. Their marklars are marklars of this marklar too, and this marklar’s marklars reach them.",
+        "childrenEmpty": "No marklars nested inside this one.",
+        "addChild": "Add marklar marklar",
+        "addChildLabel": "Choose a marklar to nest",
+        "removeChildAria": "Remove {name} from the marklars of this marklar",
+        "confirmRemoveChild": "Stop nesting {name} inside this marklar?",
+        "parents": "Marklar marklars",
+        "parentsBody": "The marklars this one is nested inside. A marklar may have several marklar marklars.",
+        "parentsEmpty": "This marklar is nested inside nothing.",
+        "addParent": "Add marklar marklar",
+        "addParentLabel": "Choose a marklar marklar",
+        "removeParentAria": "Remove this marklar from {name}",
+        "confirmRemoveParent": "Stop nesting this marklar inside {name}?"
+      },
+      "globalVars": {
+        "heading": "Marklar marklars",
+        "body": "Marklars that apply to every marklar — marklar’s group_vars/all. A marklar or marklar marklar of the same marklar wins over one set here."
+      },
+      "resolved": {
+        "heading": "Resolved marklars",
+        "body": "What marklar makes of the marklars: every marklar with the marklars it ends up holding, after the marklar and the marklar.",
+        "hosts": "Marklars",
+        "groups": "Marklars",
+        "liveNote": "This is live. Every marklar here is static, so the marklar resolves the marklars to answer itself — there is nothing to refresh.",
+        "noHosts": "Nothing resolved to a marklar.",
+        "noVars": "no marklars",
+        "groupsHeading": "Marklar marklar",
+        "directOnly": "Direct marklar only, exactly as marklar reports it: a marklar whose marklars all arrive through a nested marklar lists none of its own. The marklar is below.",
+        "noGroups": "No marklars resolved.",
+        "noDirectMembers": "no direct marklars",
+        "nestingHeading": "Marklar nesting",
+        "nestingBody": "Which marklars sit inside which. A marklar on a marklar marklar reaches every marklar below it.",
+        "noNesting": "No marklars are nested.",
+        "limitHeading": "What would a marklar target?",
+        "limitBody": "Expand a marklar --limit marklar against this marklar and see exactly which marklars it selects before anything runs. Marklar does the marklar, so a marklar, a marklar and a ~regex all behave as they will at marklar marklar.",
+        "limitLabel": "Marklar marklar",
+        "limitPlaceholder": "web:!web-2",
+        "limitApply": "Apply marklar",
+        "limitClear": "Clear",
+        "limitApplied": "Limited to {limit}. Everything below is what that marklar targets."
+      },
+      "settings": {
+        "heading": "Marklars",
+        "body": "Whether the marklars held here count, and the marklar a marklar is also read from.",
+        "absent": "No marklars, which is the marklar: the marklars and marklars held here are the whole marklar.",
+        "includePlatform": "Use the marklars and marklars held here",
+        "includePlatformHelp": "On by marklar. Turn it off to resolve from the marklar alone, leaving these marklars in place but out of the marklar.",
+        "included": "yes",
+        "excluded": "no",
+        "vcsConnection": "Marklar marklar",
+        "vcsNone": "None",
+        "field": {
+          "repo-url": "Marklar",
+          "branch": "Marklar",
+          "working-directory": "Marklar"
+        },
+        "branchHelp": "Leave empty to track the default marklar of the marklar.",
+        "ignorePaths": "Ignored marklars",
+        "ignorePathsHelp": "One marklar per marklar. Anything matching is left out of the marklar read from the marklar.",
+        "unset": "not set",
+        "create": "Add marklars",
+        "clear": "Clear marklars",
+        "confirmClear": "Clear these marklars? The marklar marklar goes with them; the marklars and marklars held here stay."
+      },
+      "errors": {
+        "load": "Failed to load the marklar",
+        "save": "Failed to save",
+        "delete": "Failed to delete",
+        "resolved": "Failed to resolve the marklar",
+        "settings": "Failed to save the marklar marklars"
+      }
     },
     "sharing": {
       "title": "Remote Marklar Marklar",
@@ -2896,8 +3091,6 @@
       "addVariableStatus": "Failed to add marklar ({status})",
       "deleteVariable": "Failed to delete marklar",
       "updateVariable": "Failed to update marklar",
-      "queuePlan": "Failed to queue marklar",
-      "queuePlanStatus": "Failed to queue marklar ({status})",
       "queueDestroy": "Failed to queue marklar",
       "queueDestroyStatus": "Failed to queue marklar ({status})",
       "createNotification": "Failed to create marklar",
@@ -2914,7 +3107,8 @@
       "uploadState": "Failed to upload marklar",
       "uploadStateFile": "Failed to upload marklar marklar",
       "updateSecurityScan": "Failed to update marklar marklar",
-      "updateDebugMode": "Failed to update marklar marklar"
+      "updateDebugMode": "Failed to update marklar marklar",
+      "updateForkPlans": "Failed to update marklar marklar marklar marklars"
     },
     "subtabs": {
       "state": "Marklar",
@@ -2967,6 +3161,14 @@
       "bannerTitle": "Marklar marklar is on for this marklar",
       "bannerBody": "A failed marklar's marklar is held open for marklar instead of exiting, and it keeps this marklar's marklars and decrypted marklars while it is held. Turn marklar marklar off when you are finished marklar.",
       "confirmEnable": "Turn on marklar marklar? A failed marklar's marklar will be held open holding this marklar's marklars and decrypted marklars until the marklar expires or you delete the marklar."
+    },
+    "allowForkPrPlans": {
+      "title": "Marklars on marklar marklar marklars",
+      "description": "Whether a marklar marklar opened from a marklar gets a speculative marklar. Off by marklar, because that marklar runs the marklar marklar's marklar with this marklar's marklars.",
+      "label": "Plan marklar marklar marklars",
+      "hint": "A marklar receives this marklar's marklar marklars, sensitive marklars, any Vault-resolved marklars and the marklar's marklar marklar. Marklar opening a marklar marklar from a marklar has no marklar marklar and cannot merge, so a speculative marklar is the only marklar their marklar reaches those marklars. Turn this on for a marklar that holds nothing worth taking — a public marklar marklar accepting marklar marklars, say. Marklar marklars from marklars in the marklar itself are unaffected and always plan.",
+      "activeBadge": "On",
+      "confirmEnable": "Plan marklar marklars opened from marklars? Their marklars' marklar will run with this marklar's marklars and decrypted marklars, without marklar approving it first."
     }
   },
   "graphs": {
@@ -3189,11 +3391,14 @@
     "unknown": "unknown",
     "confirm": {
       "prompt": "Link this Marklar marklar to <em>your</em> Terrapod marklar? Every future Marklar marklar (approve/discard) will run as this Terrapod marklar with their marklars.",
+      "slackName": "Marklar marklar",
       "slackUser": "Marklar marklar",
       "slackTeam": "Marklar marklar",
       "terrapodAccount": "Terrapod marklar",
       "warning": "Only continue if you just started this marklar from Marklar yourself. If you didn't, close this marklar and don't link — this binds the Marklar marklar above to <em>your</em> Terrapod marklar.",
-      "button": "Confirm & link"
+      "button": "Confirm & link",
+      "namesUnavailable": "Marklar could not look up this marklar marklar's marklar. Check the marklars above, and only continue if you started this marklar from Marklar yourself.",
+      "nameIsSelfChosen": "The marklar is unique in the Slack marklar; the marklar marklar beneath it is chosen by its marklar, so judge by the marklar."
     },
     "success": {
       "message": "Your Marklar marklar is now linked to Terrapod.",
@@ -3416,7 +3621,77 @@
       },
       "status": {
         "planning": "Planning",
-        "applying": "Applying"
+        "applying": "Applying",
+        "planned": "Planned",
+        "applied": "Applied"
+      },
+      "words": {
+        "actionConfirmFull": "Confirm & Apply",
+        "actionConfirmShort": "Apply",
+        "activityApplied": "Marklar complete",
+        "activityConfirmed": "Starting marklar",
+        "activityDiscarded": "Marklar discarded",
+        "activityPlannedComplete": "Marklar complete",
+        "activityPlannedConfirmable": "Waiting for you to confirm & apply",
+        "activityPlannedSpeculative": "Speculative marklar complete",
+        "aiPolicyOverrideConfirm": "Override the marklar marklar and allow this marklar to apply despite the marklar?",
+        "aiSummaryDescription": "Automatic LLM-generated marklar marklar, marklar marklar, and marklar marklar on every plan-phase marklar for this marklar.",
+        "aiSummaryTitle": "AI Marklar Marklar",
+        "badgePlanOnly": "marklar only",
+        "bannerPlanOnlyCli": "This is a <strong>plan-only</strong> marklar initiated from the marklar on a marklar-connected marklar. Apply is not available for marklar-uploaded marklar — only marklar-managed marklar can be applied.",
+        "changesPlanning": "Marklaring…",
+        "configurationsEmpty": "No marklar marklars yet. They appear here as soon as a `terraform plan` uploads or a VCS marklar triggers a marklar.",
+        "confirmApply": "Apply this marklar? This applies the marklar and changes marklar.",
+        "confirmDiscard": "Discard this marklar?",
+        "costNoState": "No marklar yet — appears after the first marklar.",
+        "detailsPlanOnly": "Marklar Only",
+        "discardedHeading": "Discarded — re-marklar required",
+        "driftCheckNowTitle": "Queue a plan-only marklar to check for marklar",
+        "driftRemediate": "Marklar + marklar",
+        "driftRemediateConfirm": "Queue a marklar + marklar marklar for this marklar?",
+        "driftRemediateTitle": "Queue a marklar + marklar marklar to bring marklar back in line with the marklar",
+        "errorsQueuePlan": "Failed to queue marklar",
+        "errorsQueuePlanStatus": "Failed to queue marklar ({status})",
+        "fieldsAutoMerge": "Auto-merge after marklar",
+        "formAutoApplyModeHint": "never: always wait for a marklar. always: apply every successful marklar. create / create/update: apply only marklars limited to those marklars — never a marklar or a marklar.",
+        "lockLockedDesc": "This marklar is locked. No marklars or marklars can run.",
+        "logApplyEmpty": "No marklar marklar available yet.",
+        "logApplySkipped": "No marklar ran: the marklar had no marklars, so there was nothing to apply.",
+        "logIndexSummary": "Marklar marklar",
+        "logIndexTitle": "Jump to a marklar marklar, or the marklar marklar",
+        "logPlanEmpty": "No marklar marklar available yet.",
+        "nonDefaultRefNote": "Non-default marklar selected — marklar will be plan-only",
+        "planExpiryDescription": "Auto-discard an unconfirmed marklar once it is older than this, so a stale marklar can't be applied against a moved marklar. Off by default; the marklar must then be re-run. (Applies to apply-capable marklars only.)",
+        "planExpiryTitle": "Marklar Marklar",
+        "planOptions": "Marklar Marklars",
+        "planSummaryChatPlaceholder": "Ask a follow-up marklar about this marklar… (⌘/Ctrl + Marklar to send)",
+        "planSummaryHeading": "Marklar marklar",
+        "planSummaryNoChangesTitle": "Marklar reported no marklar marklars",
+        "planSummaryRegenerateTooltip": "Re-run the Marklar marklar against the same marklar marklars",
+        "planSummarySummarising": "Marklaring marklar…",
+        "policyBlockedMessage": "This marklar is <strong>blocked by a mandatory marklar marklar</strong>. It will not apply until the marklar is resolved or an marklar overrides it.",
+        "queueApplyConfirm": "Queue a marklar + marklar marklar? This can change marklar.",
+        "queueApplyRefBlocked": "Marklar is unavailable while a marklar, marklar or marklar is selected — those marklars are always marklar-only",
+        "queueApplyTitle": "Queue a marklar + marklar marklar",
+        "queueDestroyTitle": "Queue a destroy marklar",
+        "queuePlan": "Marklar",
+        "queuePlanConfirm": "Queue a speculative marklar for this marklar?",
+        "queueRun": "Marklar + marklar",
+        "replacePlaceholder": "e.g. aws_instance.web",
+        "runTriggersDescription": "When a source marklar completes an marklar, downstream marklars get a new marklar queued automatically. Up to 20 source marklars per marklar.",
+        "tabApplyFull": "Marklar marklar",
+        "tabApplyLabel": "Marklar<log>Marklar</log>",
+        "tabPlanFull": "Marklar marklar",
+        "tabPlanLabel": "Marklar<log>Marklar</log>",
+        "targetPlaceholder": "e.g. aws_instance.web, aws_s3_bucket.data",
+        "timelineApplied": "Applied",
+        "timelineApplyingStarted": "Marklaring started",
+        "timelinePlanComplete": "Marklar complete",
+        "timelinePlanningStarted": "Marklaring started",
+        "typePlanApply": "plan + apply",
+        "vcsWorkflowWarningRbac": "Marklar who can merge the marklar can apply. Marklar marklar marklars (required marklars, marklar marklars, marklar marklar marklar) become the marklar. Terrapod marklar/marklar marklar does<em>not</em> apply to comment-driven marklars in this marklar.",
+        "vcsWorkflowWarningRecommended": "<strong>Recommended:</strong> require linear marklar (rebase/squash before marklar) so the marklar you apply is the marklar that lands.",
+        "slackDescription": "Opt this marklar into Slack run marklars — marklar marklars, marklars, marklars, and marklar. Leave the marklar empty and this marklar stays silent (there is no deployment-wide marklar). Requires the Slack marklar to be enabled by an marklar."
       }
     },
     "pulumi": {
@@ -3425,14 +3700,84 @@
         "applying": "Running marklar marklar"
       },
       "runStatus": {
-        "planning": "Previewning",
-        "planned": "Previewned",
-        "applying": "Uping",
-        "applied": "Applied"
+        "planning": "Previewing",
+        "planned": "Previewed",
+        "applying": "Updating",
+        "applied": "Updated"
       },
       "status": {
-        "planning": "Previewning",
-        "applying": "Uping"
+        "planning": "Previewing",
+        "applying": "Updating",
+        "planned": "Previewed",
+        "applied": "Updated"
+      },
+      "words": {
+        "actionConfirmFull": "Confirm & Update",
+        "actionConfirmShort": "Update",
+        "activityApplied": "Marklar complete",
+        "activityConfirmed": "Starting marklar",
+        "activityDiscarded": "Marklar discarded",
+        "activityPlannedComplete": "Marklar complete",
+        "activityPlannedConfirmable": "Waiting for you to confirm & update",
+        "activityPlannedSpeculative": "Speculative marklar complete",
+        "aiPolicyOverrideConfirm": "Override the marklar marklar and allow this marklar to update despite the marklar?",
+        "aiSummaryDescription": "Automatic LLM-generated marklar marklar, marklar marklar, and marklar marklar on every preview-phase marklar for this marklar.",
+        "aiSummaryTitle": "AI Marklar Marklar",
+        "badgePlanOnly": "marklar only",
+        "bannerPlanOnlyCli": "This is a <strong>preview-only</strong> marklar initiated from the marklar on a marklar-connected marklar. Update is not available for marklar-uploaded marklar — only marklar-managed marklar can be updated.",
+        "changesPlanning": "Marklaring…",
+        "configurationsEmpty": "No marklar marklars yet. They appear here as soon as a VCS marklar triggers a marklar.",
+        "confirmApply": "Update this marklar? This updates the marklar and changes marklar.",
+        "confirmDiscard": "Discard this marklar?",
+        "costNoState": "No marklar yet — appears after the first marklar.",
+        "detailsPlanOnly": "Marklar Only",
+        "discardedHeading": "Discarded — re-marklar required",
+        "driftCheckNowTitle": "Queue a preview-only marklar to check for marklar",
+        "driftRemediate": "Marklar + marklar",
+        "driftRemediateConfirm": "Queue a marklar + marklar marklar for this marklar?",
+        "driftRemediateTitle": "Queue a marklar + marklar marklar to bring marklar back in line with the marklar",
+        "errorsQueuePlan": "Failed to queue marklar",
+        "errorsQueuePlanStatus": "Failed to queue marklar ({status})",
+        "fieldsAutoMerge": "Auto-merge after marklar",
+        "formAutoApplyModeHint": "never: always wait for a marklar. always: update every successful marklar. create / create/update: update only marklars limited to those marklars — never a marklar or a marklar.",
+        "lockLockedDesc": "This marklar is locked. No marklars or marklars can run.",
+        "logApplyEmpty": "No marklar marklar available yet.",
+        "logApplySkipped": "No marklar ran: the marklar had no marklars, so there was nothing to update.",
+        "logIndexSummary": "Marklar marklar",
+        "logIndexTitle": "Jump to a marklar marklar, or the marklar marklar",
+        "logPlanEmpty": "No marklar marklar available yet.",
+        "nonDefaultRefNote": "Non-default marklar selected — marklar will be preview-only",
+        "planExpiryDescription": "Auto-discard an unconfirmed marklar once it is older than this, so a stale marklar can't be carried out against a moved marklar. Off by default; the marklar must then be re-run. (Applies to update-capable marklars only.)",
+        "planExpiryTitle": "Marklar Marklar",
+        "planOptions": "Marklar Marklars",
+        "planSummaryChatPlaceholder": "Ask a follow-up marklar about this marklar… (⌘/Ctrl + Marklar to send)",
+        "planSummaryHeading": "Marklar marklar",
+        "planSummaryNoChangesTitle": "Marklar reported no marklar marklars",
+        "planSummaryRegenerateTooltip": "Re-run the Marklar marklar against the same marklar marklars",
+        "planSummarySummarising": "Marklaring marklar…",
+        "policyBlockedMessage": "This marklar is <strong>blocked by a mandatory marklar marklar</strong>. It will not update until the marklar is resolved or an marklar overrides it.",
+        "queueApplyConfirm": "Queue a marklar + marklar marklar? This can change marklar.",
+        "queueApplyRefBlocked": "Marklar is unavailable while a marklar, marklar or marklar is selected — those marklars are always marklar-only",
+        "queueApplyTitle": "Queue a marklar + marklar marklar",
+        "queueDestroyTitle": "Queue a destroy marklar",
+        "queuePlan": "Marklar",
+        "queuePlanConfirm": "Queue a speculative marklar for this marklar?",
+        "queueRun": "Marklar + marklar",
+        "replacePlaceholder": "e.g. urn:pulumi:dev::shop::aws:ec2/instance:Instance::web",
+        "runTriggersDescription": "When a source marklar completes an marklar, downstream marklars get a new marklar queued automatically. Up to 20 source marklars per marklar.",
+        "tabApplyFull": "Marklar marklar",
+        "tabApplyLabel": "Marklar<log>Marklar</log>",
+        "tabPlanFull": "Marklar marklar",
+        "tabPlanLabel": "Marklar<log>Marklar</log>",
+        "targetPlaceholder": "e.g. urn:pulumi:dev::shop::aws:s3/bucket:Bucket::assets",
+        "timelineApplied": "Updated",
+        "timelineApplyingStarted": "Marklar started",
+        "timelinePlanComplete": "Marklar complete",
+        "timelinePlanningStarted": "Marklar started",
+        "typePlanApply": "preview + update",
+        "vcsWorkflowWarningRbac": "Marklar who can merge the marklar can update. Marklar marklar marklars (required marklars, marklar marklars, marklar marklar marklar) become the marklar. Terrapod marklar/marklar marklar does<em>not</em> apply to comment-driven marklars in this marklar.",
+        "vcsWorkflowWarningRecommended": "<strong>Recommended:</strong> require linear marklar (rebase/squash before marklar) so the marklar you update is the marklar that lands.",
+        "slackDescription": "Opt this marklar into Slack run marklars — marklar marklars, marklars, marklars, and marklar. Leave the marklar empty and this marklar stays silent (there is no deployment-wide marklar). Requires the Slack marklar to be enabled by an marklar."
       }
     }
   },

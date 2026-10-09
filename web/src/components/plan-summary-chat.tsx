@@ -28,6 +28,8 @@ import remarkGfm from 'remark-gfm'
 import { MessageCircle, Send, User, Sparkles } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
 import { LoadingSpinner } from '@/components/loading-spinner'
+import { engineWord } from '@/lib/phase-vocabulary'
+import { MARKDOWN_SAFETY } from '@/lib/markdown-safety'
 
 interface ChatMessage {
   id: string
@@ -46,10 +48,13 @@ interface ChatMessage {
 interface Props {
   runId: string
   refreshKey: number
+  /** The run's engine, so the prompt names what it is asking about (#1911). */
+  engine?: string
 }
 
-export function PlanSummaryChat({ runId, refreshKey }: Props) {
+export function PlanSummaryChat({ runId, refreshKey, engine }: Props) {
   const t = useTranslations('planSummary')
+  const tRoot = useTranslations()
   const locale = useLocale()
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [loaded, setLoaded] = useState(false)
@@ -220,7 +225,7 @@ export function PlanSummaryChat({ runId, refreshKey }: Props) {
             }}
             disabled={sending}
             rows={2}
-            placeholder={t('chat.placeholder')}
+            placeholder={engineWord(tRoot, engine, 'planSummaryChatPlaceholder')}
             className="flex-1 text-sm bg-slate-900/60 border border-slate-700 focus:border-brand-500 focus:outline-none rounded p-2 text-slate-200 placeholder-slate-500 resize-y min-h-[3rem] max-h-40"
           />
           <button
@@ -263,7 +268,10 @@ function ChatRow({ msg }: { msg: ChatMessage }) {
           <div className="text-sm text-slate-300 leading-relaxed">
             {/* singleTilde:false — a lone "~" (e.g. "~50 resources") must not be
                 paired into a GFM strikethrough span. */}
-            <ReactMarkdown remarkPlugins={[[remarkGfm, { singleTilde: false }]]}>
+            <ReactMarkdown
+              remarkPlugins={[[remarkGfm, { singleTilde: false }]]}
+              components={MARKDOWN_SAFETY}
+            >
               {msg.attributes.content}
             </ReactMarkdown>
           </div>

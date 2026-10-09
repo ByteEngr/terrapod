@@ -92,6 +92,7 @@ from terrapod.services.pulumi_checkpoint_service import (
 from terrapod.services.pulumi_update_locks import (
     LEASE_TTL_SECONDS,
     LockRefused,
+    decode_record,
     release_workspace_lock,
     take_workspace_lock,
     text_of,
@@ -100,6 +101,11 @@ from terrapod.services.pulumi_update_locks import stack_lock_key as _stack_lock_
 from terrapod.services.pulumi_update_locks import update_key as _update_key
 from terrapod.services.remote_state_access import consumer_grant_id
 from terrapod.services.workspace_rbac_service import resolve_workspace_capabilities_for
+
+#: `Run.source` for an update driven from someone's own `pulumi` CLI (#1563).
+#: Listed in `run_service.EXTERNALLY_EXECUTED_SOURCES`, which is what keeps the
+#: reconciler from treating its absent Job as a failed launch.
+_CLI_RUN_SOURCE = "pulumi-cli"
 
 
 class PulumiError(HTTPException):
@@ -453,23 +459,57 @@ async def list_stacks(
     rows = (await db.execute(query)).scalars().all()
 
     stacks = []
+    visible: list[Workspace] = []
     for ws in rows:
-        proj, _, stack = ws.name.partition("::")
+        proj, _, _stack = ws.name.partition("::")
         if project and proj != project:
             continue
         caps = await _caps_on(db, user, ws)
         if not has_capability(caps, cap.WORKSPACE_READ):
             continue
+        visible.append(ws)
+
+    counts = await _latest_resource_counts(db, [ws.id for ws in visible])
+    for ws in visible:
+        proj, _, stack = ws.name.partition("::")
         stacks.append(
             {
                 "orgName": DEFAULT_ORG,
                 "projectName": proj,
                 "stackName": stack,
                 "lastUpdate": int(ws.updated_at.timestamp()) if ws.updated_at else 0,
-                "resourceCount": 0,
+                # Real, where the stack's newest version recorded one (#1568).
+                # An uncounted version reports 0 as it always did — the CLI's
+                # field is an int, so there is no way to say "unknown" here.
+                "resourceCount": counts.get(ws.id) or 0,
             }
         )
     return {"stacks": stacks}
+
+
+async def _latest_resource_counts(
+    db: AsyncSession, workspace_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, int | None]:
+    """Each workspace's newest state version's resource count (#1568).
+
+    One query for the whole list rather than one per stack, and it reads a
+    stored number rather than the state itself: counting properly would mean
+    fetching, decrypting and parsing every stack's entire deployment to print
+    one integer in `pulumi stack ls`.
+    """
+    if not workspace_ids:
+        return {}
+    from terrapod.db.models import StateVersion
+
+    rows = (
+        await db.execute(
+            select(StateVersion.workspace_id, StateVersion.resource_count)
+            .where(StateVersion.workspace_id.in_(workspace_ids))
+            .order_by(StateVersion.workspace_id, StateVersion.serial.desc())
+            .distinct(StateVersion.workspace_id)
+        )
+    ).all()
+    return dict(rows)
 
 
 @router.post("/api/stacks/{org}/{project}", status_code=status.HTTP_200_OK)
@@ -611,6 +651,41 @@ def _canonical_pulumi_service_url() -> str | None:
     return f"{base.rstrip('/')}/api/v1/pulumi" if base else None
 
 
+def _runner_service_url(request: Request) -> str | None:
+    """The Pulumi service base a RUNNER is talking to, read off its own request.
+
+    Pulumi's secrets manager takes the URL out of the stored state and looks up a
+    saved credential for that exact string — it never compares it with the
+    backend the CLI is logged in to, and `PULUMI_ACCESS_TOKEN` authenticates the
+    backend rather than that lookup. So the block a caller reads must name the
+    address that caller is using, or it cannot open its own stack.
+
+    There is no single address that satisfies everyone, which is what made
+    `_canonical_pulumi_service_url` insufficient on its own (#1887): a runner
+    reaches the API in-cluster and on the `/api/terrapod/v1` alias, deliberately,
+    because only the alias is served on both sides of the N-2 skew guarantee; a
+    laptop reaches the deployment's external address on the canonical prefix.
+    Normalising everyone to `external_url` left the runner unable to open a stack
+    it had itself written — the first agent run succeeded, and every one after it
+    failed with `could not find access token for …`.
+
+    A runner is the one caller whose request says this reliably. It talks to the
+    API **directly**, with no BFF in between, so the request's own scheme, host
+    and prefix are exactly the backend it has configured. A person's request has
+    been through the BFF and its host is an internal one, which is why they keep
+    the declared external address instead.
+
+    Returns None if the path is not one of this router's, so an unexpected shape
+    falls back to the declared address rather than inventing a base.
+    """
+    path = request.url.path
+    marker = "/pulumi/api/"
+    cut = path.find(marker)
+    if cut == -1:
+        return None
+    return f"{request.url.scheme}://{request.url.netloc}{path[:cut]}/pulumi"
+
+
 async def _read_deployment(ws: Workspace, db: AsyncSession) -> dict[str, Any] | None:
     """The stack's current deployment, or None when it has never been written."""
     from terrapod.crypto.state import decrypt_state_bytes
@@ -646,6 +721,7 @@ async def export_stack(
     org: str,
     project: str,
     stack: str,
+    request: Request,
     user: AuthenticatedUser = Depends(pulumi_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
@@ -664,9 +740,15 @@ async def export_stack(
     from terrapod.services.pulumi_state_service import with_canonical_service_url
 
     ws = await _authorized_stack(db, user, f"{org}/{project}/{stack}", cap.STATE_READ)
-    deployment = with_canonical_service_url(
-        await _read_deployment(ws, db), _canonical_pulumi_service_url()
-    )
+    # The block must name the address THIS caller uses, not one address for
+    # everyone (#1887). A runner's own request says what that is; a person's has
+    # come through the BFF, so theirs stays the declared external address.
+    url = (
+        _runner_service_url(request)
+        if user.auth_method == "runner_token"
+        else _canonical_pulumi_service_url()
+    ) or _canonical_pulumi_service_url()
+    deployment = with_canonical_service_url(await _read_deployment(ws, db), url)
     return {"version": DEPLOYMENT_VERSION, "deployment": deployment}
 
 
@@ -822,15 +904,71 @@ async def batch_decrypt(
 # apply does (#1562), so the rest of Terrapod — the UI, the run dispatcher —
 # sees the stack as busy. That lock is a row with no TTL, so a periodic sweep in
 # `services/pulumi_update_locks.py` releases it once the lease has lapsed. The
-# lease constants and keys live there too, shared with the sweep.
+# lease constants, keys and record decoder live there too, shared with the sweep
+# and with the trigger that ends an agent run's update the moment its run does
+# (#1882) — one decoder, so nothing can disagree about how a record reads.
 
 
-def _decode_record(raw: dict | None) -> dict[str, str]:
-    """A Redis hash as plain strings, whichever way the client returned it."""
-    return {
-        (k.decode() if isinstance(k, bytes) else k): (v.decode() if isinstance(v, bytes) else v)
-        for k, v in (raw or {}).items()
-    }
+async def _cli_run_of(db: AsyncSession, record: dict[str, str]) -> Run | None:
+    """The run recorded for a CLI-driven update, if this update has one (#1563).
+
+    Absent for a preview, for an agent run (whose run is its own, under
+    `run_id`), and for any update begun before this existed — so every caller
+    treats None as "nothing to record against" rather than an error.
+
+    A run already in a terminal state is also None: the sweep may have ended it
+    when the lease lapsed, and the CLI can still come back afterwards with a
+    `complete` for an update Terrapod has already written off. Ending it twice
+    would move a finished run, so the first answer stands.
+    """
+    from terrapod.services import run_service
+
+    raw = record.get("cli_run_id")
+    if not raw:
+        return None
+    try:
+        run_uuid = uuid.UUID(raw)
+    except (ValueError, TypeError):
+        return None
+    run = (await db.execute(select(Run).where(Run.id == run_uuid))).scalar_one_or_none()
+    if run is None or run.status in run_service.TERMINAL_STATES:
+        return None
+    return run
+
+
+async def _end_cli_run(db: AsyncSession, run: Run, update_status: str | None) -> None:
+    """End a CLI-driven run with the outcome Pulumi reported (#1563).
+
+    Pulumi posts `{"status": "succeeded" | "failed"}` to `complete`. Anything
+    that is not an explicit success is recorded as a failure, so a body Terrapod
+    does not recognise errs towards saying so rather than claiming an apply
+    worked.
+    """
+    from terrapod.services import run_service
+
+    if update_status == "succeeded":
+        await run_service.transition_run(db, run, "applied")
+        return
+    await run_service.transition_run(
+        db,
+        run,
+        "errored",
+        error_message=f"the update ended with status {update_status or 'unknown'}",
+    )
+
+
+async def _cancel_cli_run(db: AsyncSession, run: Run) -> None:
+    """End a CLI-driven run that was cancelled out from under its CLI (#1563).
+
+    Walked through `canceling` because `applying -> canceled` is not a legal
+    transition, and resolved here rather than left for the reconciler: the
+    reconciler deliberately ignores externally executed runs, so a `canceling`
+    one left to it would sit there for ever.
+    """
+    from terrapod.services import run_service
+
+    await run_service.transition_run(db, run, "canceling")
+    await run_service.transition_run(db, run, "canceled")
 
 
 async def _begin_update(
@@ -848,8 +986,36 @@ async def _begin_update(
     - the Redis stack mutex, SET NX, so a second Pulumi update loses atomically;
     - the workspace lock, as a Terraform CLI apply does, so the dispatcher holds
       agent applies back and a manual lock is respected.
+
+    **An agent run takes the mutex and NOT the workspace lock (#1881), and both
+    of the refusals below are for local callers only.** Every guard here was
+    written when this surface served local CLIs alone, so each one reads an agent
+    run as the thing to protect the stack *from*:
+
+    - `take_workspace_lock` refuses while a run on this workspace is applying.
+      An agent apply IS that run, so it would refuse itself — every agent-mode
+      Pulumi apply would 409 on begin.
+    - the VCS refusal exists because a VCS-connected agent workspace's changes
+      come from the repository rather than someone's laptop. An agent run is the
+      repository's change arriving, so refusing it refuses the only update such a
+      workspace is ever supposed to get.
+
+    Nothing is given up by skipping them. `run_service.get_next_run` already
+    permits one apply-capable run per workspace, and `confirm_run` already 409s
+    on a manual lock, so an agent apply is serialised and lock-respecting before
+    it reaches this surface. The workspace lock stays what it is on the Terraform
+    path — the CLI/manual lock — rather than becoming something run activity sets.
+
+    Branching on the runner token alone is sufficient, and deliberately so: a
+    runner is granted `RUN_APPLY` only on the workspace its own run belongs to
+    (`_runner_caps_on`), and `_authorized_stack` has already required it. So by
+    the time execution reaches here, a runner caller has been proven to be this
+    stack's own apply-capable run.
     """
     from terrapod.redis.client import get_redis_client
+    from terrapod.services import run_service
+
+    is_runner = user.auth_method == "runner_token"
 
     redis = get_redis_client()
     update_id = str(uuid.uuid4())
@@ -857,7 +1023,9 @@ async def _begin_update(
     if kind != "preview":
         # Terraform's rule for a VCS-connected agent workspace: its changes come
         # from the repository, through Terrapod, not from someone's local CLI.
-        if ws.execution_mode == "agent" and ws.vcs_connection_id is not None:
+        # An agent run IS that repository change, so it is not the caller this
+        # refuses (see the docstring).
+        if not is_runner and ws.execution_mode == "agent" and ws.vcs_connection_id is not None:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=(
@@ -868,6 +1036,8 @@ async def _begin_update(
 
         # SET NX serialises Pulumi updates: the first begin wins, the rest are
         # told why. Same pattern the scheduler uses for its periodic-task mutex.
+        # Taken by an agent run too — this is what keeps a local `pulumi up` from
+        # starting alongside one.
         acquired = await redis.set(
             _stack_lock_key(str(ws.id)), update_id, nx=True, ex=LEASE_TTL_SECONDS
         )
@@ -876,21 +1046,80 @@ async def _begin_update(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="another update is currently in progress",
             )
-        try:
-            await take_workspace_lock(db, ws.id, update_id)
-        except LockRefused as exc:
-            await redis.delete(_stack_lock_key(str(ws.id)))
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.message) from None
+        # Not for an agent run: it would refuse itself, since the check is "a run
+        # on this workspace is applying" and that run is this one.
+        if not is_runner:
+            try:
+                await take_workspace_lock(db, ws.id, update_id)
+            except LockRefused as exc:
+                await redis.delete(_stack_lock_key(str(ws.id)))
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT, detail=exc.message
+                ) from None
 
-    await redis.hset(
-        _update_key(update_id),
-        mapping={
-            "workspace_id": str(ws.id),
-            "kind": kind,
-            "status": "not-started",
-            "actor": user.email,
-        },
-    )
+    # A CLI-driven update becomes a run in the workspace's history (#1563), so
+    # `pulumi up` from a laptop leaves the same trail an agent apply does:
+    # who ran it, when, what came of it, and the state version it produced.
+    #
+    # **After the lock, necessarily.** `take_workspace_lock` refuses when an
+    # apply-capable run on the workspace is already `applying`, so creating the
+    # run first would make every update refuse itself.
+    #
+    # An agent run already has its own run and must not get a second one, so
+    # this is the local caller's alone — the same `is_runner` the lock above
+    # turns on.
+    cli_run = None
+    if kind != "preview" and not is_runner:
+        cli_run = await run_service.create_run(
+            db,
+            workspace=ws,
+            message=f"pulumi {kind} (CLI)",
+            source=_CLI_RUN_SOURCE,
+            plan_only=False,
+            is_destroy=kind == "destroy",
+            created_by=user.email,
+        )
+        await run_service.start_external_apply(db, cli_run)
+        await db.commit()
+
+    record = {
+        "workspace_id": str(ws.id),
+        "kind": kind,
+        "status": "not-started",
+        "actor": user.email,
+        # Whether this update took the workspace lock, so the calls that end
+        # it release exactly what was taken (#1881). An agent run takes only the
+        # mutex (see the docstring), and a release it never took is not merely
+        # wasted: `release_workspace_lock` rolls back when the lock is not its
+        # own, and a rollback expires every ORM object on the session — so the
+        # caller's `ws` then raises `MissingGreenlet` on the next attribute
+        # read. Recorded rather than re-derived, because the calls that end an
+        # update authenticate by lease and have no user to ask.
+        "workspace_lock": "no" if (kind == "preview" or is_runner) else "yes",
+    }
+    # Whose update this is, when it is an agent run's (#1882). Terrapod learns
+    # from the listener that a Job is gone, and can then end that run's update
+    # itself instead of waiting up to a poll interval for the sweep to infer it
+    # from a lapsed lease. It can only do that if it can tell the run's update
+    # apart from a local CLI's on the same stack — releasing someone else's lock
+    # would be worse than the delay — so the binding is recorded here, at the one
+    # place an update is created, rather than guessed from the lock later.
+    #
+    # Same `is_runner` the line above uses: one answer to "is this an agent run",
+    # so the two fields cannot disagree about what kind of caller wrote them.
+    if is_runner and user.run_id:
+        record["run_id"] = user.run_id
+    # The CLI's run is recorded under a DIFFERENT key, and the difference is
+    # load-bearing (#1563). `run_id` means "an agent Job owns this update", and
+    # `handle_run_ended` finds an update by it so that a run reaching a terminal
+    # state tears its update down (#1882). A CLI update reaches exactly that
+    # code path — `complete_update` transitions its run, which is terminal, on a
+    # Pulumi workspace, not plan-only — so sharing the key would have the run's
+    # own completion end the update that is completing it, releasing a lock and
+    # promoting a checkpoint a second time. Under its own name it cannot match.
+    if cli_run is not None:
+        record["cli_run_id"] = str(cli_run.id)
+    await redis.hset(_update_key(update_id), mapping=record)
     await redis.expire(_update_key(update_id), LEASE_TTL_SECONDS)
     logger.info("pulumi_update_begun", stack=ws.name, kind=kind, update_id=update_id)
     return {"updateID": update_id}
@@ -928,7 +1157,7 @@ async def _require_lease(
             detail="This endpoint requires an update-token lease",
         )
 
-    record = _decode_record(await get_redis_client().hgetall(_update_key(update_id)))
+    record = decode_record(await get_redis_client().hgetall(_update_key(update_id)))
     if not record:
         # Expired or never existed — the same answer either way, because a lease
         # that has timed out is exactly as invalid as one that was invented.
@@ -1020,7 +1249,7 @@ async def start_update(
     from terrapod.redis.client import get_redis_client
 
     redis = get_redis_client()
-    record = _decode_record(await redis.hgetall(_update_key(update_id)))
+    record = decode_record(await redis.hgetall(_update_key(update_id)))
     required = _KIND_CAPABILITY.get(record.get("kind", "")) if record else None
     if required is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown update")
@@ -1049,7 +1278,7 @@ async def get_update_status(
     from terrapod.redis.client import get_redis_client
 
     ws = await _authorized_stack(db, user, f"{org}/{project}/{stack}", cap.RUN_READ)
-    record = _decode_record(await get_redis_client().hgetall(_update_key(update_id)))
+    record = decode_record(await get_redis_client().hgetall(_update_key(update_id)))
     if not record:
         # A completed update's record is gone, and the CLI reads "succeeded" as
         # done rather than erroring — which is the right answer for anything it
@@ -1131,27 +1360,62 @@ async def complete_update(
     it created (#1564). That happens before the lease is dropped, so if it
     fails the update is still findable, and the sweep promotes it once the
     lease lapses.
+
+    **Nothing fallible happens after the update record is deleted** (#1885).
+    Deleting it is what invalidates the lease, so it is the one step that turns
+    any later failure into `401 Unknown or expired update` on the CLI's retry —
+    a message that names neither what broke nor where, and is false besides.
+    Keeping it last costs nothing: the sweep collects an update abandoned this
+    way once its lease lapses, exactly as it collects one whose CLI died.
     """
     from terrapod.redis.client import get_redis_client
 
     record, ws = await _require_lease(request, update_id, db, f"{org}/{project}/{stack}")
     body = await read_body(request)
+    # Read before anything commits or rolls back. `release_workspace_lock` rolls
+    # back when the lock is not this update's, and a rollback expires every ORM
+    # object on the session — so a later `ws.name` would try to refresh it and
+    # raise `MissingGreenlet`. Holding the two values makes the rest of this
+    # function independent of the session's state.
+    ws_id, ws_name = ws.id, ws.name
+    cli_run = await _cli_run_of(db, record)
     if record.get("kind") != "preview":
-        await promote_checkpoint(db, ws, update_id)
+        # The version carries the run that produced it, so the run page can link
+        # to the state it wrote (#1563).
+        await promote_checkpoint(db, ws, update_id, run_id=cli_run.id if cli_run else None)
 
     redis = get_redis_client()
-    await redis.delete(_update_key(update_id))
     # Release only if this update still holds it: a lease that expired may have
     # been replaced by a newer update, and deleting that one's lock would let a
     # third start alongside it.
-    if text_of(await redis.get(_stack_lock_key(str(ws.id)))) == update_id:
-        await redis.delete(_stack_lock_key(str(ws.id)))
-    if record.get("kind") != "preview":
-        await release_workspace_lock(db, ws.id, update_id)
+    if text_of(await redis.get(_stack_lock_key(str(ws_id)))) == update_id:
+        await redis.delete(_stack_lock_key(str(ws_id)))
+    # Only what this update actually took (#1881): an agent run holds the mutex
+    # and not the workspace lock.
+    if record.get("workspace_lock") == "yes":
+        await release_workspace_lock(db, ws_id, update_id)
+    # The record dies LAST, and that ordering is the whole of #1885. Every line
+    # above can fail, and while the record stands a failure is reportable: the
+    # 500 names it, and the CLI's retry re-authenticates and is told the same
+    # thing again. Delete it first — as this once did — and the retry finds no
+    # record, so `_require_lease` answers `401 Unknown or expired update`. That
+    # is unhelpful and also untrue, the lease having been valid when the call
+    # arrived; and because it is the last thing the CLI prints, the real error
+    # survives only in the API log. It masked three separate bugs during #1881.
+    #
+    # The CLI's own run ends with the update too (#1563), and for the same
+    # reason sits above the delete rather than below it. Pulumi reports the
+    # outcome in the body it posts here, so the run says what actually happened
+    # rather than assuming success: a failed `pulumi up` leaves an `errored` run
+    # whose checkpoint was still promoted, the same bargain #1564 struck for
+    # state — a failed update's partial work is real, and is recorded.
+    if cli_run is not None:
+        await _end_cli_run(db, cli_run, body.get("status"))
+    await redis.delete(_update_key(update_id))
 
     logger.info(
         "pulumi_update_completed",
-        stack=ws.name,
+        stack=ws_name,
         update_id=update_id,
         status=body.get("status"),
         kind=record.get("kind"),
@@ -1216,11 +1480,24 @@ async def cancel_update(
     Deleting the record invalidates the lease, so the running CLI's next call is
     a 401 and it stops. Whatever it had checkpointed is kept, as a failed
     update's is (#1564).
+
+    **The delete stays first here, unlike `complete_update` (#1885).** There it
+    moved last so a late failure could not be reported as an expired lease; the
+    same move would be wrong here, for two reasons. The update is still running,
+    and `checkpoint` authenticates through `_require_lease` — so the record is
+    the only thing stopping it writing another checkpoint, and one written after
+    `promote_checkpoint` had already run would be staged against an update
+    nothing will ever promote, which is lost state rather than a bad message. A
+    failure after the delete is also not a dead end: the sweep finds the stack
+    by its `pulumi-update:` lock with no record behind it, promotes, and lets
+    go. Cancel is a person's own command rather than a loop, so that person sees
+    the real 500 on the call they made — the masking `complete_update` suffered
+    needs a retrying caller, and there isn't one.
     """
     from terrapod.redis.client import get_redis_client
 
     redis = get_redis_client()
-    record = _decode_record(await redis.hgetall(_update_key(update_id)))
+    record = decode_record(await redis.hgetall(_update_key(update_id)))
     required = _KIND_CAPABILITY.get(record.get("kind", "")) if record else None
     if required is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown update")
@@ -1228,16 +1505,26 @@ async def cancel_update(
     if record.get("workspace_id") != str(ws.id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown update")
 
+    # Held before anything commits or rolls back, for the reason given in
+    # `complete_update`: a rollback inside the release expires every ORM object
+    # on the session, and a later `ws.name` would then raise `MissingGreenlet`.
+    ws_id, ws_name = ws.id, ws.name
+    cli_run = await _cli_run_of(db, record)
     await redis.delete(_update_key(update_id))
     if record.get("kind") != "preview":
-        await promote_checkpoint(db, ws, update_id)
-    if text_of(await redis.get(_stack_lock_key(str(ws.id)))) == update_id:
-        await redis.delete(_stack_lock_key(str(ws.id)))
-    if record.get("kind") != "preview":
-        await release_workspace_lock(db, ws.id, update_id)
+        await promote_checkpoint(db, ws, update_id, run_id=cli_run.id if cli_run else None)
+    if text_of(await redis.get(_stack_lock_key(str(ws_id)))) == update_id:
+        await redis.delete(_stack_lock_key(str(ws_id)))
+    # Only what this update actually took (#1881).
+    if record.get("workspace_lock") == "yes":
+        await release_workspace_lock(db, ws_id, update_id)
+    # The run the cancelled update was recorded as (#1563). Cancelled, not
+    # errored: someone chose to stop this, which is not the same as it failing.
+    if cli_run is not None:
+        await _cancel_cli_run(db, cli_run)
     logger.info(
         "pulumi_update_cancelled",
-        stack=ws.name,
+        stack=ws_name,
         update_id=update_id,
         kind=record.get("kind"),
         actor=user.email,

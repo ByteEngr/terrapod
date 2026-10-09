@@ -101,6 +101,17 @@ SCENARIOS: dict[str, dict] = {
     # a credential-holding pod killed mid-inspection, or reaped before anyone
     # reached it.
     "debug-linger": {"phase": "plan", "debug_linger_seconds": 900},
+    # A sensitive native variable (#1898). One list serves every engine, and
+    # `sensitive` is the field a Pulumi delivery turns into `--secret`; what
+    # this pins is that adding it changed nothing in the Job -- one mount item,
+    # and no value anywhere in the rendered spec.
+    "sensitive-native-var": {
+        "phase": "plan",
+        "terraform_vars": [
+            {"key": "region", "value": "eu-west-1", "structured": False, "sensitive": False},
+            {"key": "dbpass", "value": "s3cret", "structured": False, "sensitive": True},
+        ],
+    },
 }
 
 #: Values held fixed so a diff can only come from the scenario or the code.

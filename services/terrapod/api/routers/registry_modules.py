@@ -39,6 +39,7 @@ from terrapod.api.dependencies import (
     AuthenticatedUser,
     effective_platform_roles,
     get_current_user,
+    label_reach_roles,
     require_non_runner,
 )
 from terrapod.api.labels import validate_labels
@@ -55,6 +56,7 @@ from terrapod.db.session import get_db
 from terrapod.logging_config import get_logger
 from terrapod.services.module_subdirectory import SubdirectoryError, normalize_subdirectory
 from terrapod.services.registry_module_service import (
+    ModuleVersionAlreadyPublished,
     create_module,
     create_module_version,
     delete_module,
@@ -366,6 +368,45 @@ async def create_module_endpoint(
         result = await db.execute(sa_select(VCSConnection).where(VCSConnection.id == conn_id))
         if result.scalars().first() is None:
             raise HTTPException(status_code=422, detail="VCS connection not found")
+
+        # GHSA-v8g7-pqrj-8mcm, the registry half. A module names a connection and an
+        # arbitrary `vcs_repo_url`, and the registry poller then clones that repository
+        # with that connection's credential and publishes it as a module the caller
+        # owns. Module creation is open to any authenticated user, so with only the
+        # workspace gate in place the same escalation stands here.
+        from terrapod.services.vcs_connection_rbac import (
+            may_reference_connection,
+            refusal_detail,
+        )
+
+        if not await may_reference_connection(
+            db,
+            conn_id=conn_id,
+            actor_email=user.email,
+            is_platform_admin="admin" in effective_platform_roles(user),
+            actor_roles=sorted(label_reach_roles(user)),
+        ):
+            raise HTTPException(status_code=403, detail=refusal_detail(conn_id))
+
+        # The allowlist, beside the claim. The gate authorises the CONNECTION; this
+        # bounds which repository it may be pointed at, and a registry module is the
+        # same door as a workspace — an entitled caller could otherwise publish a
+        # module pointing a narrowed connection at anything its credential reaches,
+        # and ingestion clones it.
+        from terrapod.services.vcs_connection_rbac import (
+            repository_allowed,
+            repository_refusal_detail,
+        )
+
+        _conn_row = await db.get(VCSConnection, conn_id)
+        _repo_url_for_allowlist = attrs.vcs_repo_url
+        if _conn_row is not None and not repository_allowed(_conn_row, _repo_url_for_allowlist):
+            raise HTTPException(
+                status_code=403,
+                detail=repository_refusal_detail(
+                    conn_id, _repo_url_for_allowlist, list(_conn_row.allowed_repositories or [])
+                ),
+            )
         module.vcs_connection_id = conn_id
         module.source = "vcs"
     if attrs.vcs_repo_url:
@@ -610,15 +651,27 @@ async def update_module_endpoint(
                 )
         module.labels = new_labels
 
-    # VCS fields
+    # VCS fields.
+    #
+    # GHSA-v8g7-pqrj-8mcm. Imported once, above BOTH branches: a PATCH may attach a
+    # connection, or move only the repository URL, and both have to consult the
+    # allowlist. Binding these inside the connection branch — which is what the first
+    # version did — left them unbound on a URL-only PATCH, so the re-check would have
+    # been an `UnboundLocalError` 500 instead of a refusal.
+    from terrapod.db.models import VCSConnection
+    from terrapod.services.vcs_connection_rbac import (
+        may_reference_connection,
+        refusal_detail,
+        repository_allowed,
+        repository_refusal_detail,
+    )
+
     if "vcs-connection-id" in attrs:
         vcs_conn_val = attrs["vcs-connection-id"]
         if vcs_conn_val:
             import uuid as _uuid
 
             from sqlalchemy import select as sa_select
-
-            from terrapod.db.models import VCSConnection
 
             try:
                 conn_id = _uuid.UUID(str(vcs_conn_val).removeprefix("vcs-"))
@@ -628,12 +681,65 @@ async def update_module_endpoint(
             result = await db.execute(sa_select(VCSConnection).where(VCSConnection.id == conn_id))
             if result.scalars().first() is None:
                 raise HTTPException(status_code=422, detail="VCS connection not found")
+
+            # GHSA-v8g7-pqrj-8mcm, the registry half. A module names a connection and an
+            # arbitrary `vcs_repo_url`, and the registry poller then clones that repository
+            # with that connection's credential and publishes it as a module the caller
+            # owns. Module creation is open to any authenticated user, so with only the
+            # workspace gate in place the same escalation stands here.
+            if not await may_reference_connection(
+                db,
+                conn_id=conn_id,
+                actor_email=user.email,
+                is_platform_admin="admin" in effective_platform_roles(user),
+                actor_roles=sorted(label_reach_roles(user)),
+            ):
+                raise HTTPException(status_code=403, detail=refusal_detail(conn_id))
+
+            # The allowlist, beside the claim. The gate authorises the CONNECTION;
+            # this bounds which repository it may be pointed at, and a registry
+            # module is the same door as a workspace — an entitled caller could
+            # otherwise publish a module pointing a narrowed connection at anything
+            # its credential reaches, and ingestion clones it.
+            #
+            # `_repo_for_allowlist` falls back to the module's STORED url, because a
+            # partial update may attach a connection without restating the url. The
+            # old code subscripted `attrs["vcs-repo-url"]` unguarded and raised
+            # KeyError -> 500 on exactly that call.
+            _conn_row = await db.get(VCSConnection, conn_id)
+            _repo_url_for_allowlist = attrs.get("vcs-repo-url", module.vcs_repo_url) or ""
+            if _conn_row is not None and not repository_allowed(_conn_row, _repo_url_for_allowlist):
+                raise HTTPException(
+                    status_code=403,
+                    detail=repository_refusal_detail(
+                        conn_id,
+                        _repo_url_for_allowlist,
+                        list(_conn_row.allowed_repositories or []),
+                    ),
+                )
             module.vcs_connection_id = conn_id
             module.source = "vcs"
         else:
             module.vcs_connection_id = None
     if "vcs-repo-url" in attrs:
-        module.vcs_repo_url = attrs["vcs-repo-url"] or ""
+        # Re-check when only the URL moves. Attaching a connection is gated above,
+        # but `vcs-repo-url` is separately settable, so a module created in scope
+        # could be repointed afterwards with no `vcs-connection-id` in the body —
+        # the whole block above is skipped — and the registry poller then clones the
+        # new target with the narrowed connection's credential. Same reasoning as
+        # the workspace PATCH re-check, which exists for exactly this.
+        _new_url = attrs["vcs-repo-url"] or ""
+        _conn_for_url = module.vcs_connection_id
+        if _conn_for_url and _new_url:
+            _row = await db.get(VCSConnection, _conn_for_url)
+            if _row is not None and not repository_allowed(_row, _new_url):
+                raise HTTPException(
+                    status_code=403,
+                    detail=repository_refusal_detail(
+                        _conn_for_url, _new_url, list(_row.allowed_repositories or [])
+                    ),
+                )
+        module.vcs_repo_url = _new_url
     if "vcs-branch" in attrs:
         module.vcs_branch = attrs["vcs-branch"] or ""
     if "vcs-tag-pattern" in attrs:
@@ -777,7 +883,15 @@ async def upload_module_version_endpoint(
     db: AsyncSession = Depends(get_db),
     storage: ObjectStore = Depends(get_storage),
 ) -> JSONResponse:
-    """Upload a module tarball directly. Requires write. Idempotent."""
+    """Upload a module tarball directly. Requires write.
+
+    **Not idempotent against a published version** (GHSA-mhhr-896g-4p33): a
+    version that already holds bytes answers 409 rather than having them
+    replaced. Re-posting used to overwrite in place, and module consumers do not
+    hash-lock, so every workspace pinned to that version silently got different
+    source on its next init. Completing a version whose first attempt failed is
+    still allowed — that is a resumed publish, not an overwrite.
+    """
     module = await get_module(db, "default", name, provider)
     if module is None:
         raise HTTPException(status_code=404, detail="Module not found")
@@ -806,9 +920,12 @@ async def upload_module_version_endpoint(
         if size == 0:
             raise HTTPException(status_code=400, detail="Empty request body")
 
-        mod_version = await upload_module_tarball(
-            db, storage, "default", name, provider, version, tmp_path
-        )
+        try:
+            mod_version = await upload_module_tarball(
+                db, storage, "default", name, provider, version, tmp_path
+            )
+        except ModuleVersionAlreadyPublished as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
         await db.commit()
     finally:
         try:
@@ -906,6 +1023,45 @@ async def update_module_vcs_endpoint(
         result = await db.execute(sa_select(VCSConnection).where(VCSConnection.id == conn_id))
         if result.scalars().first() is None:
             raise HTTPException(status_code=422, detail="VCS connection not found")
+
+        # GHSA-v8g7-pqrj-8mcm, the registry half. A module names a connection and an
+        # arbitrary `vcs_repo_url`, and the registry poller then clones that repository
+        # with that connection's credential and publishes it as a module the caller
+        # owns. Module creation is open to any authenticated user, so with only the
+        # workspace gate in place the same escalation stands here.
+        from terrapod.services.vcs_connection_rbac import (
+            may_reference_connection,
+            refusal_detail,
+        )
+
+        if not await may_reference_connection(
+            db,
+            conn_id=conn_id,
+            actor_email=user.email,
+            is_platform_admin="admin" in effective_platform_roles(user),
+            actor_roles=sorted(label_reach_roles(user)),
+        ):
+            raise HTTPException(status_code=403, detail=refusal_detail(conn_id))
+
+        # The allowlist, beside the claim. The gate authorises the CONNECTION; this
+        # bounds which repository it may be pointed at, and a registry module is the
+        # same door as a workspace — an entitled caller could otherwise publish a
+        # module pointing a narrowed connection at anything its credential reaches,
+        # and ingestion clones it.
+        from terrapod.services.vcs_connection_rbac import (
+            repository_allowed,
+            repository_refusal_detail,
+        )
+
+        _conn_row = await db.get(VCSConnection, conn_id)
+        _repo_url_for_allowlist = attrs.vcs_repo_url
+        if _conn_row is not None and not repository_allowed(_conn_row, _repo_url_for_allowlist):
+            raise HTTPException(
+                status_code=403,
+                detail=repository_refusal_detail(
+                    conn_id, _repo_url_for_allowlist, list(_conn_row.allowed_repositories or [])
+                ),
+            )
         module.vcs_connection_id = conn_id
     else:
         module.vcs_connection_id = None

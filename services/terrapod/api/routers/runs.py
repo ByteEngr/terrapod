@@ -47,9 +47,11 @@ from terrapod.api.dependencies import (
     get_listener_identity,
     require_runner_for_run,
 )
+from terrapod.api.engine_scope import load_workspace_scoped
 from terrapod.api.errors import vcs_unavailable
 from terrapod.api.ids import parse_id
 from terrapod.api.pagination import build_meta
+from terrapod.api.prefixes import is_tfe_path
 from terrapod.api.serialization import engine_version_attr
 from terrapod.auth import capabilities as cap
 from terrapod.auth import capability_urls
@@ -68,8 +70,15 @@ from terrapod.db.models import (
     now_utc,
 )
 from terrapod.db.session import get_db
+from terrapod.engines import TERRAFORM
 from terrapod.logging_config import get_logger
-from terrapod.services import agent_pool_service, plan_graph_service, pool_set, run_service
+from terrapod.services import (
+    agent_pool_service,
+    plan_graph_service,
+    pool_set,
+    run_service,
+    variable_service,
+)
 from terrapod.services.workspace_rbac_service import (
     resolve_workspace_capabilities_for,
 )
@@ -203,6 +212,10 @@ def _run_json(
                 "auto-apply-mode": run.auto_apply_mode,
                 "auto-apply-declined-reason": run.auto_apply_declined_reason,
                 "plan-only": run.plan_only,
+                # `terraform plan -out=FILE` (#1903). Emitted so a CLI reading
+                # the run back sees what it asked for, and `omitempty` on the
+                # go-tfe side means false costs nothing on the wire.
+                "save-plan": run.save_plan,
                 "source": run.source,
                 "execution-backend": run.execution_backend,
                 # Which engine, not which binary (#1407). The UI resolves phase
@@ -411,22 +424,61 @@ async def _get_run(run_id: str, db: AsyncSession) -> Run:
     return run
 
 
-async def _get_workspace(workspace_id: str, db: AsyncSession) -> Workspace:
-    ws_uuid = workspace_id.removeprefix("ws-")
-    result = await db.execute(select(Workspace).where(Workspace.id == ws_uuid))
-    ws = result.scalar_one_or_none()
-    if ws is None:
-        raise HTTPException(status_code=404, detail="Workspace not found")
-    return ws
+async def _get_workspace(
+    workspace_id: str, db: AsyncSession, *, request: Request | None = None
+) -> Workspace:
+    """Load the workspace, scoped to the surface the request arrived on (#1572).
+
+    This router is mounted on BOTH surfaces, so the scoping cannot be a property
+    of the router: on `/api/tfe/v2` a workspace belonging to another engine does
+    not exist, and on `/api/v1` it does. Before this, the lookup was unscoped
+    either way, so `GET /api/tfe/v2/workspaces/{id}/runs` answered 200 for a
+    Pulumi workspace whose own `GET .../workspaces/{id}` answered 404 — one
+    object, two answers, on the surface whose whole purpose is `terraform` /
+    `tofu` / `tfci` compatibility.
+    """
+    return await load_workspace_scoped(workspace_id, db, request=request)
 
 
 async def _require_run_ws_capability(
-    run: Run, required: str, user: AuthenticatedUser, db: AsyncSession
+    run: Run,
+    required: str,
+    user: AuthenticatedUser,
+    db: AsyncSession,
+    *,
+    request: Request,
 ) -> None:
-    """Check that user holds the required capability on the run's workspace."""
+    """Check that the user holds the required capability on the run's workspace,
+    and that the run belongs to an engine this surface may serve (#1904).
+
+    **The engine check lives here rather than in `_get_run`** because every run
+    handler already calls this one, and a handler that skipped it would have a
+    far louder problem than an engine leak. Putting it in the loader would have
+    meant threading the request through twenty-six call sites; putting it here
+    means one.
+
+    What it fixes: `GET /api/tfe/v2/runs/{id}` returned a Pulumi run with 200,
+    on the surface whose only purpose is `terraform` / `tofu` / `tfci`
+    compatibility — while that run's own workspace answered 404 on the same
+    surface. A CLI handed a run it cannot parse gets no error saying so.
+
+    404, not 403: on the compatibility surface a run belonging to another engine
+    does not exist as far as that client is concerned, and "forbidden" would
+    confirm it exists to a client with no business knowing.
+
+    `request` is **required, not defaulted**, because there is no safe default.
+    Defaulting it to None and reading "no request" as "apply the check" makes a
+    handler that forgets to pass it 404 every Pulumi run on the *native*
+    surface, where they are perfectly legal — `confirm_run` did exactly that
+    for the length of one commit. Defaulting the other way would silently
+    reopen the leak this exists to close. Required means forgetting is a
+    TypeError.
+    """
     ws = await db.get(Workspace, run.workspace_id)
     if ws is None:
         raise HTTPException(status_code=404, detail="Workspace not found")
+    if is_tfe_path(request.url.path) and ws.engine != TERRAFORM:
+        raise HTTPException(status_code=404, detail="Run not found")
     caps = await resolve_workspace_capabilities_for(db, user, ws)
     if not has_capability(caps, required):
         raise HTTPException(
@@ -457,8 +509,41 @@ async def _fetch_vcs_config(
         raise vcs_unavailable(conn, repo, ref_override or ws.vcs_branch, e) from e
 
 
+#: Run-create attributes that only some engines consume, and which engine each
+#: needs. Refused rather than ignored on the others — a stored setting nothing
+#: reads is a promise the platform does not keep, and the operator has no way to
+#: find that out (#1911).
+#:
+#: Most run options are NOT here, because they are not Terraform-only: Pulumi
+#: reads `target-addrs` and `replace-addrs` as `--target`/`--replace` URNs, and
+#: `refresh-only`/`refresh` as `pulumi refresh` and `--refresh=false`.
+#:
+#: Only a TRUTHY value is refused. A client sending the attribute at its default
+#: is not asking for anything, and 422ing that would break callers that serialize
+#: every field. Same rule as `_validate_pulumi_bind_plan`.
+_ENGINE_SPECIFIC_RUN_ATTRS: dict[str, tuple[str, str]] = {
+    # `-allow-empty-apply` is an OpenTofu/Terraform apply flag. `pulumi up` has
+    # no equivalent — it carries out whatever the preview produced, empty or not.
+    "allow-empty-apply": (TERRAFORM, "the terraform/tofu apply flag of the same name"),
+}
+
+
+def _validate_engine_specific_run_attrs(attrs: dict, engine: str | None) -> None:
+    """Refuse a run attribute asked for on an engine that has no such thing."""
+    for name, (needs, why) in _ENGINE_SPECIFIC_RUN_ATTRS.items():
+        if attrs.get(name) and (engine or TERRAFORM) != needs:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    f"'{name}' applies only to {needs} workspaces ({why}); "
+                    f"this workspace runs {engine}."
+                ),
+            )
+
+
 @router.post("/runs", status_code=201)
 async def create_run(
+    request: Request,
     body: dict = Body(...),
     user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -472,7 +557,7 @@ async def create_run(
     if not ws_id:
         raise HTTPException(status_code=422, detail="Workspace relationship is required")
 
-    ws = await _get_workspace(ws_id, db)
+    ws = await _get_workspace(ws_id, db, request=request)
 
     # CLI-initiated runs on VCS-connected agent workspaces: plan is allowed,
     # apply is not — VCS is the source of truth. Non-VCS ("CLI-driven") agent
@@ -480,6 +565,23 @@ async def create_run(
     # The guard fires when a configuration version is provided (CLI upload).
     # Runs without a CV (UI-queued) will fetch code from VCS downstream.
     plan_only = attrs.get("plan-only", False)
+    # `terraform plan -out=FILE` (#1903). Apply-capable, but its apply is
+    # deferred until the operator runs `terraform apply FILE`.
+    save_plan = bool(attrs.get("save-plan", False))
+    # `save-plan` needs no engine check of its own: no engine reads it. It is a
+    # run-lifecycle setting — hold this apply-capable run until someone confirms —
+    # so it means the same whatever runs the phase.
+    _validate_engine_specific_run_attrs(attrs, ws.engine)
+    if save_plan and plan_only:
+        # Contradictory, so say so. Silently dropping one of them is precisely
+        # the failure this attribute was added to fix: a plan-only saved plan
+        # would return `save-plan: true` to a CLI that could then never apply
+        # the file it was told it had.
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="'save-plan' and 'plan-only' are mutually exclusive: a saved plan "
+            "exists to be applied later, and a plan-only run can never be applied.",
+        )
     cv_data = relationships.get("configuration-version", {}).get("data", {})
     cv_id_raw = cv_data.get("id", "") if cv_data else ""
     has_cv = bool(cv_id_raw)
@@ -506,6 +608,16 @@ async def create_run(
 
         _spec_cv = await db.get(ConfigurationVersion, cv_uuid)
         if _spec_cv is not None and _spec_cv.speculative:
+            if save_plan:
+                # The forcing below would silently turn the saved plan into a
+                # plan-only run — the same swallowed contradiction as above,
+                # arriving by a different door.
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="A saved-plan run cannot use a speculative configuration "
+                    "version: speculative configurations are plan-only, so the saved "
+                    "plan could never be applied.",
+                )
             plan_only = True
     # Config-managed guardrail (#535): a catalog-managed workspace runs only the
     # wrapper config the catalog generated for it. A run that pins a different
@@ -520,6 +632,19 @@ async def create_run(
             ),
         )
     if ws.execution_mode == "agent" and ws.vcs_connection_id is not None and has_cv:
+        if save_plan:
+            # Refused for the same reason every CLI apply is refused here —
+            # VCS is the source of truth — but said in the vocabulary the
+            # operator used. `-out` produces a plan file to apply later, and
+            # that apply would never be permitted, so the useful moment to
+            # refuse is now rather than after they have the file (#1903).
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Saved-plan runs ('tofu plan -out=FILE') are not allowed from the "
+                "CLI on VCS-connected agent workspaces: applying the saved plan would be "
+                "a CLI apply, which VCS-connected workspaces reserve for the VCS "
+                "integration and the UI. Use 'tofu plan' for a speculative plan.",
+            )
         if not plan_only:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -601,6 +726,7 @@ async def create_run(
         refresh_only=attrs.get("refresh-only", False),
         refresh=attrs.get("refresh", True),
         allow_empty_apply=attrs.get("allow-empty-apply", False),
+        save_plan=save_plan,
     )
 
     # Attach VCS metadata if we fetched code from VCS
@@ -701,7 +827,7 @@ async def show_run(
 ) -> JSONResponse:
     """Show a run. Requires read on workspace."""
     run = await _get_run(run_id, db)
-    await _require_run_ws_capability(run, cap.RUN_READ, user, db)
+    await _require_run_ws_capability(run, cap.RUN_READ, user, db, request=request)
     ws = await db.get(Workspace, run.workspace_id)
 
     # Look up state version created by this run (detail endpoint only)
@@ -739,7 +865,7 @@ async def list_workspace_runs(
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """List runs for a workspace. Requires read."""
-    ws = await _get_workspace(workspace_id, db)
+    ws = await _get_workspace(workspace_id, db, request=request)
     caps = await resolve_workspace_capabilities_for(db, user, ws)
     if not has_capability(caps, cap.RUN_READ):
         raise HTTPException(
@@ -785,6 +911,7 @@ async def list_workspace_runs(
 
 @router.post("/runs/{run_id}/actions/apply")
 async def confirm_run(
+    request: Request,
     run_id: str = Path(...),
     user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -792,7 +919,11 @@ async def confirm_run(
     """Confirm a planned run for apply. Requires write."""
     run = await _get_run(run_id, db)
     await _require_run_ws_capability(
-        run, cap.RUN_APPLY_DESTROY if run.is_destroy else cap.RUN_APPLY, user, db
+        run,
+        cap.confirm_capability(run.is_destroy),
+        user,
+        db,
+        request=request,
     )
 
     # No-op apply guard: a plan with has_changes=False has nothing to apply.
@@ -856,13 +987,14 @@ async def confirm_run(
 
 @router.post("/runs/{run_id}/actions/discard")
 async def discard_run(
+    request: Request,
     run_id: str = Path(...),
     user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """Discard a planned run. Requires plan."""
     run = await _get_run(run_id, db)
-    await _require_run_ws_capability(run, cap.RUN_CANCEL, user, db)
+    await _require_run_ws_capability(run, cap.RUN_CANCEL, user, db, request=request)
     try:
         run = await run_service.discard_run(db, run)
         await db.commit()
@@ -873,13 +1005,14 @@ async def discard_run(
 
 @router.post("/runs/{run_id}/actions/cancel")
 async def cancel_run(
+    request: Request,
     run_id: str = Path(...),
     user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """Cancel a run. Requires plan."""
     run = await _get_run(run_id, db)
-    await _require_run_ws_capability(run, cap.RUN_CANCEL, user, db)
+    await _require_run_ws_capability(run, cap.RUN_CANCEL, user, db, request=request)
     try:
         run = await run_service.cancel_run(db, run)
         await db.commit()
@@ -905,6 +1038,7 @@ def _retry_capability(run: Run) -> str:
 
 @extensions_router.post("/runs/{run_id}/actions/retry")
 async def retry_run(
+    request: Request,
     run_id: str = Path(...),
     user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -918,7 +1052,7 @@ async def retry_run(
     `run:apply` for an apply-capable one, `run:apply-destroy` for a destroy.
     """
     run = await _get_run(run_id, db)
-    await _require_run_ws_capability(run, _retry_capability(run), user, db)
+    await _require_run_ws_capability(run, _retry_capability(run), user, db, request=request)
 
     is_terminal = run.status in run_service.TERMINAL_STATES or (
         run.plan_only and run.status == "planned"
@@ -1049,6 +1183,7 @@ def _apply_status(run: Run) -> str:
 
 @router.get("/runs/{run_id}/run-events")
 async def list_run_events(
+    request: Request,
     run_id: str = Path(...),
     user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -1059,7 +1194,7 @@ async def list_run_events(
     We synthesize events from the run's status timestamps.
     """
     run = await _get_run(run_id, db)
-    await _require_run_ws_capability(run, cap.RUN_READ, user, db)
+    await _require_run_ws_capability(run, cap.RUN_READ, user, db, request=request)
 
     events = []
     event_pairs = [
@@ -1156,12 +1291,13 @@ async def show_plan_by_id(
     Plan IDs use the same UUID as the run with a 'plan-' prefix.
     """
     run = await _get_run(plan_id.replace("plan-", "run-"), db)
-    await _require_run_ws_capability(run, cap.RUN_READ, user, db)
+    await _require_run_ws_capability(run, cap.RUN_READ, user, db, request=request)
     return JSONResponse(content=_plan_json(run, request))
 
 
 @extensions_router.get("/runs/{run_id}/plan-summary")
 async def show_plan_summary(
+    request: Request,
     run_id: str = Path(...),
     locale: str | None = Query(None),
     user: AuthenticatedUser = Depends(get_current_user),
@@ -1186,7 +1322,7 @@ async def show_plan_summary(
     served with ``translated=false``.
     """
     run = await _get_run(run_id, db)
-    await _require_run_ws_capability(run, cap.RUN_READ, user, db)
+    await _require_run_ws_capability(run, cap.RUN_READ, user, db, request=request)
 
     summary = (
         await db.execute(select(PlanSummary).where(PlanSummary.run_id == run.id))
@@ -1243,6 +1379,7 @@ async def show_plan_summary(
 
 @extensions_router.get("/runs/{run_id}/impact-graph")
 async def show_impact_graph(
+    request: Request,
     run_id: str = Path(...),
     user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -1257,7 +1394,7 @@ async def show_impact_graph(
     no JSON plan output.
     """
     run = await _get_run(run_id, db)
-    await _require_run_ws_capability(run, cap.RUN_READ, user, db)
+    await _require_run_ws_capability(run, cap.RUN_READ, user, db, request=request)
 
     graph = await plan_graph_service.get_impact_graph(run)
     if graph is None:
@@ -1279,6 +1416,7 @@ async def show_impact_graph(
 
 @extensions_router.get("/runs/{run_id}/cost-estimate")
 async def show_cost_estimate(
+    request: Request,
     run_id: str = Path(...),
     user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -1293,7 +1431,7 @@ async def show_cost_estimate(
     Every figure here is **data** (engine-derived); no AI is involved.
     """
     run = await _get_run(run_id, db)
-    await _require_run_ws_capability(run, cap.RUN_READ, user, db)
+    await _require_run_ws_capability(run, cap.RUN_READ, user, db, request=request)
 
     if not run.has_cost_estimate:
         raise HTTPException(status_code=404, detail="no cost estimate for this run")
@@ -1380,6 +1518,7 @@ def _cost_summary_json(
 
 @extensions_router.get("/runs/{run_id}/cost-summary")
 async def show_cost_summary(
+    request: Request,
     run_id: str = Path(...),
     locale: str | None = Query(None),
     user: AuthenticatedUser = Depends(get_current_user),
@@ -1403,7 +1542,7 @@ async def show_cost_summary(
     with `translated=false`.
     """
     run = await _get_run(run_id, db)
-    await _require_run_ws_capability(run, cap.RUN_READ, user, db)
+    await _require_run_ws_capability(run, cap.RUN_READ, user, db, request=request)
 
     summary = (
         await db.execute(select(CostSummary).where(CostSummary.run_id == run.id))
@@ -1440,6 +1579,7 @@ async def show_cost_summary(
 
 @extensions_router.post("/runs/{run_id}/cost-summary/regenerate")
 async def regenerate_cost_summary(
+    request: Request,
     run_id: str = Path(...),
     user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -1460,7 +1600,7 @@ async def regenerate_cost_summary(
         raise HTTPException(status_code=503, detail="AI summary is disabled globally")
 
     run = await _get_run(run_id, db)
-    await _require_run_ws_capability(run, cap.RUN_READ, user, db)
+    await _require_run_ws_capability(run, cap.RUN_READ, user, db, request=request)
 
     if not run.has_cost_estimate:
         raise HTTPException(status_code=409, detail="run has no cost estimate to narrate")
@@ -1521,12 +1661,16 @@ def _cost_summary_message_attr(msg: CostSummaryMessage) -> dict:
 
 
 async def _resolve_cost_summary_for_chat(
-    run_id: str, user: AuthenticatedUser, db: AsyncSession
+    run_id: str,
+    user: AuthenticatedUser,
+    db: AsyncSession,
+    *,
+    request: Request,
 ) -> tuple[Run, CostSummary, Workspace]:
     """Shared header for both cost-chat endpoints — run exists, user has
     workspace `read`, a ready cost summary exists (404/409 otherwise)."""
     run = await _get_run(run_id, db)
-    await _require_run_ws_capability(run, cap.RUN_READ, user, db)
+    await _require_run_ws_capability(run, cap.RUN_READ, user, db, request=request)
     summary = (
         await db.execute(select(CostSummary).where(CostSummary.run_id == run.id))
     ).scalar_one_or_none()
@@ -1547,6 +1691,7 @@ async def _resolve_cost_summary_for_chat(
 
 @extensions_router.get("/runs/{run_id}/cost-summary/messages")
 async def list_cost_summary_messages(
+    request: Request,
     run_id: str = Path(...),
     locale: str | None = Query(None),
     user: AuthenticatedUser = Depends(get_current_user),
@@ -1560,7 +1705,7 @@ async def list_cost_summary_messages(
     language, each message is translated on view (best-effort; ``translated``
     per row).
     """
-    _run, summary, _ws = await _resolve_cost_summary_for_chat(run_id, user, db)
+    _run, summary, _ws = await _resolve_cost_summary_for_chat(run_id, user, db, request=request)
     rows = (
         (
             await db.execute(
@@ -1609,6 +1754,7 @@ async def list_cost_summary_messages(
 
 @extensions_router.post("/runs/{run_id}/cost-summary/messages")
 async def post_cost_summary_message(
+    request: Request,
     run_id: str = Path(...),
     body: dict = Body(...),
     user: AuthenticatedUser = Depends(get_current_user),
@@ -1641,7 +1787,9 @@ async def post_cost_summary_message(
     except AttributeError:
         raise HTTPException(status_code=400, detail="malformed body") from None
 
-    run, summary, workspace = await _resolve_cost_summary_for_chat(run_id, user, db)
+    run, summary, workspace = await _resolve_cost_summary_for_chat(
+        run_id, user, db, request=request
+    )
 
     if locale:
         content = await summary_translation.normalize_to_system_language(content, locale)
@@ -1704,6 +1852,7 @@ def _summary_kind_for_run(run: Run) -> str | None:
 
 @extensions_router.post("/runs/{run_id}/plan-summary/regenerate")
 async def regenerate_plan_summary(
+    request: Request,
     run_id: str = Path(...),
     user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -1731,7 +1880,7 @@ async def regenerate_plan_summary(
         raise HTTPException(status_code=503, detail="AI summary is disabled globally")
 
     run = await _get_run(run_id, db)
-    await _require_run_ws_capability(run, cap.RUN_READ, user, db)
+    await _require_run_ws_capability(run, cap.RUN_READ, user, db, request=request)
 
     kind = _summary_kind_for_run(run)
     if kind is None:
@@ -1845,7 +1994,11 @@ def _plan_summary_message_attr(msg: PlanSummaryMessage) -> dict:
 
 
 async def _resolve_plan_summary_for_chat(
-    run_id: str, user: AuthenticatedUser, db: AsyncSession
+    run_id: str,
+    user: AuthenticatedUser,
+    db: AsyncSession,
+    *,
+    request: Request,
 ) -> tuple[Run, PlanSummary, Workspace]:
     """Shared header for both chat endpoints.
 
@@ -1854,7 +2007,7 @@ async def _resolve_plan_summary_for_chat(
     plan that hasn't been summarised), and returns the joined rows.
     """
     run = await _get_run(run_id, db)
-    await _require_run_ws_capability(run, cap.RUN_READ, user, db)
+    await _require_run_ws_capability(run, cap.RUN_READ, user, db, request=request)
     summary = (
         await db.execute(select(PlanSummary).where(PlanSummary.run_id == run.id))
     ).scalar_one_or_none()
@@ -1875,6 +2028,7 @@ async def _resolve_plan_summary_for_chat(
 
 @extensions_router.get("/runs/{run_id}/plan-summary/messages")
 async def list_plan_summary_messages(
+    request: Request,
     run_id: str = Path(...),
     locale: str | None = Query(None),
     user: AuthenticatedUser = Depends(get_current_user),
@@ -1896,7 +2050,7 @@ async def list_plan_summary_messages(
     (Redis-cached, best-effort — canonical on failure); the per-message
     ``translated`` flag reflects whether that turn was translated.
     """
-    _run, summary, _ws = await _resolve_plan_summary_for_chat(run_id, user, db)
+    _run, summary, _ws = await _resolve_plan_summary_for_chat(run_id, user, db, request=request)
     rows = (
         (
             await db.execute(
@@ -1949,6 +2103,7 @@ async def list_plan_summary_messages(
 
 @extensions_router.post("/runs/{run_id}/plan-summary/messages")
 async def post_plan_summary_message(
+    request: Request,
     run_id: str = Path(...),
     body: dict = Body(...),
     user: AuthenticatedUser = Depends(get_current_user),
@@ -1995,7 +2150,9 @@ async def post_plan_summary_message(
     except AttributeError:
         raise HTTPException(status_code=400, detail="malformed body") from None
 
-    run, summary, workspace = await _resolve_plan_summary_for_chat(run_id, user, db)
+    run, summary, workspace = await _resolve_plan_summary_for_chat(
+        run_id, user, db, request=request
+    )
 
     # Normalise the prompt into the system language so the stored thread
     # stays monolingual/authoritative (no-op when reader == system language).
@@ -2050,6 +2207,7 @@ async def post_plan_summary_message(
 
 @extensions_router.get("/runs/{run_id}/compliance-report")
 async def show_run_compliance_report(
+    request: Request,
     run_id: str = Path(...),
     user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -2058,7 +2216,7 @@ async def show_run_compliance_report(
     from terrapod.services import compliance_report_service
 
     run = await _get_run(run_id, db)
-    await _require_run_ws_capability(run, cap.RUN_READ, user, db)
+    await _require_run_ws_capability(run, cap.RUN_READ, user, db, request=request)
     report = await compliance_report_service.generate_run_compliance_report(db, run)
     return JSONResponse(
         content={
@@ -2074,6 +2232,7 @@ async def show_run_compliance_report(
 
 @extensions_router.get("/workspaces/{workspace_id}/compliance-report")
 async def show_workspace_compliance_report(
+    request: Request,
     workspace_id: str = Path(...),
     limit: int = Query(50, ge=1, le=500),
     format: Literal["json", "csv"] = Query("json"),
@@ -2083,7 +2242,7 @@ async def show_workspace_compliance_report(
     """Show aggregate compliance report or CSV export across recent runs for a workspace."""
     from terrapod.services import compliance_report_service
 
-    ws = await _get_workspace(workspace_id, db)
+    ws = await _get_workspace(workspace_id, db, request=request)
     caps = await resolve_workspace_capabilities_for(db, user, ws)
     if not has_capability(caps, cap.RUN_READ):
         raise HTTPException(
@@ -2126,7 +2285,7 @@ async def show_plan(
 ) -> JSONResponse:
     """Show plan details including log URL."""
     run = await _get_run(run_id, db)
-    await _require_run_ws_capability(run, cap.RUN_READ, user, db)
+    await _require_run_ws_capability(run, cap.RUN_READ, user, db, request=request)
     return JSONResponse(content=_plan_json(run, request))
 
 
@@ -2164,7 +2323,7 @@ async def show_apply_by_id(
     Apply IDs use the same UUID as the run with an 'apply-' prefix.
     """
     run = await _get_run(apply_id.replace("apply-", "run-"), db)
-    await _require_run_ws_capability(run, cap.RUN_READ, user, db)
+    await _require_run_ws_capability(run, cap.RUN_READ, user, db, request=request)
     return JSONResponse(content=_apply_json(run, request))
 
 
@@ -2177,7 +2336,7 @@ async def show_apply(
 ) -> JSONResponse:
     """Show apply details including log URL."""
     run = await _get_run(run_id, db)
-    await _require_run_ws_capability(run, cap.RUN_READ, user, db)
+    await _require_run_ws_capability(run, cap.RUN_READ, user, db, request=request)
     return JSONResponse(content=_apply_json(run, request))
 
 
@@ -2202,7 +2361,7 @@ async def run_events_stream(
     user = await authenticate_request(request)
 
     async with get_db_session() as db:
-        ws = await _get_workspace(workspace_id, db)
+        ws = await _get_workspace(workspace_id, db, request=request)
         caps = await resolve_workspace_capabilities_for(db, user, ws)
         if not has_capability(caps, cap.RUN_READ):
             raise HTTPException(
@@ -2381,12 +2540,35 @@ async def next_run(
     # per-run vars Secret (mounted as the tfvars file), never as plaintext env;
     # there is no sensitivity split. See runner/phases/tfvars.py + the listener
     # vars Secret.
-    terraform_vars = [
-        # Both names on the wire (#1435): a runner up to N-2 minors behind
-        # reads `hcl` and knows nothing of `structured`.
-        {"key": v.key, "value": v.value, "structured": v.structured, "hcl": v.structured}
+    # The engine's own parameter channel (#1898). One list for every engine,
+    # because they are one role with three deliveries -- a tfvars file, `pulumi
+    # config set`, `-e @file.json` -- and the runner dispatches on the
+    # workspace's engine.
+    #
+    # `sensitive` rides along because Pulumi needs it (`--secret` makes the
+    # engine itself render the value as `[secret]` in previews and state) while
+    # Terraform does not: there the file is the mechanism and every value is
+    # delivered the same way. A delivery uses what it can honour and ignores the
+    # rest, which is why one list serves all three.
+    #
+    # The wire name stays `terraform-vars` and both flag spellings stay on each
+    # entry: a runner up to N-2 minors behind reads them, and identifiers keep
+    # their names the way `terraform.tfvars` does under OpenTofu.
+    native_vars = [
+        {
+            "key": v.key,
+            "value": v.value,
+            "structured": v.structured,
+            "hcl": v.structured,
+            "sensitive": bool(v.sensitive),
+        }
         for v in resolved
-        if v.category == "terraform"
+        # Folded rather than compared, so a row in either spelling is delivered.
+        # During a rolling upgrade an older API replica can still WRITE
+        # `terraform` while this one reads it, and a bare equality check would
+        # drop that variable from the run in silence -- the exact failure mode
+        # #1898 exists to remove, reintroduced by the fix for it.
+        if variable_service.canonical_category(v.category) == variable_service.NATIVE_CATEGORY
     ]
 
     # Private-git-module auth (#1028): git_http_auth / git_ssh_auth vars are
@@ -2395,9 +2577,20 @@ async def next_run(
     # delivered — like the vars/hooks — via the per-run Secret and materialized by
     # the runner's git_auth phase before `init` fetches modules. Never plaintext
     # in the Job spec; never in logs (the phase is log-safe by construction).
-    from terrapod.services.git_auth_service import resolve_git_auth
+    #
+    # A credential that fails to resolve is dropped inside the resolver, as it
+    # always has been. A REFUSAL is different and is fatal here, for the same
+    # reason the Vault block above is: the operator made a deliberate policy
+    # choice, and a silently absent credential would spend it on an `init`
+    # failure that names neither the credential nor the cause.
+    from terrapod.services.git_auth_service import GitAuthRefused, resolve_git_auth
 
-    git_auth = await resolve_git_auth(db, resolved)
+    try:
+        git_auth = await resolve_git_auth(db, resolved, workspace=ws)
+    except GitAuthRefused as e:
+        await run_service.transition_run(db, run, "errored", error_message=str(e))
+        await db.commit()
+        return Response(status_code=204)
 
     # Resolve execution hooks associated with this workspace (#619). Delivered
     # alongside the vars via the per-run Secret; the runner runs each hook_point
@@ -2426,7 +2619,7 @@ async def next_run(
     # its absence resolves to terraform on the far side.
     run_data["data"]["attributes"]["engine"] = ws.engine
     run_data["data"]["attributes"]["env-vars"] = env_vars
-    run_data["data"]["attributes"]["terraform-vars"] = terraform_vars
+    run_data["data"]["attributes"]["terraform-vars"] = native_vars
     run_data["data"]["attributes"]["execution-hooks"] = execution_hooks
     run_data["data"]["attributes"]["git-auth"] = git_auth
     # Vault file delivery (#1619): [{key, name, value}]. The listener writes
@@ -2437,7 +2630,18 @@ async def next_run(
     # whether to estimate cost — the runner never self-configures. Global API
     # setting today (per-workspace override is a future refinement); the runner
     # falls back to enabled if a lagging listener drops the field.
-    run_data["data"]["attributes"]["cost-estimation"] = settings.cost_estimation.enabled
+    #
+    # Gated on the ENGINE as well as the setting (#1569), and on the strategy
+    # rather than on a raw flag: whether a plan can be priced at all is the
+    # engine's own property. Terraform and Pulumi both answer yes, so this
+    # changes nothing for either; an engine that describes no resources answers
+    # no and its runner is not sent to fetch a pricesheet to produce an empty
+    # estimate, which reads as "this change costs nothing".
+    from terrapod.engines import estimates_cost
+
+    run_data["data"]["attributes"]["cost-estimation"] = settings.cost_estimation.enabled and (
+        estimates_cost(ws.engine)
+    )
     run_data["data"]["attributes"]["cost-default-region"] = settings.cost_estimation.default_region
     # Debug mode (#1764). The API sends only the workspace's INTENT; the
     # window comes from `runners.yaml` on the listener side, because that is
@@ -2587,8 +2791,18 @@ async def create_runner_token(
 
     Called by the listener after claiming a run. The token authenticates
     runner Job API calls (binary cache, provider mirror, artifact upload/download).
+
+    The listener names the Job's `phase` in the body, which is bound into the
+    token so a plan-phase Job cannot drive the apply-phase routes
+    (GHSA-xmrf-hxq9-m59m). The federation-token mint for per-workspace cloud
+    identity (#1901) reads the phase from the presented token rather than from
+    its own request body, so a plan-phase Job cannot ask for the apply identity
+    either. **Optional, and it has to stay optional**: a listener image older
+    than the claim sends no phase, and must still get a working token — so an
+    absent or unrecognised phase mints the older unphased form rather than
+    failing or guessing one.
     """
-    from terrapod.auth.runner_tokens import generate_runner_token
+    from terrapod.auth.runner_tokens import RUNNER_PHASES, generate_runner_token
     from terrapod.config import load_runner_config
 
     run = await _get_run(run_id, db)
@@ -2600,13 +2814,17 @@ async def create_runner_token(
 
     config = load_runner_config()
     requested_ttl = body.get("ttl", config.token_ttl_seconds)
-    token = generate_runner_token(run.id, ttl=requested_ttl)
+    requested_phase = body.get("phase")
+    phase = requested_phase if requested_phase in RUNNER_PHASES else None
+    token = generate_runner_token(run.id, ttl=requested_ttl, phase=phase)
 
     # Compute actual TTL (may have been clamped)
     max_ttl = config.max_token_ttl_seconds
     actual_ttl = min(requested_ttl, max_ttl) if max_ttl > 0 else requested_ttl
 
-    return JSONResponse(content={"token": token, "expires_in": actual_ttl})
+    # `phase` echoed back so a listener can tell whether the server bound one —
+    # additive, and absent from an older server's response, which reads as None.
+    return JSONResponse(content={"token": token, "expires_in": actual_ttl, "phase": phase})
 
 
 # ── Job Lifecycle Callbacks ───────────────────────────────────────────────
@@ -2816,7 +3034,7 @@ async def report_plan_result(
     network partition, etc.). Both paths land in the same idempotent helper
     so whichever wins, the second is a no-op.
     """
-    require_runner_for_run(user, run_id)
+    require_runner_for_run(user, run_id, phase="plan")
     run = await _get_run(run_id, db)
 
     has_changes = body.get("has_changes")
@@ -2838,7 +3056,7 @@ async def report_apply_result(
     runner's exit. Drives `applying → applied` via `run_service.complete_apply`,
     which is idempotent against the listener-driven fallback.
     """
-    require_runner_for_run(user, run_id)
+    require_runner_for_run(user, run_id, phase="apply")
     run = await _get_run(run_id, db)
     await run_service.complete_apply(db, run)
     await db.commit()
@@ -2893,7 +3111,7 @@ async def plan_log(
     if run is None:
         raise HTTPException(status_code=404, detail="Plan not found")
     if user is not None:
-        await _require_run_ws_capability(run, cap.RUN_READ, user, db)
+        await _require_run_ws_capability(run, cap.RUN_READ, user, db, request=request)
 
     return await _serve_log(
         run=run,
@@ -2907,6 +3125,7 @@ async def plan_log(
 
 @router.get("/plans/{plan_id}/json-output")
 async def plan_json_output(
+    request: Request,
     plan_id: str = Path(...),
     user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -2923,12 +3142,26 @@ async def plan_json_output(
     the `json-output` attribute — so it needs no capability, and it used to
     treat the plan UUID as one. A plan JSON is the full resolved plan, secrets
     included, so a guessable id was a worse exposure here than in the logs.
+
+    **It is gated on `state:read`, NOT `run:read` (GHSA-gwwq-5v7q-h3f4).** The
+    document embeds `prior_state.values` — the whole state in cleartext,
+    resource secrets included — and the root `variables` with their values,
+    sensitive ones among them. So it is state-grade data, and serving it a tier
+    below raw state download handed a read-tier user exactly what the
+    `state:read` gate and the sensitive-variable masking exist to withhold.
+    TFE does not grant structured plan output at its read tier either.
+
+    Not redacted for the read tier instead: a redacted plan is a second,
+    weaker-but-plausible artifact to keep correct for ever, and the AI channel
+    already redacts (there, because a third party receives the document — a
+    different reason that does not generalise to serving it to a human who may
+    not read the state).
     """
     run_uuid = parse_id(plan_id, "plan-", "run-", detail="Plan not found")
     run = await run_service.get_run(db, run_uuid)
     if run is None:
         raise HTTPException(status_code=404, detail="Plan not found")
-    await _require_run_ws_capability(run, cap.RUN_READ, user, db)
+    await _require_run_ws_capability(run, cap.STATE_READ, user, db, request=request)
 
     # Fast path: the flag is the source of truth. Avoid a storage call
     # for runs that never produced JSON (errored, older, upload failed).
@@ -2970,7 +3203,7 @@ async def apply_log(
     if run is None:
         raise HTTPException(status_code=404, detail="Apply not found")
     if user is not None:
-        await _require_run_ws_capability(run, cap.RUN_READ, user, db)
+        await _require_run_ws_capability(run, cap.RUN_READ, user, db, request=request)
 
     return await _serve_log(
         run=run,

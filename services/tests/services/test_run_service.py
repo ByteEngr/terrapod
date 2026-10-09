@@ -126,6 +126,13 @@ def _mock_run(**kwargs):
     run.error_message = kwargs.get("error_message", "")
     run.auto_apply = kwargs.get("auto_apply", False)
     run.plan_only = kwargs.get("plan_only", False)
+    # `terraform plan -out=FILE` (#1903), explicit for the same reason as
+    # `configuration_version_id` below: an unset MagicMock attribute is truthy,
+    # so confirm_run would take the deferred-saved-plan branch for every run
+    # and look for an apply-slot holder in whatever `db.scalar` was stubbed
+    # with -- which is a MagicMock, and therefore always "somebody else is
+    # applying".
+    run.save_plan = kwargs.get("save_plan", False)
     run.listener_id = kwargs.get("listener_id", None)
     run.locked = kwargs.get("locked", False)
     run.source = kwargs.get("source", "tfe-api")
@@ -1517,3 +1524,90 @@ class TestCompletePlanRefreshesThePRComment:
         run = _mock_run(status="planned")
         await complete_plan(_mock_db, run)
         refresh.assert_not_awaited()
+
+
+# ── Runner-token revocation on a terminal transition (GHSA-xmrf-hxq9-m59m) ──
+
+
+class TestATerminalTransitionRevokesTheRunsRunnerTokens:
+    """A runner token is a stateless HMAC good for its whole TTL — up to two
+    hours — so a token from a finished run kept authenticating long after there
+    was anything legitimate left for it to do. The terminal transition is what
+    makes the revocation prompt; the auth path's own run-status check is what
+    makes it correct when the marker was never written.
+
+    Asserted on the observable effect — the marker in Redis — rather than on
+    "the function was called", so moving the call does not break the test and
+    deleting it does.
+    """
+
+    @staticmethod
+    def _redis():
+        redis = MagicMock()
+        redis.set = AsyncMock()
+        redis.get = AsyncMock(return_value=None)
+        redis.publish = AsyncMock()
+        return redis
+
+    @staticmethod
+    def _db():
+        """An `applied` transition fires run triggers, which does its own select —
+        so the session needs a result it can walk, not a bare AsyncMock."""
+        db = AsyncMock(spec=AsyncSession)
+        result = MagicMock()
+        result.scalars.return_value.all.return_value = []
+        db.execute = AsyncMock(return_value=result)
+        return db
+
+    @pytest.mark.parametrize(
+        ("start", "terminal"),
+        [
+            ("applying", "applied"),
+            ("planning", "errored"),
+            ("planned", "discarded"),
+            ("queued", "canceled"),
+        ],
+    )
+    async def test_every_terminal_status_writes_the_marker(self, start, terminal):
+        db = self._db()
+        run = _mock_run(status=start)
+        redis = self._redis()
+
+        with patch("terrapod.redis.client.get_redis_client", return_value=redis):
+            await transition_run(db, run, terminal)
+
+        keys = [c.args[0] for c in redis.set.await_args_list if c.args]
+        assert f"tp:runtok_state:{run.id}" in keys, (
+            f"no revocation marker after {start} -> {terminal}; a runner token for "
+            "this run stays usable for the rest of its TTL"
+        )
+        marker = next(c for c in redis.set.await_args_list if c.args[0].endswith(str(run.id)))
+        assert marker.args[1] == "revoked"
+
+    async def test_a_non_terminal_transition_writes_no_marker(self):
+        """The other direction: revoking on `planning` would kill the Job that is
+        about to use the token."""
+        db = self._db()
+        run = _mock_run(status="queued")
+        redis = self._redis()
+
+        with patch("terrapod.redis.client.get_redis_client", return_value=redis):
+            await transition_run(db, run, "planning")
+
+        keys = [c.args[0] for c in redis.set.await_args_list if c.args]
+        assert f"tp:runtok_state:{run.id}" not in keys
+
+    async def test_the_transition_survives_an_unreachable_redis(self):
+        """It is inside the state machine. A run must reach its terminal state
+        whether or not the marker can be written — the auth path's status check
+        is what makes the outcome correct anyway."""
+        db = self._db()
+        run = _mock_run(status="applying")
+
+        with patch(
+            "terrapod.redis.client.get_redis_client",
+            side_effect=RuntimeError("redis is away"),
+        ):
+            result = await transition_run(db, run, "applied")
+
+        assert result.status == "applied"

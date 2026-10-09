@@ -27,6 +27,7 @@
     "account": "4cc0un7",
     "apiTokens": "4P1 70k3n5",
     "sessions": "535510n5",
+    "slackLinks": "5l4ck l1nk5",
     "logOut": "L0g 0u7",
     "menu": "M3nu",
     "openMenu": "0p3n m3nu",
@@ -70,7 +71,6 @@
       "agentPool": "4g3n7 P00l",
       "none": "N0n3",
       "autoApply": "4u70 4pply",
-      "autoApplyModeHint": "n3v3r: 4lw4y5 w417 f0r 4 hum4n. 4lw4y5: 4pply 3v3ry 5ucc355ful pl4n. cr3473 / cr3473/upd473: 4pply 0nly pl4n5 l1m173d 70 7h053 4c710n5 — n3v3r 4 d357r0y 0r 4 r3pl4c3.",
       "enabled": "3n4bl3d",
       "workingDirectory": "W0rk1ng D1r3c70ry",
       "workingDirectoryPlaceholder": "3.g. 3nv1r0nm3n75/d3v",
@@ -372,6 +372,22 @@
         "load": "F41l3d 70 l04d 535510n5",
         "revoke": "F41l3d 70 r3v0k3 535510n5 ({status})",
         "revokeGeneric": "F41l3d 70 r3v0k3 535510n5"
+      }
+    },
+    "slackLinks": {
+      "title": "5l4ck l1nk5",
+      "description": "5l4ck 4cc0un75 7h47 c4n 4c7 45 y0u. 4 l1nk3d 5l4ck 4cc0un7 c4n 4ppr0v3 4nd d15c4rd run5 w17h y0ur p3rm15510n5, 50 r3v0k3 4ny y0u d0 n07 r3c0gn153.",
+      "empty": "N0 5l4ck 4cc0un75 4r3 l1nk3d 70 y0u.",
+      "revoke": "R3v0k3",
+      "confirmRevoke": "R3v0k3 7h3 l1nk f0r 5l4ck u53r {u53r}? 7h47 4cc0un7 w1ll n0 l0ng3r b3 4bl3 70 4c7 45 y0u fr0m 5l4ck.",
+      "columns": {
+        "slackUser": "5l4ck u53r",
+        "team": "5l4ck 734m",
+        "linkedAt": "L1nk3d"
+      },
+      "errors": {
+        "load": "C0uld n07 l04d y0ur 5l4ck l1nk5.",
+        "revoke": "C0uld n07 r3v0k3 7h47 5l4ck l1nk."
       }
     }
   },
@@ -761,7 +777,9 @@
       "setAssignmentStatus": "F41l3d 70 537 4551gnm3n7 ({status})",
       "deleteAssignment": "F41l3d 70 d3l373 4551gnm3n7",
       "conflictingLabelKeys": "{keys} 15 g1v3n m0r3 7h4n 0n3 v4lu3. 4 l4b3l rul3 h0ld5 0n3 v4lu3 p3r k3y, 50 7h3 l457 w0uld 51l3n7ly r3pl4c3 7h3 34rl13r 0n35. M47ch1ng 53v3r4l v4lu35 f0r 0n3 k3y 15 5upp0r73d by 7h3 4P1 bu7 c4nn07 y37 b3 537 h3r3."
-    }
+    },
+    "pinnedToSubject": "P1nn3d",
+    "pinnedToSubjectTitle": "P1nn3d 70 1dP 5ubj3c7 {subject}"
   },
   "adminVcs": {
     "title": "VC5 C0nn3c710n5",
@@ -774,6 +792,23 @@
       "delete": "D3l373"
     },
     "confirmDelete": "D3l373 7h15 VC5 c0nn3c710n? W0rk5p4c35 u51ng 17 w1ll l053 VC5 1n73gr4710n. 7h15 c4nn07 b3 und0n3.",
+    "access": {
+      "heading": "Wh0 m4y u53 7h15 c0nn3c710n",
+      "intro": "7h353 7hr33 53771ng5 d3c1d3 wh1ch w0rk5p4c35 m4y b3 p01n73d 47 7h15 c0nn3c710n. 7h3 cr3d3n714l 1753lf 574y5 wr173-0nly.",
+      "ownerEmail": "0wn3r 3m41l",
+      "ownerEmailHint": "7h3 0wn3r m4y 4lw4y5 u53 7h15 c0nn3c710n. L34v3 17 bl4nk 70 l34v3 7h3 c0nn3c710n un0wn3d.",
+      "labels": "4cc355 l4b3l5",
+      "labelsHint": "4 r0l3 wh053 rul35 m47ch 7h353 l4b3l5 m4y p01n7 4 w0rk5p4c3 47 7h15 c0nn3c710n.",
+      "allowedRepositories": "4ll0w3d r3p05170r135",
+      "allowedRepositoriesHint": "Gl0b p4773rn5 m47ch3d 4g41n57 7h3 r3p05170ry 4 w0rk5p4c3 45k5 70 u53.",
+      "addPattern": "4dd 4 p4773rn",
+      "anyRepositoryWarning": "N0 p4773rn5 4r3 l1573d, 50 7h15 c0nn3c710n m4y b3 p01n73d 47 4ny r3p05170ry.",
+      "restricted": "{count, plural, one {# pattern is listed} other {# patterns are listed}}, 50 4 r3p05170ry m47ch1ng n0n3 0f 7h3m 15 r3fu53d.",
+      "ownedBy": "0wn3d by {email}",
+      "unowned": "N0 0wn3r 15 537",
+      "anyRepositorySummary": "4ny r3p05170ry 15 4ll0w3d",
+      "repositoryCount": "R357r1c73d 70 {count, plural, one {# repository} other {# repositories}}"
+    },
     "form": {
       "name": "N4m3",
       "namePattern": "L3773r5, numb3r5, hyph3n5, 4nd und3r5c0r35 0nly. Mu57 574r7 w17h 4 l3773r 0r numb3r.",
@@ -922,7 +957,6 @@
       "varKey": "K3y",
       "varValue": "V4lu3",
       "varCategory": "C473g0ry",
-      "categoryTerraform": "73rr4f0rm",
       "categoryEnv": "3nv1r0nm3n7",
       "sensitive": "53n5171v3",
       "sensAbbr": "53n5.",
@@ -988,7 +1022,9 @@
       "valueSource": "V4lu3 50urc3",
       "valueSourceStatic": "3n73r 4 v4lu3",
       "valueSourceVault": "R34d fr0m 0p3nB40/V4ul7",
-      "vaultHint": "73rr4p0d r34d5 7h3 53cr37 fr0m 0p3nB40 (0r H45h1C0rp V4ul7) 47 run 71m3. N07h1ng 15 570r3d h3r3."
+      "vaultHint": "73rr4p0d r34d5 7h3 53cr37 fr0m 0p3nB40 (0r H45h1C0rp V4ul7) 47 run 71m3. N07h1ng 15 570r3d h3r3.",
+      "categoryNative": "N471v3",
+      "structured": "57ruc7ur3d"
     }
   },
   "adminAutodiscovery": {
@@ -1076,7 +1112,10 @@
       "terragruntVersion": "73rr4grun7 v3r510n",
       "noExpiry": "N0 3xp1ry",
       "addDriftIgnoreRule": "4dd rul3",
-      "debugModeHint": "H0ld f41l3d runn3r p0d5 0p3n 0n 7h3 w0rk5p4c35 7h15 rul3 cr34735. 0ff by d3f4ul7 — 4 h3ld p0d k33p5 7h47 w0rk5p4c3'5 cr3d3n714l5."
+      "debugModeHint": "H0ld f41l3d runn3r p0d5 0p3n 0n 7h3 w0rk5p4c35 7h15 rul3 cr34735. 0ff by d3f4ul7 — 4 h3ld p0d k33p5 7h47 w0rk5p4c3'5 cr3d3n714l5.",
+      "allowForkPrPlansHint": "4ppl135 70 3v3ry w0rk5p4c3 7h15 rul3 cr34735. 0ff by d3f4ul7: 4 pull r3qu357 fr0m 4 f0rk g375 n0 5p3cul471v3 pl4n, b3c4u53 17 w0uld run 175 4u7h0r'5 c0d3 w17h 7h3 w0rk5p4c3'5 cr3d3n714l5.",
+      "oidcAudiences": "Run 1d3n717y 4ud13nc35 (1nh3r173d by cr3473d w0rk5p4c35)",
+      "oidcAudiencesHint": "4ud13nc3 0v3rr1d35 73mpl473d 0n70 3v3ry w0rk5p4c3 7h15 rul3 cr34735, k3y3d 0n 7h3 pr0v1d3r c0nf1gur4710n 4 70k3n 15 f0r — 4w5, 0r 4w5.w357 f0r 4n 4l1453d c0nf1gur4710n. L34v3 17 3mp7y 4nd 7h053 w0rk5p4c35 74k3 7h3 d3pl0ym3n7'5 0wn c0nf1gur4710n."
     },
     "table": {
       "name": "N4m3",
@@ -1270,7 +1309,8 @@
       "cancel": "C4nc3l",
       "working": "W0rk1ng...",
       "previewDryRun": "Pr3v13w (dry run)",
-      "applyChanges": "4pply ch4ng35"
+      "applyChanges": "4pply ch4ng35",
+      "setOidcAudiences": "537 01DC run 1d3n717y 4ud13nc35 (r3pl4c35 7h3 m4p 0n 3v3ry m47ch3d w0rk5p4c3)"
     },
     "diff": {
       "colWorkspace": "W0rk5p4c3",
@@ -1919,12 +1959,24 @@
       "always": "4lw4y5",
       "create": "cr3473",
       "createUpdate": "cr3473/upd473"
+    },
+    "oidcAudiences": {
+      "addProvider": "4dd pr0v1d3r c0nf1gur4710n",
+      "audiences": "4ud13nc35",
+      "badgeInherited": "D3pl0ym3n7 d3f4ul7",
+      "badgeOwned": "W0rk5p4c3",
+      "issuerDisabled": "7h15 d3pl0ym3n7 publ15h35 n0 0p3n1D C0nn3c7 155u3r, 50 n07h1ng c0nf1gur3d h3r3 c4n 74k3 3ff3c7.",
+      "override": "0v3rr1d3",
+      "overrideAria": "0v3rr1d3 7h3 {provider} 4ud13nc35 f0r 7h15 w0rk5p4c3",
+      "providerDuplicate": "7h47 pr0v1d3r c0nf1gur4710n 4lr34dy h45 4n 3n7ry.",
+      "providerInvalid": "4 pr0v1d3r n4m3 h45 n0 5p4c35 4nd 47 m057 0n3 d07 — 4w5, 0r 4w5.w357.",
+      "providerPlaceholder": "4w5, 0r 4w5.w357",
+      "removeProviderAria": "R3m0v3 7h3 {provider} pr0v1d3r c0nf1gur4710n"
     }
   },
   "planSummary": {
     "aiGenerated": "41 g3n3r473d",
     "heading": {
-      "planSummary": "Pl4n 5umm4ry",
       "failureAnalysis": "F41lur3 4n4ly515"
     },
     "errors": {
@@ -1933,13 +1985,11 @@
     "regenerate": {
       "label": "R3g3n3r473",
       "queueing": "Qu3u31ng…",
-      "tooltip": "R3-run 7h3 41 5umm4ry 4g41n57 7h3 54m3 pl4n 1npu75",
       "ariaLabel": "R3g3n3r473 41 5umm4ry",
       "confirm": "R3g3n3r473 7h3 41 4n4ly515? 7h15 run5 7h3 m0d3l 4g41n.",
       "error": "C0uld n07 r3g3n3r473: <mono>{detail}</mono>"
     },
     "pending": {
-      "summarisingPlan": "5umm4r1z1ng pl4n…",
       "analysingFailure": "4n4ly51ng f41lur3…"
     },
     "skipped": {
@@ -1963,7 +2013,6 @@
     "badges": {
       "noChanges": "N0 ch4ng35",
       "noChangesLower": "n0 ch4ng35",
-      "noChangesTitle": "Pl4n r3p0r73d n0 r350urc3 ch4ng35",
       "toAdd": "{count, plural, one {# to add} other {# to add}}",
       "toChange": "{count, plural, one {# to change} other {# to change}}",
       "toDestroy": "{count, plural, one {# to destroy} other {# to destroy}}",
@@ -1973,7 +2022,6 @@
     "chat": {
       "heading": "F0ll0w-up",
       "sharedThreadNote": "0n3 5h4r3d 7hr34d, v151bl3 70 4ny0n3 w17h w0rk5p4c3 r34d.",
-      "placeholder": "45k 4 f0ll0w-up qu35710n 4b0u7 7h15 pl4n… (⌘/C7rl + 3n73r 70 53nd)",
       "send": "53nd",
       "thinking": "7h1nk1ng…",
       "you": "Y0u",
@@ -1997,7 +2045,6 @@
     "workspaceFallback": "w0rk5p4c3",
     "backTo": "B4ck 70 {name}",
     "errorHeading": "3rr0r",
-    "discardedHeading": "D15c4rd3d — r3-pl4n r3qu1r3d",
     "common": {
       "yes": "Y35",
       "no": "N0"
@@ -2051,14 +2098,13 @@
     },
     "badge": {
       "destroy": "d357r0y",
-      "planOnly": "pl4n 0nly"
+      "savedPlan": "54v3d pl4n",
+      "savedPlanHint": "4pply d3f3rr3d: 7h15 run d035 n07 h0ld 7h3 w0rk5p4c3 un71l 7h3 54v3d pl4n 15 4ppl13d."
     },
     "actions": {
       "retryShort": "R37ry",
       "retryFull": "R37ry Run",
       "retrying": "R37ry1ng…",
-      "confirmShort": "4pply",
-      "confirmFull": "C0nf1rm & 4pply",
       "confirming": "C0nf1rm1ng…",
       "discard": "D15c4rd",
       "discarding": "D15c4rd1ng…",
@@ -2068,8 +2114,6 @@
       "queuing": "Qu3u31ng…"
     },
     "confirm": {
-      "apply": "4pply 7h15 run? 7h15 4ppl135 7h3 pl4n 4nd ch4ng35 1nfr457ruc7ur3.",
-      "discard": "D15c4rd 7h15 pl4n?",
       "cancel": "C4nc3l 7h15 run?",
       "retry": "R37ry 7h15 run?"
     },
@@ -2092,20 +2136,19 @@
       "impactFull": "1mp4c7 gr4ph",
       "cost": "Cost",
       "costFull": "Cost estimate",
-      "planLabel": "Pl4n<log>L0g</log>",
-      "applyLabel": "4pply<log>L0g</log>",
-      "planFull": "Pl4n l0g",
-      "applyFull": "4pply l0g",
       "details": "D3741l5",
       "security": "53cur17y",
       "securityFull": "53cur17y 5c4n"
     },
     "banner": {
       "destroy": "7h15 15 4 <strong>d357r0y</strong> run — 4ll m4n4g3d r350urc35 w1ll b3 d357r0y3d wh3n 4ppl13d.",
-      "planOnlyCli": "7h15 15 4 <strong>pl4n-0nly</strong> run 1n171473d fr0m 7h3 CL1 0n 4 VC5-c0nn3c73d w0rk5p4c3. 4pply 15 n07 4v41l4bl3 f0r CL1-upl04d3d c0d3 — 0nly VC5-m4n4g3d c0d3 c4n b3 4ppl13d.",
       "moduleOverridesPrefix": "7h15 run u535 <strong>m0dul3 0v3rr1d35</strong>",
       "moduleOverridesFromPr": "fr0m PR #{number}",
       "moduleOverridesSuffix": "w1ll b3 f37ch3d fr0m 7h3 PR br4nch 1n5734d 0f 7h3 publ15h3d r3g157ry v3r510n."
+    },
+    "bindPlan": {
+      "bound": "L0ck3d 70 7h15 pr3v13w: 7h3 upd473 4ppl135 3x4c7ly 7h3 pl4n 5h0wn h3r3, 4nd 4ny7h1ng 7h47 ch4ng3d 51nc3 f41l5 7h3 upd473 1n5734d 0f b31ng 4ppl13d.",
+      "unbound": "N07 l0ck3d 70 7h15 pr3v13w: 7h3 upd473 w0rk5 0u7 175 0wn ch4ng35 wh3n 17 run5, 45 4 pl41n pulumi up d035, 50 wh47 17 4ppl135 m4y d1ff3r fr0m wh47 15 5h0wn h3r3."
     },
     "cards": {
       "changes": "Ch4ng35",
@@ -2117,7 +2160,6 @@
     },
     "changes": {
       "noChanges": "N0 ch4ng35",
-      "planning": "Pl4nn1ng…",
       "toAdd": "70 4dd",
       "toChange": "70 ch4ng3",
       "toDestroy": "70 d357r0y",
@@ -2154,7 +2196,6 @@
       "executionBackend": "3x3cu710n B4ck3nd",
       "source": "50urc3",
       "autoApply": "4u70 4pply",
-      "planOnly": "Pl4n 0nly",
       "triggeredBy": "7r1gg3r3d By",
       "created": "Cr3473d",
       "commit": "C0mm17",
@@ -2170,11 +2211,7 @@
     "timeline": {
       "heading": "71m3l1n3",
       "queued": "Qu3u3d",
-      "planningStarted": "Pl4nn1ng 574r73d",
-      "planComplete": "Pl4n c0mpl373",
       "confirmed": "C0nf1rm3d",
-      "applyingStarted": "4pply1ng 574r73d",
-      "applied": "4ppl13d",
       "errored": "3rr0r3d",
       "canceled": "C4nc3l3d",
       "discarded": "D15c4rd3d"
@@ -2198,12 +2235,8 @@
       "followOffTitle": "F0ll0w 7h3 l1v3 741l",
       "end": "3nd",
       "endTitle": "Jump 70 7h3 3nd 0f 7h3 l0g",
-      "planEmpty": "N0 pl4n 0u7pu7 4v41l4bl3 y37.",
-      "applyEmpty": "N0 4pply 0u7pu7 4v41l4bl3 y37.",
       "index": {
         "label": "Jump 70",
-        "title": "Jump 70 4 r350urc3 ch4ng3, 0r 7h3 pl4n 5umm4ry",
-        "summary": "Pl4n 5umm4ry",
         "action": {
           "create": "cr3473",
           "update": "upd473",
@@ -2215,13 +2248,11 @@
           "error": "3rr0r",
           "warning": "w4rn1ng"
         }
-      },
-      "applySkippedNoChanges": "N0 4pply r4n: 7h3 pl4n h4d n0 ch4ng35, 50 7h3r3 w45 n07h1ng 70 4pply."
+      }
     },
     "policyPanel": {
       "heading": "P0l1cy Ch3ck5",
       "passedCount": "{passed}/{total} p4553d",
-      "blockedMessage": "7h15 run 15 <strong>bl0ck3d by 4 m4nd470ry p0l1cy 537</strong>. 17 w1ll n07 4pply un71l 7h3 f41lur3 15 r350lv3d 0r 4n 4dm1n 0v3rr1d35 17.",
       "overriding": "0v3rr1d1ng...",
       "overrideContinue": "0v3rr1d3 & C0n71nu3",
       "overrideFailed": "0v3rr1d3 f41l3d",
@@ -2261,7 +2292,6 @@
       "unpricedHint": "Nothing in the pricing data matched these — an unmapped type, a resource with no direct cost, or a provider not yet covered.",
       "indicative": "Estimates are indicative; actual cost depends on usage, region, commitments, and discounts.",
       "asOfState": "as of state v{serial}",
-      "noState": "No cost yet — appears after the first apply.",
       "usageBand": "{dimension}: {typical} {unit} typ1c4l (r4ng3 {low}–{high})",
       "usageBandCost": "{dimension}: {costTypical}/mo typ1c4l — {costLow}–{costHigh} 4cr0ss {low}–{high} {unit}"
     },
@@ -2348,7 +2378,6 @@
       "passed": "N0 p0l1cy cr173r14 m47ch3d.",
       "overriding": "0v3rr1d1ng...",
       "overrideContinue": "0v3rr1d3 & C0n71nu3",
-      "overrideConfirm": "0v3rr1d3 7h3 41 p0l1cy g473 4nd 4ll0w 7h15 run 70 4pply d35p173 7h3 v3rd1c7?",
       "overrideFailed": "0v3rr1d3 f41l3d",
       "overrideFailedStatus": "0v3rr1d3 f41l3d ({status})",
       "overriddenBy": "0v3rr1dd3n by {by}"
@@ -2407,9 +2436,6 @@
       "translatedNote": "7r4n5l473d fr0m 7h3 0r1g1n4l 0n v13w."
     },
     "drift": {
-      "remediate": "Pl4n + 4pply",
-      "remediateTitle": "Qu3u3 4 pl4n + 4pply run 70 br1ng 1nfr457ruc7ur3 b4ck 1n l1n3 w17h 7h3 c0nf1gur4710n",
-      "remediateConfirm": "Qu3u3 4 pl4n + 4pply run f0r 7h15 w0rk5p4c3?",
       "remediateMessage": "Qu3u3d fr0m 4 dr1f7 ch3ck",
       "remediateFailed": "C0uld n07 qu3u3 7h3 r3m3d14710n run"
     }
@@ -2469,6 +2495,7 @@
       "architecture": "4rch173c7ur3",
       "insights": "1n51gh75",
       "automation": "4u70m4710n",
+      "inventory": "1nv3n70ry",
       "access": "4cc355"
     },
     "lifecycle": {
@@ -2501,6 +2528,9 @@
       "version": "V3r510n",
       "versionPlaceholder": "3.g. 1.11 0r 1.11.5",
       "versionTitle": "V3r510n 1n X.Y 0r X.Y.Z f0rm47 (3.g. 1.11 0r 1.11.5)",
+      "ansibleVersion": "4n51bl3 v3r510n",
+      "ansibleVersionPlaceholder": "3.g. 2.21.5",
+      "ansibleVersionTitle": "7h3 ansible-core v3r510n f0r 7h15 w0rk5p4c3. L34v3 3mp7y 70 f0ll0w 7h3 d3pl0ym3n7 d3f4ul7.",
       "terragruntEnabledAgent": "3n4bl3d (4g3n7 m0d3)",
       "terragruntEnabledVersion": "3n4bl3d (v{version})",
       "terragruntVersionPlaceholder": "3.g. 1.0",
@@ -2541,12 +2571,16 @@
       "engineTerraform": "Terraform",
       "nameTitlePulumi": "7w0 p4r75 53p4r473d by '::' — pr0j3c7::574ck. L3773r5, numb3r5, hyph3n5 4nd und3r5c0r35 0nly; 34ch p4r7 mu57 574r7 w17h 4 l3773r 0r numb3r.",
       "bindPlan": "L0ck 7h3 upd473 70 7h3 4ppr0v3d pr3v13w",
-      "bindPlanHelp": "Wh3n 0n, 7h3 upd473 4ppl135 3x4c7ly 7h3 pl4n 7h3 pr3v13w 54v3d, 50 4ny7h1ng 7h47 ch4ng3d 51nc3 7h3 pr3v13w f41l5 7h3 upd473 1n5734d 0f b31ng 4ppl13d. 7h15 r3575 0n Pulum1 upd473 pl4n5, wh1ch 4r3 571ll 3xp3r1m3n74l. Wh3n 0ff, 7h3 upd473 w0rk5 0u7 175 0wn ch4ng35, 45 4 pl41n pulum1 up d035. <docs>H0w Pulum1 run5 w0rk</docs>"
+      "bindPlanHelp": "Wh3n 0n, 7h3 upd473 4ppl135 3x4c7ly 7h3 pl4n 7h3 pr3v13w 54v3d, 50 4ny7h1ng 7h47 ch4ng3d 51nc3 7h3 pr3v13w f41l5 7h3 upd473 1n5734d 0f b31ng 4ppl13d. 7h15 r3575 0n Pulum1 upd473 pl4n5, wh1ch 4r3 571ll 3xp3r1m3n74l. Wh3n 0ff, 7h3 upd473 w0rk5 0u7 175 0wn ch4ng35, 45 4 pl41n pulum1 up d035. <docs>H0w Pulum1 run5 w0rk</docs>",
+      "oidcAudiences": "Run 1d3n717y 4ud13nc35",
+      "oidcAudiencesAdd": "4dd 4ud13nc3",
+      "oidcAudiencesHint": "73rr4p0d m1n75 4 5h0r7-l1v3d 0p3n1D C0nn3c7 70k3n f0r 34ch pr0v1d3r c0nf1gur4710n 4 run u535 4nd wr1735 17 70 4 f1l3 7h3 run c4n r34d. K3y 4n 3n7ry 0n 7h3 pr0v1d3r 45 y0ur c0nf1gur4710n n4m35 17 — 4w5, 0r 4w5.w357 f0r 4n 4l1453d c0nf1gur4710n — 4nd l157 7h3 4ud13nc35 7h47 74rg37 4cc3p75. 34ch 3n7ry 0v3rr1d35 7h3 d3pl0ym3n7'5 0wn c0nf1gur4710n f0r 7h47 pr0v1d3r; r3m0v3 17 4nd 7h47 pr0v1d3r f4ll5 b4ck 70 7h3 d3pl0ym3n7'5 4ud13nc35. 4n 4ud13nc3 15 4n 0p4qu3 57r1ng 7h3 f3d3r4710n 74rg37 ch053, 50 17 15 570r3d 3x4c7ly 45 7yp3d.",
+      "oidcAudiencesLoading": "Ch3ck1ng 7h3 d3pl0ym3n7'5 c0nf1gur3d 4ud13nc35…",
+      "oidcAudiencesNone": "N0n3 (run5 u53 7h3 4g3n7 p00l'5 0wn 1d3n717y)",
+      "oidcAudiencesPlaceholder": "3.g. 575.4m4z0n4w5.c0m"
     },
     "vcsWorkflowWarning": {
       "title": "4u7h0r1z4710n d3l3g473d 70 y0ur VC5 r3p05170ry.",
-      "rbac": "4ny0n3 wh0 c4n m3rg3 7h3 PR c4n 4pply. Br4nch pr073c710n rul35 (r3qu1r3d r3v13w5, 5747u5 ch3ck5, c0d3 0wn3r 4ppr0v4l) b3c0m3 7h3 g473. 73rr4p0d r0l3/l4b3l RB4C d035<em>n07</em> 4pply 70 c0mm3n7-dr1v3n 4c710n5 1n 7h15 m0d3.",
-      "recommended": "<strong>R3c0mm3nd3d:</strong> r3qu1r3 l1n34r h1570ry (r3b453/5qu45h b3f0r3 m3rg3) 50 7h3 c0mm17 y0u 4pply 15 7h3 c0mm17 7h47 l4nd5.",
       "credit": "Cr3d17: 7h15 w0rkfl0w 15 m0d3ll3d 0n <atlantis>47l4n715</atlantis>. 47l4n715 r3m41n5 7h3 r1gh7 700l f0r 734m5 wh0 0nly w4n7 PR-c0mm3n7-dr1v3n 4ppl135 4nd n0 pl47f0rm U1."
     },
     "vcsPolling": {
@@ -2562,7 +2596,6 @@
     },
     "lock": {
       "title": "L0ck 5747u5",
-      "lockedDesc": "7h15 w0rk5p4c3 15 l0ck3d. N0 pl4n5 0r 4ppl135 c4n run.",
       "unlockedDesc": "7h15 w0rk5p4c3 15 unl0ck3d 4nd r34dy f0r run5.",
       "lock": "L0ck",
       "unlock": "Unl0ck",
@@ -2584,7 +2617,6 @@
       "dismissTitle": "Cl34r 7h3 r3p0r73d dr1f7 57473. 7h3 n3x7 5ch3dul3d ch3ck w1ll r3p0pul473 17 fr0m r34l17y.",
       "lastChecked": "L457 Ch3ck3d",
       "checkNow": "Ch3ck N0w",
-      "checkNowTitle": "Qu3u3 4 pl4n-0nly run 70 ch3ck f0r dr1f7",
       "checkNowTitleDisabled": "3n4bl3 dr1f7 d373c710n f1r57"
     },
     "intervals": {
@@ -2598,13 +2630,10 @@
       "7days": "7 d4y5"
     },
     "planExpiry": {
-      "title": "Pl4n 3xp1ry",
-      "description": "4u70-d15c4rd 4n unc0nf1rm3d pl4n 0nc3 17 15 0ld3r 7h4n 7h15, 50 4 574l3 pl4n c4n'7 b3 4ppl13d 4g41n57 4 m0v3d w0rld. 0ff by d3f4ul7; 7h3 pl4n mu57 7h3n b3 r3-run. (4ppl135 70 4pply-c4p4bl3 run5 0nly.)",
       "expireAfter": "3xp1r3 4f73r"
     },
     "aiSummary": {
       "title": "41 Pl4n 5umm4ry",
-      "description": "4u70m471c LLM-g3n3r473d ch4ng3 5umm4ry, r15k 455355m3n7, 4nd f41lur3 4n4ly515 0n 3v3ry pl4n-ph453 0u7c0m3 f0r 7h15 w0rk5p4c3.",
       "mode": "M0d3",
       "modeDefault": "F0ll0w d3pl0ym3n7 d3f4ul7",
       "modeEnabled": "4lw4y5 5umm4r1z3",
@@ -2619,7 +2648,6 @@
     },
     "slack": {
       "title": "5l4ck n071f1c4710n5",
-      "description": "0p7 7h15 w0rk5p4c3 1n70 5l4ck run n071f1c4710n5 — 4ppr0v4l r3qu3575, 4ppl135, 3rr0r5, 4nd dr1f7. L34v3 7h3 ch4nn3l 3mp7y 4nd 7h15 w0rk5p4c3 574y5 51l3n7 (7h3r3 15 n0 d3pl0ym3n7-w1d3 f4n-0u7). R3qu1r35 7h3 5l4ck 4pp 70 b3 3n4bl3d by 4n 4dm1n157r470r.",
       "channel": "Ch4nn3l",
       "channelPlaceholder": "#d3pl0y5 0r 4 ch4nn3l 1D (3.g. C01234BCD)",
       "notSet": "N07 537 — 51l3n7.",
@@ -2694,20 +2722,18 @@
       "vaultFileEncoding": "3nc0d1ng",
       "vaultFileEncodingNone": "45 570r3d 1n 0p3nB40/V4ul7",
       "vaultFileEncodingBase64": "B45364-d3c0d3",
-      "vaultFileEncodingHint": "D3c0d35 7h3 f13ld b3f0r3 17 15 wr1773n. 7h3 r35ul7 mu57 b3 73x7; b1n4ry f1l35 4r3 n07 5upp0r73d."
+      "vaultFileEncodingHint": "D3c0d35 7h3 f13ld b3f0r3 17 15 wr1773n. 7h3 r35ul7 mu57 b3 73x7; b1n4ry f1l35 4r3 n07 5upp0r73d.",
+      "categoryNative": "N471v3",
+      "structured": "57ruc7ur3d",
+      "categoryTerraform": "73rr4f0rm",
+      "categoryPulumiConfig": "Pulum1 c0nf1g"
     },
     "runs": {
       "options": "0p710n5",
       "hideOptions": "H1d3 0p710n5",
       "queueDestroy": "D357r0y",
-      "queueDestroyTitle": "Qu3u3 4 d357r0y pl4n",
       "destroyAllConfirm": "D357r0y 4ll r350urc35?",
       "confirmDestroy": "C0nf1rm D357r0y",
-      "queuePlan": "Pl4n",
-      "queueRun": "Pl4n + 4pply",
-      "queuePlanConfirm": "Qu3u3 4 5p3cul471v3 pl4n f0r 7h15 w0rk5p4c3?",
-      "queueApplyConfirm": "Qu3u3 4 pl4n + 4pply run? 7h15 c4n ch4ng3 1nfr457ruc7ur3.",
-      "planOptions": "Pl4n 0p710n5",
       "targetResources": "74rg37 r350urc35",
       "replaceResources": "R3pl4c3 r350urc35",
       "commaSeparated": "(c0mm4-53p4r473d)",
@@ -2718,7 +2744,6 @@
       "branch": "Br4nch",
       "tag": "74g",
       "defaultBranch": "D3f4ul7 ({branch})",
-      "nonDefaultRefNote": "N0n-d3f4ul7 r3f 53l3c73d — run w1ll b3 pl4n-0nly",
       "empty": "N0 run5 y37 f0r 7h15 w0rk5p4c3.",
       "runId": "Run 1D",
       "status": "5747u5",
@@ -2729,13 +2754,11 @@
       "created": "Cr3473d",
       "needsConfirm": "n33d5 c0nf1rm",
       "typeDestroy": "d357r0y",
-      "typePlanOnly": "pl4n 0nly",
-      "typePlanApply": "pl4n + 4pply",
       "sourceModuleTest": "m0dul3 7357",
       "sourceModulePublish": "m0dul3 publ15h",
-      "queueApplyTitle": "Qu3u3 4 pl4n + 4pply run",
-      "queueApplyRefBlocked": "4pply 15 un4v41l4bl3 wh1l3 4 br4nch, 74g 0r c0mm17 15 53l3c73d — 7h053 run5 4r3 4lw4y5 pl4n-0nly",
-      "awaitingDecision": "4w4171ng d3c1510n"
+      "awaitingDecision": "4w4171ng d3c1510n",
+      "typeSavedPlan": "54v3d pl4n",
+      "typeSavedPlanHint": "4pply d3f3rr3d: 7h15 run d035 n07 h0ld 7h3 w0rk5p4c3 un71l 7h3 54v3d pl4n 15 4ppl13d."
     },
     "state": {
       "deleteConfirm": "D3l373 57473 v3r510n #{serial}? 7h15 c4nn07 b3 und0n3.",
@@ -2752,12 +2775,18 @@
       "runner": "runn3r",
       "latest": "l47357"
     },
+    "stateOutputs": {
+      "title": "0u7pu75",
+      "fromSerial": "53r14l #{serial}",
+      "empty": "7h15 57473 d3cl4r35 n0 0u7pu75.",
+      "sensitive": "53n5171v3",
+      "loadFailed": "C0uld n07 l04d 7h3 0u7pu75 f0r 7h15 w0rk5p4c3."
+    },
     "configurations": {
       "description": "Upl04d3d 50urc3 4rch1v35 f0r 7h15 w0rk5p4c3, n3w357 f1r57. P1ck 7w0 r0w5 70 c0mp4r3.",
       "selectedCount": "{count}/2 53l3c73d",
       "compare": "C0mp4r3",
       "comparing": "C0mp4r1ng…",
-      "empty": "N0 c0nf1gur4710n v3r510n5 y37. 7h3y 4pp34r h3r3 45 500n 45 4 `73rr4f0rm pl4n` upl04d5 0r 4 VC5 pu5h 7r1gg3r5 4 run.",
       "id": "1D",
       "source": "50urc3",
       "status": "5747u5",
@@ -2819,7 +2848,6 @@
     },
     "runTriggers": {
       "title": "Run 7r1gg3r5",
-      "description": "Wh3n 4 50urc3 w0rk5p4c3 c0mpl3735 4n 4pply, d0wn57r34m w0rk5p4c35 g37 4 n3w run qu3u3d 4u70m471c4lly. Up 70 20 50urc3 w0rk5p4c35 p3r d3571n4710n.",
       "inboundHeading": "50urc3 w0rk5p4c35 7h47 7r1gg3r run5 h3r3",
       "inboundEmpty": "N0 50urc3 w0rk5p4c35 7r1gg3r run5 0n 7h15 w0rk5p4c3.",
       "pickerPlaceholder": "534rch w0rk5p4c35 70 4dd 45 4 50urc3…",
@@ -2827,6 +2855,173 @@
       "outboundEmpty": "7h15 w0rk5p4c3 d035 n07 7r1gg3r run5 0n 4ny 07h3r w0rk5p4c3.",
       "destinationNote": "(d3571n4710n; r3m0v3 fr0m 7h3r3)",
       "removeConfirm": "R3m0v3 7h15 run 7r1gg3r?"
+    },
+    "inventory": {
+      "scope": {
+        "heading": "1nv3n70ry",
+        "body": "7h3 h0575 4nd gr0up5 7h15 w0rk5p4c3 h0ld5, 4nd wh47 4n51bl3 r350lv35 7h3m 70. 34ch r0w 15 3d174bl3 h3r3; runn1ng 4 pl4yb00k 4g41n57 7h3m 15 n07 4v41l4bl3 y37."
+      },
+      "nav": {
+        "label": "1nv3n70ry 53c710n5",
+        "hosts": "H0575",
+        "groups": "Gr0up5",
+        "vars": "V4r14bl35",
+        "resolved": "R350lv3d",
+        "settings": "53771ng5"
+      },
+      "actions": {
+        "save": "54v3",
+        "saving": "54v1ng…",
+        "cancel": "C4nc3l",
+        "edit": "3d17",
+        "delete": "D3l373",
+        "remove": "R3m0v3",
+        "add": "4dd",
+        "adding": "4dd1ng…",
+        "rename": "R3n4m3"
+      },
+      "hosts": {
+        "heading": "H0575",
+        "body": "0n3 r0w p3r h057. 0p3n 4 h057 70 3d17 175 v4r14bl35 4nd 7h3 gr0up5 17 b3l0ng5 70.",
+        "empty": "N0 h0575 y37.",
+        "colName": "H057",
+        "colGroups": "Gr0up5",
+        "colVars": "V4r14bl35",
+        "newLabel": "N3w h057 n4m3",
+        "newPlaceholder": "web-1",
+        "add": "4dd h057",
+        "confirmDelete": "D3l373 7h3 h057 {name}? 175 v4r14bl35 4nd 175 gr0up m3mb3r5h1p5 g0 w17h 17.",
+        "renameLabel": "H057 n4m3"
+      },
+      "groups": {
+        "heading": "Gr0up5",
+        "body": "0n3 r0w p3r gr0up. 0p3n 4 gr0up 70 3d17 175 v4r14bl35, 175 m3mb3r h0575 4nd 7h3 gr0up5 n3573d 1n51d3 17.",
+        "empty": "N0 gr0up5 y37.",
+        "colName": "Gr0up",
+        "colMembers": "H0575",
+        "colChildren": "Ch1ld gr0up5",
+        "colVars": "V4r14bl35",
+        "newLabel": "N3w gr0up n4m3",
+        "newPlaceholder": "web",
+        "add": "4dd gr0up",
+        "confirmDelete": "D3l373 7h3 gr0up {name}? 175 v4r14bl35 4nd 175 m3mb3r5h1p5 g0 w17h 17; 7h3 h0575 7h3m53lv35 574y.",
+        "renameLabel": "Gr0up n4m3"
+      },
+      "vars": {
+        "actions": "4c710n5",
+        "key": "K3y",
+        "keyPlaceholder": "ansible_user",
+        "value": "V4lu3",
+        "structured": "57ruc7ur3d",
+        "sensitive": "53n5171v3",
+        "structuredHelp": "4 l157, numb3r 0r 0bj3c7 15 4 57ruc7ur3d v4lu3: 71ck 57ruc7ur3d 4nd wr173 175 l173r4l 50urc3 1n 7h3 v4lu3. 4 53n5171v3 v4lu3 15 n3v3r r34d b4ck — 7h3 f13ld 5h0w5 4 m45k 1n5734d.",
+        "structuredBadge": "57ruc7ur3d",
+        "sensitiveKeep": "L34v3 7h15 bl4nk 70 k33p 7h3 570r3d v4lu3.",
+        "empty": "N0 v4r14bl35 h3r3.",
+        "add": "4dd v4r14bl3",
+        "confirmDelete": "D3l373 7h3 v4r14bl3 {key}?"
+      },
+      "hostDetail": {
+        "heading": "H057 {name}",
+        "body": "3v3ry7h1ng 7h15 0n3 h057 c4rr135.",
+        "back": "B4ck 70 h0575",
+        "gone": "7h47 h057 n0 l0ng3r 3x1575.",
+        "vars": "H057 v4r14bl35",
+        "varsBody": "V4r14bl35 7h47 4pply 70 7h15 h057 4l0n3. 7h3y w1n 0v3r 4 gr0up v4r14bl3 0f 7h3 54m3 n4m3.",
+        "memberships": "Gr0up5",
+        "membershipsBody": "7h3 gr0up5 7h15 h057 b3l0ng5 70. 4 m3mb3r5h1p 15 4 l1nk, 50 r3m0v1ng 0n3 h3r3 l34v35 b07h 7h3 h057 4nd 7h3 gr0up 1n pl4c3.",
+        "membershipsEmpty": "7h15 h057 15 1n n0 gr0up, 50 4n51bl3 pu75 17 1n ungr0up3d.",
+        "addGroup": "4dd 70 gr0up",
+        "addGroupLabel": "Ch0053 4 gr0up",
+        "removeGroupAria": "R3m0v3 7h15 h057 fr0m {name}",
+        "confirmRemoveGroup": "74k3 7h15 h057 0u7 0f {name}?"
+      },
+      "groupDetail": {
+        "heading": "Gr0up {name}",
+        "body": "3v3ry7h1ng 7h15 0n3 gr0up c4rr135.",
+        "back": "B4ck 70 gr0up5",
+        "gone": "7h47 gr0up n0 l0ng3r 3x1575.",
+        "vars": "Gr0up v4r14bl35",
+        "varsBody": "V4r14bl35 7h47 4pply 70 3v3ry h057 1n 7h15 gr0up, d1r3c7ly 0r 7hr0ugh n3571ng.",
+        "members": "M3mb3r h0575",
+        "membersBody": "7h3 h0575 1n 7h15 gr0up d1r3c7ly. 4 h057 r34ch3d 0nly 7hr0ugh 4 n3573d gr0up 15 n07 l1573d h3r3.",
+        "membersEmpty": "N0 h0575 1n 7h15 gr0up d1r3c7ly.",
+        "addHost": "4dd h057",
+        "addHostLabel": "Ch0053 4 h057",
+        "removeHostAria": "R3m0v3 {name} fr0m 7h15 gr0up",
+        "confirmRemoveHost": "74k3 {name} 0u7 0f 7h15 gr0up?",
+        "children": "Ch1ld gr0up5",
+        "childrenBody": "Gr0up5 n3573d 1n51d3 7h15 0n3. 7h31r h0575 4r3 m3mb3r5 0f 7h15 gr0up 700, 4nd 7h15 gr0up’5 v4r14bl35 r34ch 7h3m.",
+        "childrenEmpty": "N0 gr0up5 n3573d 1n51d3 7h15 0n3.",
+        "addChild": "4dd ch1ld gr0up",
+        "addChildLabel": "Ch0053 4 gr0up 70 n357",
+        "removeChildAria": "R3m0v3 {name} fr0m 7h3 ch1ldr3n 0f 7h15 gr0up",
+        "confirmRemoveChild": "570p n3571ng {name} 1n51d3 7h15 gr0up?",
+        "parents": "P4r3n7 gr0up5",
+        "parentsBody": "7h3 gr0up5 7h15 0n3 15 n3573d 1n51d3. 4 gr0up m4y h4v3 53v3r4l p4r3n75.",
+        "parentsEmpty": "7h15 gr0up 15 n3573d 1n51d3 n07h1ng.",
+        "addParent": "4dd p4r3n7 gr0up",
+        "addParentLabel": "Ch0053 4 p4r3n7 gr0up",
+        "removeParentAria": "R3m0v3 7h15 gr0up fr0m {name}",
+        "confirmRemoveParent": "570p n3571ng 7h15 gr0up 1n51d3 {name}?"
+      },
+      "globalVars": {
+        "heading": "1nv3n70ry v4r14bl35",
+        "body": "V4r14bl35 7h47 4pply 70 3v3ry h057 — 4n51bl3’5 gr0up_v4r5/4ll. 4 gr0up 0r h057 v4r14bl3 0f 7h3 54m3 n4m3 w1n5 0v3r 0n3 537 h3r3."
+      },
+      "resolved": {
+        "heading": "R350lv3d h0575",
+        "body": "Wh47 4n51bl3 m4k35 0f 7h3 r0w5: 3v3ry h057 w17h 7h3 v4r14bl35 17 3nd5 up h0ld1ng, 4f73r 7h3 m3rg3 4nd 7h3 pr3c3d3nc3.",
+        "hosts": "H0575",
+        "groups": "Gr0up5",
+        "liveNote": "7h15 15 l1v3. 3v3ry 50urc3 h3r3 15 57471c, 50 7h3 r34d r350lv35 7h3 r0w5 70 4n5w3r 1753lf — 7h3r3 15 n07h1ng 70 r3fr35h.",
+        "noHosts": "N07h1ng r350lv3d 70 4 h057.",
+        "noVars": "n0 v4r14bl35",
+        "groupsHeading": "Gr0up m3mb3r5h1p",
+        "directOnly": "D1r3c7 m3mb3r5h1p 0nly, 3x4c7ly 45 4n51bl3 r3p0r75 17: 4 gr0up wh053 h0575 4ll 4rr1v3 7hr0ugh 4 n3573d gr0up l1575 n0n3 0f 175 0wn. 7h3 n3571ng 15 b3l0w.",
+        "noGroups": "N0 gr0up5 r350lv3d.",
+        "noDirectMembers": "n0 d1r3c7 h0575",
+        "nestingHeading": "Gr0up n3571ng",
+        "nestingBody": "Wh1ch gr0up5 517 1n51d3 wh1ch. 4 l1m17 0n 4 p4r3n7 r34ch35 3v3ry h057 b3l0w 17.",
+        "noNesting": "N0 gr0up5 4r3 n3573d.",
+        "limitHeading": "Wh47 w0uld 4 l1m17 74rg37?",
+        "limitBody": "3xp4nd 4n 4n51bl3 --l1m17 p4773rn 4g41n57 7h15 1nv3n70ry 4nd 533 3x4c7ly wh1ch h0575 17 53l3c75 b3f0r3 4ny7h1ng run5. 4n51bl3 d035 7h3 3xp4n510n, 50 4 gr0up, 4n 3xclu510n 4nd 4 ~r3g3x 4ll b3h4v3 45 7h3y w1ll 47 run 71m3.",
+        "limitLabel": "L1m17 p4773rn",
+        "limitPlaceholder": "web:!web-2",
+        "limitApply": "4pply l1m17",
+        "limitClear": "Cl34r",
+        "limitApplied": "L1m173d 70 {limit}. 3v3ry7h1ng b3l0w 15 wh47 7h47 p4773rn 74rg375."
+      },
+      "settings": {
+        "heading": "53771ng5",
+        "body": "Wh37h3r 7h3 r0w5 h3ld h3r3 c0un7, 4nd 7h3 r3p05170ry 4n 1nv3n70ry 15 4l50 r34d fr0m.",
+        "absent": "N0 53771ng5, wh1ch 15 7h3 d3f4ul7: 7h3 h0575 4nd gr0up5 h3ld h3r3 4r3 7h3 wh0l3 1nv3n70ry.",
+        "includePlatform": "U53 7h3 h0575 4nd gr0up5 h3ld h3r3",
+        "includePlatformHelp": "0n by d3f4ul7. 7urn 17 0ff 70 r350lv3 fr0m 7h3 r3p05170ry 4l0n3, l34v1ng 7h353 r0w5 1n pl4c3 bu7 0u7 0f 7h3 4n5w3r.",
+        "included": "y35",
+        "excluded": "n0",
+        "vcsConnection": "VC5 c0nn3c710n",
+        "vcsNone": "N0n3",
+        "field": {
+          "repo-url": "R3p05170ry",
+          "branch": "Br4nch",
+          "working-directory": "D1r3c70ry"
+        },
+        "branchHelp": "L34v3 3mp7y 70 7r4ck 7h3 d3f4ul7 br4nch 0f 7h3 r3p05170ry.",
+        "ignorePaths": "1gn0r3d p47h5",
+        "ignorePathsHelp": "0n3 gl0b p3r l1n3. 4ny7h1ng m47ch1ng 15 l3f7 0u7 0f 7h3 1nv3n70ry r34d fr0m 7h3 r3p05170ry.",
+        "unset": "n07 537",
+        "create": "4dd 53771ng5",
+        "clear": "Cl34r 53771ng5",
+        "confirmClear": "Cl34r 7h353 53771ng5? 7h3 r3p05170ry b1nd1ng g035 w17h 7h3m; 7h3 h0575 4nd gr0up5 h3ld h3r3 574y."
+      },
+      "errors": {
+        "load": "F41l3d 70 l04d 7h3 1nv3n70ry",
+        "save": "F41l3d 70 54v3",
+        "delete": "F41l3d 70 d3l373",
+        "resolved": "F41l3d 70 r350lv3 7h3 1nv3n70ry",
+        "settings": "F41l3d 70 54v3 7h3 1nv3n70ry 53771ng5"
+      }
     },
     "sharing": {
       "title": "R3m073 57473 5h4r1ng",
@@ -2896,8 +3091,6 @@
       "addVariableStatus": "F41l3d 70 4dd v4r14bl3 ({status})",
       "deleteVariable": "F41l3d 70 d3l373 v4r14bl3",
       "updateVariable": "F41l3d 70 upd473 v4r14bl3",
-      "queuePlan": "F41l3d 70 qu3u3 pl4n",
-      "queuePlanStatus": "F41l3d 70 qu3u3 pl4n ({status})",
       "queueDestroy": "F41l3d 70 qu3u3 d357r0y",
       "queueDestroyStatus": "F41l3d 70 qu3u3 d357r0y ({status})",
       "createNotification": "F41l3d 70 cr3473 n071f1c4710n",
@@ -2914,7 +3107,8 @@
       "uploadState": "F41l3d 70 upl04d 57473",
       "uploadStateFile": "F41l3d 70 upl04d 57473 f1l3",
       "updateSecurityScan": "F41l3d 70 upd473 53cur17y 5c4nn1ng",
-      "updateDebugMode": "F41l3d 70 upd473 d3bug m0d3"
+      "updateDebugMode": "F41l3d 70 upd473 d3bug m0d3",
+      "updateForkPlans": "F41l3d 70 upd473 f0rk pull r3qu357 pl4n5"
     },
     "subtabs": {
       "state": "57473",
@@ -2967,6 +3161,14 @@
       "bannerTitle": "D3bug m0d3 15 0n f0r 7h15 w0rk5p4c3",
       "bannerBody": "4 f41l3d run'5 p0d 15 h3ld 0p3n f0r 1n5p3c710n 1n5734d 0f 3x171ng, 4nd 17 k33p5 7h15 w0rk5p4c3'5 cr3d3n714l5 4nd d3cryp73d v4r14bl35 wh1l3 17 15 h3ld. 7urn d3bug m0d3 0ff wh3n y0u 4r3 f1n15h3d 7r0ubl35h0071ng.",
       "confirmEnable": "7urn 0n d3bug m0d3? 4 f41l3d run'5 p0d w1ll b3 h3ld 0p3n h0ld1ng 7h15 w0rk5p4c3'5 cr3d3n714l5 4nd d3cryp73d v4r14bl35 un71l 7h3 w1nd0w 3xp1r35 0r y0u d3l373 7h3 p0d."
+    },
+    "allowForkPrPlans": {
+      "title": "Pl4n5 0n f0rk pull r3qu3575",
+      "description": "Wh37h3r 4 pull r3qu357 0p3n3d fr0m 4 f0rk g375 4 5p3cul471v3 pl4n. 0ff by d3f4ul7, b3c4u53 7h47 pl4n run5 7h3 f0rk 4u7h0r'5 c0d3 w17h 7h15 w0rk5p4c3'5 cr3d3n714l5.",
+      "label": "Pl4n f0rk pull r3qu3575",
+      "hint": "4 run r3c31v35 7h15 w0rk5p4c3'5 3nv1r0nm3n7 v4r14bl35, 53n5171v3 v4lu35, 4ny V4ul7-r350lv3d 53cr375 4nd 7h3 j0b'5 cl0ud 1d3n717y. 50m30n3 0p3n1ng 4 pull r3qu357 fr0m 4 f0rk h45 n0 wr173 4cc355 4nd c4nn07 m3rg3, 50 4 5p3cul471v3 pl4n 15 7h3 0nly w4y 7h31r c0d3 r34ch35 7h053 cr3d3n714l5. 7urn 7h15 0n f0r 4 w0rk5p4c3 7h47 h0ld5 n07h1ng w0r7h 74k1ng — 4 publ1c m0dul3 r3p05170ry 4cc3p71ng c0mmun17y c0n7r1bu710n5, 54y. Pull r3qu3575 fr0m br4nch35 1n 7h3 r3p05170ry 1753lf 4r3 un4ff3c73d 4nd 4lw4y5 pl4n.",
+      "activeBadge": "0n",
+      "confirmEnable": "Pl4n pull r3qu3575 0p3n3d fr0m f0rk5? 7h31r 4u7h0r5' c0d3 w1ll run w17h 7h15 w0rk5p4c3'5 cr3d3n714l5 4nd d3cryp73d v4r14bl35, w17h0u7 4ny0n3 4ppr0v1ng 17 f1r57."
     }
   },
   "graphs": {
@@ -3189,11 +3391,14 @@
     "unknown": "unkn0wn",
     "confirm": {
       "prompt": "L1nk 7h15 5l4ck 4cc0un7 70 <em>y0ur</em> 73rr4p0d 1d3n717y? 3v3ry fu7ur3 5l4ck 4c710n (4ppr0v3/d15c4rd) w1ll run 45 7h15 73rr4p0d u53r w17h 7h31r p3rm15510n5.",
+      "slackName": "5l4ck 4cc0un7",
       "slackUser": "5l4ck u53r",
       "slackTeam": "5l4ck 734m",
       "terrapodAccount": "73rr4p0d 4cc0un7",
       "warning": "0nly c0n71nu3 1f y0u ju57 574r73d 7h15 l1nk fr0m 5l4ck y0ur53lf. 1f y0u d1dn'7, cl053 7h15 74b 4nd d0n'7 l1nk — 7h15 b1nd5 7h3 5l4ck 4cc0un7 4b0v3 70 <em>y0ur</em> 73rr4p0d 1d3n717y.",
-      "button": "C0nf1rm & l1nk"
+      "button": "C0nf1rm & l1nk",
+      "namesUnavailable": "73rr4p0d c0uld n07 l00k up 7h15 5l4ck 4cc0un7'5 n4m3. Ch3ck 7h3 1d5 4b0v3, 4nd 0nly c0n71nu3 1f y0u 574r73d 7h15 l1nk fr0m 5l4ck y0ur53lf.",
+      "nameIsSelfChosen": "7h3 h4ndl3 15 un1qu3 1n 7h3 5l4ck w0rk5p4c3; 7h3 d15pl4y n4m3 b3n347h 17 15 ch053n by 175 0wn3r, 50 judg3 by 7h3 h4ndl3."
     },
     "success": {
       "message": "Y0ur 5l4ck 4cc0un7 15 n0w l1nk3d 70 73rr4p0d.",
@@ -3416,7 +3621,77 @@
       },
       "status": {
         "planning": "Pl4nn1ng",
-        "applying": "4pply1ng"
+        "applying": "4pply1ng",
+        "planned": "Pl4nn3d",
+        "applied": "4ppl13d"
+      },
+      "words": {
+        "actionConfirmFull": "C0nf1rm & 4pply",
+        "actionConfirmShort": "4pply",
+        "activityApplied": "4pply c0mpl373",
+        "activityConfirmed": "574r71ng 4pply",
+        "activityDiscarded": "Pl4n d15c4rd3d",
+        "activityPlannedComplete": "Pl4n c0mpl373",
+        "activityPlannedConfirmable": "W4171ng f0r y0u 70 c0nf1rm & 4pply",
+        "activityPlannedSpeculative": "5p3cul471v3 pl4n c0mpl373",
+        "aiPolicyOverrideConfirm": "0v3rr1d3 7h3 41 p0l1cy g473 4nd 4ll0w 7h15 run 70 4pply d35p173 7h3 v3rd1c7?",
+        "aiSummaryDescription": "4u70m471c LLM-g3n3r473d ch4ng3 5umm4ry, r15k 455355m3n7, 4nd f41lur3 4n4ly515 0n 3v3ry pl4n-ph453 0u7c0m3 f0r 7h15 w0rk5p4c3.",
+        "aiSummaryTitle": "41 Pl4n 5umm4ry",
+        "badgePlanOnly": "pl4n 0nly",
+        "bannerPlanOnlyCli": "7h15 15 4 <strong>pl4n-0nly</strong> run 1n171473d fr0m 7h3 CL1 0n 4 VC5-c0nn3c73d w0rk5p4c3. 4pply 15 n07 4v41l4bl3 f0r CL1-upl04d3d c0d3 — 0nly VC5-m4n4g3d c0d3 c4n b3 4ppl13d.",
+        "changesPlanning": "Pl4nn1ng…",
+        "configurationsEmpty": "N0 c0nf1gur4710n v3r510n5 y37. 7h3y 4pp34r h3r3 45 500n 45 4 `73rr4f0rm pl4n` upl04d5 0r 4 VC5 pu5h 7r1gg3r5 4 run.",
+        "confirmApply": "4pply 7h15 run? 7h15 4ppl135 7h3 pl4n 4nd ch4ng35 1nfr457ruc7ur3.",
+        "confirmDiscard": "D15c4rd 7h15 pl4n?",
+        "costNoState": "No cost yet — appears after the first apply.",
+        "detailsPlanOnly": "Pl4n 0nly",
+        "discardedHeading": "D15c4rd3d — r3-pl4n r3qu1r3d",
+        "driftCheckNowTitle": "Qu3u3 4 pl4n-0nly run 70 ch3ck f0r dr1f7",
+        "driftRemediate": "Pl4n + 4pply",
+        "driftRemediateConfirm": "Qu3u3 4 pl4n + 4pply run f0r 7h15 w0rk5p4c3?",
+        "driftRemediateTitle": "Qu3u3 4 pl4n + 4pply run 70 br1ng 1nfr457ruc7ur3 b4ck 1n l1n3 w17h 7h3 c0nf1gur4710n",
+        "errorsQueuePlan": "F41l3d 70 qu3u3 pl4n",
+        "errorsQueuePlanStatus": "F41l3d 70 qu3u3 pl4n ({status})",
+        "fieldsAutoMerge": "4u70-m3rg3 4f73r 4pply",
+        "formAutoApplyModeHint": "n3v3r: 4lw4y5 w417 f0r 4 hum4n. 4lw4y5: 4pply 3v3ry 5ucc355ful pl4n. cr3473 / cr3473/upd473: 4pply 0nly pl4n5 l1m173d 70 7h053 4c710n5 — n3v3r 4 d357r0y 0r 4 r3pl4c3.",
+        "lockLockedDesc": "7h15 w0rk5p4c3 15 l0ck3d. N0 pl4n5 0r 4ppl135 c4n run.",
+        "logApplyEmpty": "N0 4pply 0u7pu7 4v41l4bl3 y37.",
+        "logApplySkipped": "N0 4pply r4n: 7h3 pl4n h4d n0 ch4ng35, 50 7h3r3 w45 n07h1ng 70 4pply.",
+        "logIndexSummary": "Pl4n 5umm4ry",
+        "logIndexTitle": "Jump 70 4 r350urc3 ch4ng3, 0r 7h3 pl4n 5umm4ry",
+        "logPlanEmpty": "N0 pl4n 0u7pu7 4v41l4bl3 y37.",
+        "nonDefaultRefNote": "N0n-d3f4ul7 r3f 53l3c73d — run w1ll b3 pl4n-0nly",
+        "planExpiryDescription": "4u70-d15c4rd 4n unc0nf1rm3d pl4n 0nc3 17 15 0ld3r 7h4n 7h15, 50 4 574l3 pl4n c4n'7 b3 4ppl13d 4g41n57 4 m0v3d w0rld. 0ff by d3f4ul7; 7h3 pl4n mu57 7h3n b3 r3-run. (4ppl135 70 4pply-c4p4bl3 run5 0nly.)",
+        "planExpiryTitle": "Pl4n 3xp1ry",
+        "planOptions": "Pl4n 0p710n5",
+        "planSummaryChatPlaceholder": "45k 4 f0ll0w-up qu35710n 4b0u7 7h15 pl4n… (⌘/C7rl + 3n73r 70 53nd)",
+        "planSummaryHeading": "Pl4n 5umm4ry",
+        "planSummaryNoChangesTitle": "Pl4n r3p0r73d n0 r350urc3 ch4ng35",
+        "planSummaryRegenerateTooltip": "R3-run 7h3 41 5umm4ry 4g41n57 7h3 54m3 pl4n 1npu75",
+        "planSummarySummarising": "5umm4r1z1ng pl4n…",
+        "policyBlockedMessage": "7h15 run 15 <strong>bl0ck3d by 4 m4nd470ry p0l1cy 537</strong>. 17 w1ll n07 4pply un71l 7h3 f41lur3 15 r350lv3d 0r 4n 4dm1n 0v3rr1d35 17.",
+        "queueApplyConfirm": "Qu3u3 4 pl4n + 4pply run? 7h15 c4n ch4ng3 1nfr457ruc7ur3.",
+        "queueApplyRefBlocked": "4pply 15 un4v41l4bl3 wh1l3 4 br4nch, 74g 0r c0mm17 15 53l3c73d — 7h053 run5 4r3 4lw4y5 pl4n-0nly",
+        "queueApplyTitle": "Qu3u3 4 pl4n + 4pply run",
+        "queueDestroyTitle": "Qu3u3 4 d357r0y pl4n",
+        "queuePlan": "Pl4n",
+        "queuePlanConfirm": "Qu3u3 4 5p3cul471v3 pl4n f0r 7h15 w0rk5p4c3?",
+        "queueRun": "Pl4n + 4pply",
+        "replacePlaceholder": "e.g. aws_instance.web",
+        "runTriggersDescription": "Wh3n 4 50urc3 w0rk5p4c3 c0mpl3735 4n 4pply, d0wn57r34m w0rk5p4c35 g37 4 n3w run qu3u3d 4u70m471c4lly. Up 70 20 50urc3 w0rk5p4c35 p3r d3571n4710n.",
+        "tabApplyFull": "4pply l0g",
+        "tabApplyLabel": "4pply<log>L0g</log>",
+        "tabPlanFull": "Pl4n l0g",
+        "tabPlanLabel": "Pl4n<log>L0g</log>",
+        "targetPlaceholder": "e.g. aws_instance.web, aws_s3_bucket.data",
+        "timelineApplied": "4ppl13d",
+        "timelineApplyingStarted": "4pply1ng 574r73d",
+        "timelinePlanComplete": "Pl4n c0mpl373",
+        "timelinePlanningStarted": "Pl4nn1ng 574r73d",
+        "typePlanApply": "pl4n + 4pply",
+        "vcsWorkflowWarningRbac": "4ny0n3 wh0 c4n m3rg3 7h3 PR c4n 4pply. Br4nch pr073c710n rul35 (r3qu1r3d r3v13w5, 5747u5 ch3ck5, c0d3 0wn3r 4ppr0v4l) b3c0m3 7h3 g473. 73rr4p0d r0l3/l4b3l RB4C d035<em>n07</em> 4pply 70 c0mm3n7-dr1v3n 4c710n5 1n 7h15 m0d3.",
+        "vcsWorkflowWarningRecommended": "<strong>R3c0mm3nd3d:</strong> r3qu1r3 l1n34r h1570ry (r3b453/5qu45h b3f0r3 m3rg3) 50 7h3 c0mm17 y0u 4pply 15 7h3 c0mm17 7h47 l4nd5.",
+        "slackDescription": "0p7 7h15 w0rk5p4c3 1n70 5l4ck run n071f1c4710n5 — 4ppr0v4l r3qu3575, 4ppl135, 3rr0r5, 4nd dr1f7. L34v3 7h3 ch4nn3l 3mp7y 4nd 7h15 w0rk5p4c3 574y5 51l3n7 (7h3r3 15 n0 d3pl0ym3n7-w1d3 f4n-0u7). R3qu1r35 7h3 5l4ck 4pp 70 b3 3n4bl3d by 4n 4dm1n157r470r."
       }
     },
     "pulumi": {
@@ -3432,7 +3707,77 @@
       },
       "status": {
         "planning": "Pr3v13w1ng",
-        "applying": "Upd471ng"
+        "applying": "Upd471ng",
+        "planned": "Pr3v13w3d",
+        "applied": "Upd473d"
+      },
+      "words": {
+        "actionConfirmFull": "C0nf1rm & Upd473",
+        "actionConfirmShort": "Upd473",
+        "activityApplied": "Upd473 c0mpl373",
+        "activityConfirmed": "574r71ng upd473",
+        "activityDiscarded": "Pr3v13w d15c4rd3d",
+        "activityPlannedComplete": "Pr3v13w c0mpl373",
+        "activityPlannedConfirmable": "W4171ng f0r y0u 70 c0nf1rm & upd473",
+        "activityPlannedSpeculative": "5p3cul471v3 pr3v13w c0mpl373",
+        "aiPolicyOverrideConfirm": "0v3rr1d3 7h3 41 p0l1cy g473 4nd 4ll0w 7h15 run 70 upd473 d35p173 7h3 v3rd1c7?",
+        "aiSummaryDescription": "4u70m471c LLM-g3n3r473d ch4ng3 5umm4ry, r15k 455355m3n7, 4nd f41lur3 4n4ly515 0n 3v3ry pr3v13w-ph453 0u7c0m3 f0r 7h15 w0rk5p4c3.",
+        "aiSummaryTitle": "41 Pr3v13w 5umm4ry",
+        "badgePlanOnly": "pr3v13w 0nly",
+        "bannerPlanOnlyCli": "7h15 15 4 <strong>pr3v13w-0nly</strong> run 1n171473d fr0m 7h3 CL1 0n 4 VC5-c0nn3c73d w0rk5p4c3. Upd473 15 n07 4v41l4bl3 f0r CL1-upl04d3d c0d3 — 0nly VC5-m4n4g3d c0d3 c4n b3 upd473d.",
+        "changesPlanning": "Pr3v13w1ng…",
+        "configurationsEmpty": "N0 c0nf1gur4710n v3r510n5 y37. 7h3y 4pp34r h3r3 45 500n 45 4 VC5 pu5h 7r1gg3r5 4 run.",
+        "confirmApply": "Upd473 7h15 run? 7h15 c4rr135 0u7 7h3 pr3v13w 4nd ch4ng35 1nfr457ruc7ur3.",
+        "confirmDiscard": "D15c4rd 7h15 pr3v13w?",
+        "costNoState": "N0 c057 y37 — 4pp34r5 4f73r 7h3 f1r57 upd473.",
+        "detailsPlanOnly": "Pr3v13w 0nly",
+        "discardedHeading": "D15c4rd3d — r3-pr3v13w r3qu1r3d",
+        "driftCheckNowTitle": "Qu3u3 4 pr3v13w-0nly run 70 ch3ck f0r dr1f7",
+        "driftRemediate": "Pr3v13w + upd473",
+        "driftRemediateConfirm": "Qu3u3 4 pr3v13w + upd473 run f0r 7h15 w0rk5p4c3?",
+        "driftRemediateTitle": "Qu3u3 4 pr3v13w + upd473 run 70 br1ng 1nfr457ruc7ur3 b4ck 1n l1n3 w17h 7h3 c0nf1gur4710n",
+        "errorsQueuePlan": "F41l3d 70 qu3u3 pr3v13w",
+        "errorsQueuePlanStatus": "F41l3d 70 qu3u3 pr3v13w ({status})",
+        "fieldsAutoMerge": "4u70-m3rg3 4f73r upd473",
+        "formAutoApplyModeHint": "n3v3r: 4lw4y5 w417 f0r 4 hum4n. 4lw4y5: upd473 0n 3v3ry 5ucc355ful pr3v13w. cr3473 / cr3473/upd473: upd473 0nly fr0m pr3v13w5 l1m173d 70 7h053 4c710n5 — n3v3r 4 d357r0y 0r 4 r3pl4c3.",
+        "lockLockedDesc": "7h15 w0rk5p4c3 15 l0ck3d. N0 pr3v13w5 0r upd4735 c4n run.",
+        "logApplyEmpty": "N0 upd473 0u7pu7 4v41l4bl3 y37.",
+        "logApplySkipped": "N0 upd473 r4n: 7h3 pr3v13w h4d n0 ch4ng35, 50 7h3r3 w45 n07h1ng 70 upd473.",
+        "logIndexSummary": "Pr3v13w 5umm4ry",
+        "logIndexTitle": "Jump 70 4 r350urc3 ch4ng3, 0r 7h3 pr3v13w 5umm4ry",
+        "logPlanEmpty": "N0 pr3v13w 0u7pu7 4v41l4bl3 y37.",
+        "nonDefaultRefNote": "N0n-d3f4ul7 r3f 53l3c73d — run w1ll b3 pr3v13w-0nly",
+        "planExpiryDescription": "4u70-d15c4rd 4n unc0nf1rm3d pr3v13w 0nc3 17 15 0ld3r 7h4n 7h15, 50 4 574l3 pr3v13w c4n'7 b3 c4rr13d 0u7 4g41n57 4 m0v3d w0rld. 0ff by d3f4ul7; 7h3 pr3v13w mu57 7h3n b3 r3-run. (4ppl135 70 upd473-c4p4bl3 run5 0nly.)",
+        "planExpiryTitle": "Pr3v13w 3xp1ry",
+        "planOptions": "Pr3v13w 0p710n5",
+        "planSummaryChatPlaceholder": "45k 4 f0ll0w-up qu35710n 4b0u7 7h15 pr3v13w… (⌘/C7rl + 3n73r 70 53nd)",
+        "planSummaryHeading": "Pr3v13w 5umm4ry",
+        "planSummaryNoChangesTitle": "Pr3v13w r3p0r73d n0 r350urc3 ch4ng35",
+        "planSummaryRegenerateTooltip": "R3-run 7h3 41 5umm4ry 4g41n57 7h3 54m3 pr3v13w 1npu75",
+        "planSummarySummarising": "5umm4r1z1ng pr3v13w…",
+        "policyBlockedMessage": "7h15 run 15 <strong>bl0ck3d by 4 m4nd470ry p0l1cy 537</strong>. 17 w1ll n07 upd473 un71l 7h3 f41lur3 15 r350lv3d 0r 4n 4dm1n 0v3rr1d35 17.",
+        "queueApplyConfirm": "Qu3u3 4 pr3v13w + upd473 run? 7h15 c4n ch4ng3 1nfr457ruc7ur3.",
+        "queueApplyRefBlocked": "Upd473 15 un4v41l4bl3 wh1l3 4 br4nch, 74g 0r c0mm17 15 53l3c73d — 7h053 run5 4r3 4lw4y5 pr3v13w-0nly",
+        "queueApplyTitle": "Qu3u3 4 pr3v13w + upd473 run",
+        "queueDestroyTitle": "Qu3u3 4 d357r0y pr3v13w",
+        "queuePlan": "Pr3v13w",
+        "queuePlanConfirm": "Qu3u3 4 5p3cul471v3 pr3v13w f0r 7h15 w0rk5p4c3?",
+        "queueRun": "Pr3v13w + upd473",
+        "replacePlaceholder": "e.g. urn:pulumi:dev::shop::aws:ec2/instance:Instance::web",
+        "runTriggersDescription": "Wh3n 4 50urc3 w0rk5p4c3 c0mpl3735 4n upd473, d0wn57r34m w0rk5p4c35 g37 4 n3w run qu3u3d 4u70m471c4lly. Up 70 20 50urc3 w0rk5p4c35 p3r d3571n4710n.",
+        "tabApplyFull": "Upd473 l0g",
+        "tabApplyLabel": "Upd473<log>L0g</log>",
+        "tabPlanFull": "Pr3v13w l0g",
+        "tabPlanLabel": "Pr3v13w<log>L0g</log>",
+        "targetPlaceholder": "e.g. urn:pulumi:dev::shop::aws:s3/bucket:Bucket::assets",
+        "timelineApplied": "Upd473d",
+        "timelineApplyingStarted": "Upd473 574r73d",
+        "timelinePlanComplete": "Pr3v13w c0mpl373",
+        "timelinePlanningStarted": "Pr3v13w 574r73d",
+        "typePlanApply": "pr3v13w + upd473",
+        "vcsWorkflowWarningRbac": "4ny0n3 wh0 c4n m3rg3 7h3 PR c4n upd473. Br4nch pr073c710n rul35 (r3qu1r3d r3v13w5, 5747u5 ch3ck5, c0d3 0wn3r 4ppr0v4l) b3c0m3 7h3 g473. 73rr4p0d r0l3/l4b3l RB4C d035<em>n07</em> 4pply 70 c0mm3n7-dr1v3n 4c710n5 1n 7h15 m0d3.",
+        "vcsWorkflowWarningRecommended": "<strong>R3c0mm3nd3d:</strong> r3qu1r3 l1n34r h1570ry (r3b453/5qu45h b3f0r3 m3rg3) 50 7h3 c0mm17 y0u upd473 fr0m 15 7h3 c0mm17 7h47 l4nd5.",
+        "slackDescription": "0p7 7h15 w0rk5p4c3 1n70 5l4ck run n071f1c4710n5 — 4ppr0v4l r3qu3575, upd4735, 3rr0r5, 4nd dr1f7. L34v3 7h3 ch4nn3l 3mp7y 4nd 7h15 w0rk5p4c3 574y5 51l3n7 (7h3r3 15 n0 d3pl0ym3n7-w1d3 f4n-0u7). R3qu1r35 7h3 5l4ck 4pp 70 b3 3n4bl3d by 4n 4dm1n157r470r."
       }
     }
   },

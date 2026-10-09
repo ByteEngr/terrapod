@@ -1,398 +1,361 @@
-"""Running a Pulumi program inside the runner Job (#1523, #1576).
+"""Running Pulumi in a runner Job, against Terrapod as its backend (#1879).
 
-Two phases, mirroring Terraform's plan/apply in Pulumi's own words:
+An agent-mode Pulumi run points the CLI at Terrapod's Pulumi service surface and
+drives the ordinary update lifecycle against it: begin, checkpoint, complete. The
+Job holds no backend of its own.
 
-    pulumi preview [--save-plan=<file>]   the preview phase
-    pulumi up      [--plan=<file>]        the update phase
+**Why that is safe, since it was once thought not to be.** #1576 moved these runs
+to a file backend inside the Job, on the reasoning that Pulumi checkpoints
+continuously and a live backend would therefore move the workspace's state
+mid-run with no decision point. The property that actually matters is narrower —
+an apply's state must not be *published* until something decides to publish it —
+and the service surface already satisfies it: a checkpoint is held against the
+update and becomes a state version only when the update completes (#1564), and a
+preview's lease cannot checkpoint at all (#1550). State is written continuously
+and published once, which is the Terraform principle by a different mechanism.
 
-#1501 verified that pairing end to end. Saving the plan and applying *that* plan
-is what makes the two phases one decision rather than two independent runs — the
-same property Terraform gets from `plan -out` / `apply <file>`, and the reason an
-approved preview cannot quietly apply something else.
+**What this module no longer does, and must not grow back.** The file-backend
+model needed a great deal of scaffolding, all of which existed only to bridge
+between a stack the Job owned and one Terrapod owned: rewriting the stack ref to
+the `organization/…` form a DIY backend demands, stripping the committed
+secrets-provider lines from the working copy, minting a passphrase and pinning
+its salt, importing the deployment on the way in and exporting it on the way out,
+and sealing a saved plan with the key it was encrypted under so the update Pod
+could open what the preview Pod wrote. None of it has a purpose when both phases
+speak to one backend with one secrets provider, and its return would mean the
+divergent second state path was back.
 
-**State stays in the Job (#1576).** An agent run never uses Terrapod as a live
-Pulumi backend. The stack lives in a file backend in this Job's workspace, the way
-a Terraform run keeps `terraform.tfstate` beside its configuration: the stack's
-deployment is fetched through the run's artifact API and imported at the start,
-and after an update it is exported and handed back once. A preview hands back
-nothing. The file backend needs a secrets provider, so each stack gets a
-passphrase that exists only for the life of the Job; the deployment arrives with
-its secrets in plaintext for exactly that reason, and leaves the same way, to be
-sealed again by the API.
+Two consequences worth stating because they were the point:
 
-**Plugin downloads must be redirected, and the pattern must be `.*`.**
-`PULUMI_PLUGIN_DOWNLOAD_URL_OVERRIDES` takes `pattern=url` pairs; a pattern that
-matches nothing makes the CLI fall back to `get.pulumi.com` **silently**, so the
-failure never appears for anyone with a route out and appears as a hang for
-someone air-gapped. That asymmetry is why it is `.*` rather than something
-anchored and tidier, and why the air-gap gate carries a Pulumi row (#1483,
-#1485).
+- a stack whose repository commits `secure:` config values simply works — the CLI
+  opens them through the service, which is what #1577 existed to work around;
+- the runner is never handed the deployment in plaintext, which the file backend
+  required because a Job-local passphrase stack cannot open service ciphertext.
 
-Kept in `runner/phases/` with the other phase modules, so the runner image ships
-it and nothing here reaches for a model or a session.
+**The cost, accepted.** An agent apply is coupled to API availability in a way a
+Terraform apply is not: Pulumi has no defer-writes mode, so an interruption
+mid-apply can fail an update that a Terraform run — holding `terraform.tfstate`
+locally and pushing once — would have survived. That is a Pulumi characteristic
+rather than a Terrapod defect, and `docs/pulumi.md` says so plainly.
 """
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
-import re
-import secrets
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Any
+import pathlib
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+import httpx
 import structlog
 
-# structlog directly, as every other phase module does — not
-# `terrapod.logging_config.get_logger`, which is a one-line wrapper around this
-# exact call and is *not* shipped in the runner image. Importing it cost nothing
-# in tests, where the whole package is importable, and crashed every Pulumi run
-# on `ModuleNotFoundError: No module named 'terrapod.logging_config'` the moment
-# the orchestrator reached the phase. The runner image copies a hand-listed set
-# of modules; anything outside it does not exist at runtime.
-log = structlog.get_logger("runner.pulumi_exec")
+logger = structlog.get_logger("runner.pulumi_exec")
 
-
-#: The prefix the runner addresses the API by.
-#:
-#: The alias, not the canonical `/api/v1`, and deliberately: a runner image lags
-#: the API by design (the N-2 skew guarantee), so it may be talking to a server
-#: on either side of #1528 and only the alias is served by both. This mirrors
-#: `platform_tool.py`, which reaches the API the same way. The literal is
-#: repeated rather than imported because the runner image ships no `api/`
-#: package to import `prefixes` from.
+#: The runner reaches the API on the DEPRECATED alias, deliberately. A runner
+#: image may lag the API by design (the N-2 skew guarantee), so it may be talking
+#: to a server on either side of #1528 and only the alias is served by both. This
+#: mirrors `platform_tool.py`, which reaches the API the same way. The literal is
+#: repeated rather than imported because the runner image ships no `api/` package
+#: to import `prefixes` from.
 _API_PREFIX = "/api/terrapod/v1"
 
-#: Where the run's stack lives. Inside the workspace emptyDir, so it is writable
-#: under the hardened pod and goes when the Pod does.
-DEFAULT_STATE_DIR = "/workspace/.terrapod-pulumi"
 
-#: The lines of a committed `Pulumi.<stack>.yaml` that record which secrets
-#: provider the stack was last used with.
-_SECRETS_CONFIG_LINE = re.compile(r"^(encryptionsalt|secretsprovider|encryptedkey)\s*:")
-_SALT_LINE = re.compile(r"^encryptionsalt\s*:\s*[\"']?([^\"'\s]+)", re.MULTILINE)
-#: A `secure:` config value, block (`secure: v1:...`) or flow (`{secure: ...}`).
-_SECURE_VALUE = re.compile(r"(^|[\s{,])secure\s*:", re.MULTILINE)
-
-#: Marks a plan file that carries the key it was sealed under (see `bundle_plan`).
-_PLAN_BUNDLE_MARK = "terrapod-pulumi-plan"
+#: How much of a failed setup command's output to carry into the error. Enough
+#: for Pulumi's message and the line it points at, not enough to bury it.
+_SETUP_ERROR_LINES = 12
 
 
-class LocalStackError(RuntimeError):
-    """The run's stack could not be set up or read back, so the run must stop."""
+class StackError(RuntimeError):
+    """The run's stack could not be reached or set up, so the run must stop."""
 
 
-@dataclass(frozen=True)
-class StackKeys:
-    """What seals the stack's secrets: its salt line and its passphrase."""
-
-    salt: str
-    passphrase: str
-
-
-@dataclass(frozen=True)
-class LocalStack:
-    """The run's stack as set up in this Job."""
-
-    #: `organization/<project>/<stack>`, as the file backend spells it.
-    ref: str
-    #: The working copy's `Pulumi.<stack>.yaml`.
-    config_path: Path
-    state_dir: Path
-    keys: StackKeys
-    #: The state serial the imported deployment was read at; quoted back on upload.
-    base_serial: int
-    #: The deployment as imported, secrets in plaintext; None for a new stack.
-    deployment: dict[str, Any] | None
-
-
-def plugin_override_env(api_url: str, token: str) -> dict[str, str]:
-    """Point plugin downloads at Terrapod rather than get.pulumi.com.
+def plugin_override_env(api_url: str, token: str, proxy_port: int) -> dict[str, str]:
+    """Point plugin downloads at the loopback shim rather than get.pulumi.com.
 
     The `.*` is load-bearing. An anchored pattern that fails to match does not
     error — the CLI simply uses its default host, so a deployment with egress
     keeps working and an air-gapped one hangs on a download nobody can see. The
     only safe pattern is the one that cannot miss.
+
+    **Through `CacheProxy`, not straight at the API (#1906).** The cache requires
+    a credential and Pulumi's plugin downloader sends none — `PULUMI_ACCESS_TOKEN`
+    belongs to the service backend and is not carried to a plugin host — so
+    pointing the CLI at the API directly answered 401 on every provider download
+    and no program using any provider could run. The shim holds the token.
+
+    `proxy_port` is required rather than defaulted, because a default would make
+    the broken direct URL the thing a caller gets by forgetting.
     """
     if not api_url:
         return {}
-    base = api_url.rstrip("/")
-    env = {"PULUMI_PLUGIN_DOWNLOAD_URL_OVERRIDES": f".*={base}{_API_PREFIX}/package-cache/pulumi"}
+    env = {"PULUMI_PLUGIN_DOWNLOAD_URL_OVERRIDES": f".*=http://127.0.0.1:{proxy_port}"}
     if token:
-        # The proxy authenticates like every other Terrapod cache; the runner's
-        # own short-lived token is what it presents. It is the token's only use:
-        # the backend is a directory in this Job, and the service surface refuses
-        # a runner token outright (#1576).
         env["PULUMI_ACCESS_TOKEN"] = token
     return env
 
 
-def local_backend_env(state_dir: Path, passphrase: str) -> dict[str, str]:
-    """Point the CLI at a file backend in this Job, keyed by `passphrase`.
+def _cache_url(upstream: str, path: str) -> httpx.URL | None:
+    """Join a client-supplied path onto the cache prefix, or None if it escapes it.
 
-    Set in the environment rather than by `pulumi login`, which would also write
-    credentials under `$HOME` — and would leave whatever an operator's workspace
-    variables set for `PULUMI_BACKEND_URL` able to win. Agent mode owns the
-    backend, as it does Terraform's with the override file.
+    **This is a privilege boundary, not tidiness.** `httpx` normalises `..`
+    segments, so `upstream + "/../../../../api/v1/tokens"` resolves to the API's
+    own token endpoint — and the shim attaches the run's runner token to whatever
+    it forwards. `exec_subprocess.run` deliberately SCRUBS that token out of the
+    engine's environment, so that a provider plugin (third-party code running
+    against the operator's credentials by design) cannot also hold the credential
+    that writes this run's state. A traversal here hands it straight back, over
+    loopback, to exactly the process the scrub exists to deny it.
+
+    Checked against the **resolved** URL rather than by pattern-matching the path,
+    so whatever normalisation httpx applies is what gets verified rather than what
+    we guessed it would be. The base keeps a trailing slash on purpose: without
+    one, a path of `http://evil/` concatenates to `.../gohttp://evil/`, which
+    prefix-matches the `go` segment and would pass.
     """
-    return {
-        "PULUMI_BACKEND_URL": state_dir.resolve().as_uri(),
-        "PULUMI_CONFIG_PASSPHRASE": passphrase,
-    }
-
-
-def local_stack_ref(tp_stack: str) -> str:
-    """The run's stack, `default/<project>/<stack>`, as the file backend names it.
-
-    The file backend takes a fully qualified name only under the literal
-    organization `organization`. A two-part `<project>/<stack>` is read as
-    `<org>/<stack>` and refused with "organization name must be 'organization'",
-    which is what the first attempt at this did.
-    """
-    parts = [p for p in tp_stack.split("/") if p]
-    if len(parts) == 3:
-        return f"organization/{parts[1]}/{parts[2]}"
-    return tp_stack
-
-
-def has_secure_config(path: Path) -> bool:
-    """Whether the committed stack config holds `secure:` values."""
-    if not path.exists():
-        return False
-    body = "\n".join(
-        line for line in path.read_text().splitlines() if not line.lstrip().startswith("#")
-    )
-    return bool(_SECURE_VALUE.search(body))
-
-
-def reset_secrets_config(path: Path, salt: str = "") -> None:
-    """Drop the committed provider lines from the working copy; optionally pin a salt.
-
-    A committed `Pulumi.<stack>.yaml` records the provider the stack was last used
-    with — Terrapod's service, a passphrase, a KMS key — and none of them is the
-    one this Job's stack uses. Left in place, `stack init` either adopts a salt it
-    has no passphrase for ("incorrect passphrase") or a provider it cannot reach.
-    Only the working copy changes, never the repository.
-
-    `salt` is written back when the update must open what its preview sealed.
-    """
-    lines = path.read_text().splitlines(keepends=True) if path.exists() else []
-    kept = [line for line in lines if not _SECRETS_CONFIG_LINE.match(line)]
-    if salt:
-        kept.insert(0, f"encryptionsalt: {salt}\n")
-    if kept or path.exists():
-        path.write_text("".join(kept))
-
-
-def read_salt(path: Path) -> str:
-    """The `encryptionsalt` `stack init` recorded, or "" when there is none."""
-    if not path.exists():
-        return ""
-    match = _SALT_LINE.search(path.read_text())
-    return match.group(1) if match else ""
-
-
-def seed_document(deployment: dict[str, Any], salt: str) -> dict[str, Any]:
-    """The `stack import` body for this Job's stack.
-
-    The deployment arrives with no provider block and its secrets in plaintext.
-    Import needs one naming the new stack's own passphrase salt: without a block
-    the CLI crashes ("fatal error. This is a bug!"), and with the salt the stack
-    last used it refuses ("incorrect passphrase"). With this one, import accepts
-    the plaintext and stores it sealed — all three verified on CLI v3.262.0.
-    """
-    return {
-        "version": 3,
-        "deployment": {
-            **deployment,
-            "secrets_providers": {"type": "passphrase", "state": {"salt": salt}},
-        },
-    }
-
-
-def _material(deployment: dict[str, Any] | None) -> dict[str, Any]:
-    """What makes two deployments the same stack.
-
-    The manifest is stamped with the time on every write and the provider block
-    names a key, so neither says anything about the stack; empty values are
-    dropped so a new stack with no resources equals no deployment at all.
-    """
-    if not deployment:
-        return {}
-    return {
-        k: v
-        for k, v in deployment.items()
-        if k not in ("manifest", "secrets_providers") and v not in (None, [], {})
-    }
-
-
-def deployment_changed(before: dict[str, Any] | None, after: dict[str, Any] | None) -> bool:
-    """Whether an update left the stack different from the one it imported."""
-    return _material(before) != _material(after)
-
-
-def bundle_plan(path: Path, keys: StackKeys) -> None:
-    """Wrap a saved plan, in place, with the key it was sealed under.
-
-    A saved plan carries its secrets as ciphertext under the preview's stack key,
-    and the update runs in another Pod with a stack of its own. Given a fresh
-    key, `up --plan` fails with "decrypting secret value: cipher: message
-    authentication failed", which is what the #1576 spike's control run did.
-    Carrying the key beside the plan leaves the plan's secrets exactly as exposed
-    as Terraform's own plan file leaves its sensitive values, which it holds in
-    the clear.
-    """
-    doc = {
-        _PLAN_BUNDLE_MARK: 1,
-        "encryptionsalt": keys.salt,
-        "passphrase": keys.passphrase,
-        "plan": path.read_text(),
-    }
-    path.write_text(json.dumps(doc))
-
-
-def unbundle_plan(path: Path) -> StackKeys | None:
-    """Restore a bundled plan in place and return its key.
-
-    None for a file that is not a bundle — a plan saved by a runner that predates
-    bundling — which is left untouched for `up --plan` to try as it stands.
-    """
+    base = httpx.URL(upstream + "/")
     try:
-        doc = json.loads(path.read_text())
-    except (OSError, ValueError):
+        target = httpx.URL(upstream + path)
+    except Exception:
         return None
-    if not isinstance(doc, dict) or doc.get(_PLAN_BUNDLE_MARK) != 1:
+    if (target.scheme, target.host, target.port) != (base.scheme, base.host, base.port):
         return None
-    path.write_text(doc["plan"])
-    return StackKeys(salt=doc["encryptionsalt"], passphrase=doc["passphrase"])
+    if not str(target.path).startswith(str(base.path)):
+        return None
+    return target
+
+
+class CacheProxy(threading.Thread):
+    """A loopback shim that holds the run's token so a client need not carry it.
+
+    Two clients in a Pulumi run reach Terrapod's package cache and **cannot
+    authenticate to it**, for different reasons and with the same consequence:
+
+    - **the go command**, which will talk plain HTTP to a module proxy quite
+      happily but will never carry a credential over one. Not in the URL
+      ("refusing to pass credentials to insecure URL"), not from a netrc, and not
+      from a `GOAUTH` helper either, whose header it drops in silence. All three
+      were tried against a real proxy before this was written.
+    - **Pulumi's plugin downloader** (#1906), which sends no credential at all.
+      `PULUMI_ACCESS_TOKEN` is the service backend's and is not carried to a
+      plugin host, so every provider download answered 401 and no program using
+      any provider could run.
+
+    Every Terrapod package-cache route requires authentication, and the runner
+    reaches the API over an in-cluster HTTP URL in many deployments — so on that
+    path both clients can reach the cache and neither can use it.
+
+    This closes the gap without weakening anything. It listens on 127.0.0.1,
+    forwards to the API with the run's own token, and the client is pointed at it:
+    the client carries no credential, so it has nothing to refuse. The token
+    travels exactly the hop it already travels for this run's artifacts, its state
+    and its binaries.
+
+    **Not credentials in the URL**, which both clients would accept in some form.
+    Pulumi prints the URL it fetched from in its own download warnings, and the
+    runner streams its log to the API and the UI — the same reason pip's
+    credential goes in a `.netrc` and npm's in an `.npmrc` rather than an index
+    URL.
+
+    `segment` names the cache it fronts (`go`, `pulumi`), and serves GET alone.
+    """
+
+    def __init__(self, api_url: str, token: str, segment: str) -> None:
+        super().__init__(daemon=True)
+        self._upstream = f"{api_url.rstrip('/')}{_API_PREFIX}/package-cache/{segment}"
+        self._token = token
+        self._server = ThreadingHTTPServer(("127.0.0.1", 0), self._handler())
+        self.port = self._server.server_address[1]
+
+    def _handler(self):  # type: ignore[no-untyped-def]
+        upstream, token = self._upstream, self._token
+
+        class Handler(BaseHTTPRequestHandler):
+            # The runner's log is the run's log; the proxy's own chatter would
+            # bury the client's output in it.
+            def log_message(self, *args: object) -> None:  # noqa: A003
+                return
+
+            def do_GET(self) -> None:  # noqa: N802
+                target = _cache_url(upstream, self.path)
+                if target is None:
+                    # Refused, not forwarded — see `_cache_url`. 404 rather than
+                    # 403 so a probing client learns nothing about what is behind.
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                headers = {"Authorization": f"Bearer {token}"}
+                try:
+                    # Redirects are followed HERE, not handed to the client.
+                    # The cache answers a download with a 302 to presigned
+                    # storage, and the go command does not follow one -- it
+                    # reports the 302 as the error. The target needs no
+                    # credential, so following it costs nothing and keeps the
+                    # client out of it.
+                    with httpx.stream(
+                        "GET",
+                        target,
+                        headers=headers,
+                        timeout=120.0,
+                        follow_redirects=True,
+                    ) as r:
+                        self.send_response(r.status_code)
+                        # Pulumi's downloader compares what it copied against
+                        # Content-Length and fails when they disagree — and an
+                        # absent header reads as -1, so it never matches:
+                        # "expected -1 bytes but copied 19525050". The go
+                        # command does not check, which is how this shim ran
+                        # without it. Same fix as the BFF's, for the same
+                        # reason.
+                        #
+                        # Only when the body was not content-encoded: httpx
+                        # decompresses transparently, so on an encoded response
+                        # the upstream's length describes bytes this shim no
+                        # longer has.
+                        if not r.headers.get("content-encoding"):
+                            length = r.headers.get("content-length")
+                            if length:
+                                self.send_header("Content-Length", length)
+                        ctype = r.headers.get("content-type")
+                        if ctype:
+                            self.send_header("Content-Type", ctype)
+                        self.end_headers()
+                        # Streamed, not buffered: a module zip or a provider
+                        # plugin runs to tens of megabytes and this is in the
+                        # runner's own process.
+                        for chunk in r.iter_bytes():
+                            self.wfile.write(chunk)
+                except Exception as exc:  # noqa: BLE001 - reported to the client
+                    self.send_response(502)
+                    self.end_headers()
+                    self.wfile.write(str(exc).encode())
+
+        return Handler
+
+    def run(self) -> None:
+        self._server.serve_forever(poll_interval=0.2)
+
+    def stop(self) -> None:
+        """Stop serving. Safe to call whether or not the thread ever started.
+
+        `shutdown()` waits for the serve loop to acknowledge it, so on a server
+        that never began serving it blocks for ever -- which, called from the
+        `finally` that guarantees cleanup, would hang the run instead of ending
+        it. The liveness check is what makes the guarantee safe to make.
+        """
+        if self.is_alive():
+            self._server.shutdown()
+        self._server.server_close()
+
+
+def service_backend_env(api_url: str, token: str) -> dict[str, str]:
+    """Point the CLI at Terrapod as its Pulumi service backend (#1881).
+
+    `PULUMI_BACKEND_URL` and `PULUMI_ACCESS_TOKEN` together are the env-var form
+    of `pulumi login`, so the Job needs no login step and writes no credentials
+    under `$HOME`.
+
+    **Agent mode owns the backend.** These are set from the run's own
+    configuration and applied AFTER any workspace-supplied environment, so a
+    variable named `PULUMI_BACKEND_URL` cannot redirect a run's state somewhere
+    Terrapod does not know about. The Terraform path holds the same line with its
+    backend override file.
+
+    Returns nothing without an API to talk to, which is how the runner's own
+    tests and a no-API smoke run still work: the CLI then falls back to whatever
+    the environment says, and a run with no API was never going to store state.
+    """
+    if not api_url:
+        return {}
+    base = api_url.rstrip("/")
+    env = {"PULUMI_BACKEND_URL": f"{base}{_API_PREFIX}/pulumi"}
+    if token:
+        env["PULUMI_ACCESS_TOKEN"] = token
+    return env
+
+
+def stack_ref() -> str:
+    """The stack this run operates on, as Terrapod names it.
+
+    `default/<project>/<stack>` — the form the service backend uses and the one
+    the listener already sends. The file-backend model had to rewrite this to
+    `organization/<project>/<stack>`, because a DIY backend accepts no other
+    organization; against Terrapod the name is used as it stands.
+    """
+    return os.environ.get("TP_PULUMI_STACK", "")
 
 
 def _pulumi(binary: str, args: list[str], *, child_grace: float, what: str) -> None:
-    """Run a setup or hand-back command, raising `LocalStackError` if it fails.
+    """Run a setup command, raising `StackError` carrying what the CLI said.
 
-    No log file: `exec_subprocess.run` truncates the one it is given, and these
-    run beside the phase's own command. Teeing to stdout puts them in the combined
-    log all the same.
+    **The CLI's own message is read back and put in the error**, because teeing
+    to stdout does not deliver it where anyone will look. The phase log is
+    assembled from the runner's own log file, not from the pod's stdout, so a
+    failure here reached the run as a bare *"pulumi exited 255"* while the
+    sentence that explained it — `could not unmarshal '/workspace/Pulumi.yaml':
+    invalid YAML file` — stayed in a Job pod that is deleted shortly after. An
+    operator reading the run could not see it at all.
+
+    That defeats the point of the pre-flight, which exists to fail early *with
+    the CLI's own message*. Its own scratch file rather than the phase's:
+    `exec_subprocess.run` truncates the log it is given, so sharing one would
+    erase the phase log that is about to be uploaded.
     """
+    import tempfile
+
     from terrapod.runner import exec_subprocess
 
-    result = exec_subprocess.run(
-        [binary, *args], log_file=None, child_grace_seconds=child_grace, tee_to_stdout=True
-    )
-    if result.exit_code != 0:
-        raise LocalStackError(f"could not {what} (pulumi exited {result.exit_code})")
-
-
-def _write_private(path: Path, body: str) -> None:
-    """Write a file only this process can read — it holds plaintext secrets."""
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w") as fh:
-        fh.write(body)
-
-
-def prepare_local_stack(
-    cfg,  # type: ignore[no-untyped-def]
-    binary: str,
-    *,
-    keys: StackKeys | None = None,
-    child_grace: float = 25.0,
-) -> LocalStack:
-    """Create the run's stack in a file backend here and import its state.
-
-    `keys` is given only to a bound update, which must open what its preview
-    sealed; every other phase gets a passphrase of its own.
-
-    Must run in the program's directory, where `Pulumi.<stack>.yaml` lives.
-    """
-    from terrapod.runner.phases import state as state_phase
-
-    tp_stack = os.environ.get("TP_PULUMI_STACK", "")
-    if not tp_stack:
-        raise LocalStackError("the run names no stack")
-    ref = local_stack_ref(tp_stack)
-    config_path = Path.cwd() / f"Pulumi.{ref.rsplit('/', 1)[-1]}.yaml"
-
-    if has_secure_config(config_path):
-        # Those values are sealed by whatever provider the stack used when they
-        # were set, and a passphrase made for this Job cannot open them.
-        raise LocalStackError(
-            f"{config_path.name} holds `secure:` config values. Agent runs cannot "
-            "open them yet (#1577); supply those values as workspace variables instead"
-        )
-
-    state_dir = Path(os.environ.get("TP_PULUMI_STATE_DIR", DEFAULT_STATE_DIR))
-    state_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-    passphrase = keys.passphrase if keys else secrets.token_urlsafe(32)
-    # The file form would compete with the passphrase set here.
-    os.environ.pop("PULUMI_CONFIG_PASSPHRASE_FILE", None)
-    os.environ.update(local_backend_env(state_dir, passphrase))
-    reset_secrets_config(config_path, keys.salt if keys else "")
-
-    _pulumi(
-        binary,
-        ["stack", "init", ref, "--secrets-provider", "passphrase", "--non-interactive"],
-        child_grace=child_grace,
-        what="create the run's stack",
-    )
-    salt = read_salt(config_path)
-    if not salt:
-        raise LocalStackError(f"stack init recorded no encryption salt in {config_path.name}")
-
-    base_serial, deployment = 0, None
-    if cfg.has_api:
-        try:
-            base_serial, deployment = state_phase.download_pulumi_deployment(cfg)
-        except state_phase.StateDownloadError as exc:
-            raise LocalStackError(str(exc)) from exc
-
-    if deployment:
-        seed_path = state_dir / "import.json"
-        _write_private(seed_path, json.dumps(seed_document(deployment, salt)))
-        try:
-            _pulumi(
-                binary,
-                ["stack", "import", "--stack", ref, "--file", str(seed_path), "--non-interactive"],
-                child_grace=child_grace,
-                what="import the stack's state",
-            )
-        finally:
-            seed_path.unlink(missing_ok=True)
-
-    log.info("pulumi stack ready", stack=ref, serial=base_serial, imported=bool(deployment))
-    return LocalStack(
-        ref=ref,
-        config_path=config_path,
-        state_dir=state_dir,
-        keys=StackKeys(salt=salt, passphrase=passphrase),
-        base_serial=base_serial,
-        deployment=deployment,
-    )
-
-
-def export_local_stack(
-    binary: str, stack: LocalStack, *, child_grace: float = 25.0
-) -> tuple[Path, dict[str, Any] | None]:
-    """Export the run's stack with its secrets shown, for handing back.
-
-    Returns the file — which the caller uploads and then deletes, since it holds
-    plaintext — and its deployment.
-    """
-    dest = stack.state_dir / "export.json"
-    _pulumi(
-        binary,
-        ["stack", "export", "--stack", stack.ref, "--show-secrets", "--file", str(dest)],
-        child_grace=child_grace,
-        what="export the stack after the update",
-    )
-    os.chmod(dest, 0o600)
+    with tempfile.NamedTemporaryFile(suffix=".log", delete=False) as fh:
+        scratch = fh.name
     try:
-        doc = json.loads(dest.read_text())
-    except (OSError, ValueError) as exc:
-        dest.unlink(missing_ok=True)
-        raise LocalStackError(f"the exported stack could not be read: {exc}") from exc
-    deployment = doc.get("deployment") if isinstance(doc, dict) else None
-    return dest, deployment if isinstance(deployment, dict) else None
+        result = exec_subprocess.run(
+            [binary, *args],
+            log_file=scratch,
+            child_grace_seconds=child_grace,
+            tee_to_stdout=True,
+        )
+        if result.exit_code == 0:
+            return
+        said = ""
+        try:
+            said = pathlib.Path(scratch).read_text(errors="replace").strip()
+        except OSError:  # pragma: no cover - the message is a bonus, not the error
+            pass
+    finally:
+        with contextlib.suppress(OSError):
+            os.unlink(scratch)
+
+    # The tail, not the whole thing: Pulumi puts the diagnosis last, and a setup
+    # command that printed pages of progress would bury it.
+    tail = "\n".join(said.splitlines()[-_SETUP_ERROR_LINES:])
+    detail = f": {tail}" if tail else ""
+    raise StackError(f"could not {what} (pulumi exited {result.exit_code}){detail}")
+
+
+def select_stack(binary: str, *, child_grace: float = 25.0) -> str:
+    """Select the run's stack on the service backend, and return its ref.
+
+    Every phase command already carries `--stack`, so this is a pre-flight rather
+    than a requirement: it turns "the stack this run names does not exist" into a
+    failure at the start of the run, with the CLI's own message, instead of a
+    confusing one part-way through a preview.
+
+    The stack is not created if it is missing. A Pulumi stack IS a Terrapod
+    workspace, so stacks come from Terrapod — which is why the service surface
+    refuses `POST /api/stacks/{org}/{project}` with a message saying exactly that.
+    """
+    ref = stack_ref()
+    if not ref:
+        raise StackError("the run names no stack")
+    _pulumi(
+        binary,
+        ["stack", "select", ref, "--non-interactive"],
+        child_grace=child_grace,
+        what=f"select the stack {ref}",
+    )
+    logger.info("pulumi stack selected", stack=ref)
+    return ref
 
 
 def _common_argv(cfg) -> list[str]:  # type: ignore[no-untyped-def]
@@ -405,9 +368,9 @@ def _common_argv(cfg) -> list[str]:  # type: ignore[no-untyped-def]
     left the setting alone asked for.
     """
     argv: list[str] = ["--non-interactive"]
-    stack = os.environ.get("TP_PULUMI_STACK", "")
+    stack = stack_ref()
     if stack:
-        argv += ["--stack", local_stack_ref(stack)]
+        argv += ["--stack", stack]
     refresh = os.environ.get("TP_REFRESH", "").lower() != "false"
     argv.append(f"--refresh={'true' if refresh else 'false'}")
     parallelism = os.environ.get("TP_PARALLELISM", "")

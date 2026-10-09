@@ -57,6 +57,261 @@
     }
   },
   {
+    "name": "terrapod_inventory_detail",
+    "read_only": true,
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "a host id (invhost-...) or a group id (invgroup-...). The prefix says which, so there is no kind to pass",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "terrapod_inventory_group_declare",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "description": "the group name. 'all' and 'ungrouped' are refused: ansible derives both, and 'all' is the rendered document's own root key",
+          "type": "string"
+        },
+        "workspace_id": {
+          "description": "the workspace id (ws-...) to declare the group in",
+          "type": "string"
+        }
+      },
+      "required": [
+        "workspace_id",
+        "name"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "terrapod_inventory_host_declare",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "description": "the inventory hostname (ansible's inventory_hostname). Names containing --limit's own operators and separators (comma, colon, '!', '\u0026', '~') or whitespace are refused, because a host named with one of those cannot be targeted",
+          "type": "string"
+        },
+        "workspace_id": {
+          "description": "the workspace id (ws-...) to declare the host in",
+          "type": "string"
+        }
+      },
+      "required": [
+        "workspace_id",
+        "name"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "terrapod_inventory_link",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "child_group_id": {
+          "description": "a group id (invgroup-...) to nest inside the group — a '[groupname:children]' entry",
+          "type": "string"
+        },
+        "group_id": {
+          "description": "the group id (invgroup-...) to add to",
+          "type": "string"
+        },
+        "host_id": {
+          "description": "a host id (invhost-...) to put in the group — a '[groupname]' host line",
+          "type": "string"
+        }
+      },
+      "required": [
+        "group_id"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "terrapod_inventory_list",
+    "read_only": true,
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "workspace_id": {
+          "description": "the workspace id (ws-...) whose inventory to list",
+          "type": "string"
+        }
+      },
+      "required": [
+        "workspace_id"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "terrapod_inventory_remove",
+    "destructive": true,
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "the id of the row to remove. The typed prefix says what it is: invhost- a host, invgroup- a group, invhg- a membership, invgc- a nesting, invhvar-/invgvar-/invvar- a variable, ws- a workspace's inventory settings",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "terrapod_inventory_resolved",
+    "read_only": true,
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "description": "an ansible --limit pattern to apply: host names, group names, globs, 'all', comma- or colon-separated terms, '!' to exclude, '\u0026' to intersect, '~' for a regex. Omit it to resolve the whole inventory",
+          "type": "string"
+        },
+        "workspace_id": {
+          "description": "the workspace id (ws-...) whose inventory to resolve",
+          "type": "string"
+        }
+      },
+      "required": [
+        "workspace_id"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "terrapod_inventory_settings",
+    "read_only": true,
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "workspace_id": {
+          "description": "the workspace id (ws-...)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "workspace_id"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "terrapod_inventory_settings_set",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "branch": {
+          "description": "the branch to read; empty means the repository default",
+          "type": "string"
+        },
+        "clear_vcs_connection": {
+          "description": "remove the git binding entirely, leaving the declared rows as the whole inventory",
+          "type": "boolean"
+        },
+        "ignore_paths": {
+          "description": "paths within the source to skip",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "include_platform": {
+          "description": "whether the declared rows contribute to the resolution; default true",
+          "type": [
+            "null",
+            "boolean"
+          ]
+        },
+        "repo_url": {
+          "description": "the repository holding the inventory",
+          "type": "string"
+        },
+        "vcs_connection_id": {
+          "description": "the VCS connection to fetch the git inventory source with. Pass an empty string with clear_vcs_connection to remove the binding",
+          "type": "string"
+        },
+        "working_directory": {
+          "description": "the DIRECTORY within the repository that ansible reads as one source; empty means the root",
+          "type": "string"
+        },
+        "workspace_id": {
+          "description": "the workspace id (ws-...)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "workspace_id"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "terrapod_inventory_var_set",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "group_id": {
+          "description": "set on one group — ansible's group_vars/\u003cgroup\u003e",
+          "type": "string"
+        },
+        "host_id": {
+          "description": "set on one host — ansible's host_vars/\u003chost\u003e",
+          "type": "string"
+        },
+        "key": {
+          "description": "the variable name, e.g. ansible_host or http_port",
+          "type": "string"
+        },
+        "sensitive": {
+          "description": "mask the value in every response; default false. Independent of app-layer encryption, which is a deployment-wide setting and covers every value or none",
+          "type": [
+            "null",
+            "boolean"
+          ]
+        },
+        "structured": {
+          "description": "read value as literal source for a list, number, bool or object rather than as text; default false",
+          "type": [
+            "null",
+            "boolean"
+          ]
+        },
+        "value": {
+          "description": "the value. Text unless structured is true",
+          "type": "string"
+        },
+        "workspace_id": {
+          "description": "set for every host — ansible's group_vars/all",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "value"
+      ],
+      "type": "object"
+    }
+  },
+  {
     "name": "terrapod_module_autodiscovery_rule_list",
     "read_only": true,
     "input_schema": {
@@ -175,6 +430,22 @@
       "required": [
         "rule_id"
       ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "terrapod_oidc_signing_key_rotate",
+    "destructive": true,
+    "input_schema": {
+      "additionalProperties": false,
+      "type": "object"
+    }
+  },
+  {
+    "name": "terrapod_oidc_signing_keys",
+    "read_only": true,
+    "input_schema": {
+      "additionalProperties": false,
       "type": "object"
     }
   },
@@ -694,7 +965,7 @@
           "type": "integer"
         },
         "view": {
-          "description": "changes (default): the resources the plan acts on, each with only the attributes that change. full: the raw tofu show -json document",
+          "description": "changes (default): the resources the plan acts on, each with only the attributes that change — OpenTofu/Terraform runs only. full: the raw plan document, which also reads a Pulumi run's preview digest",
           "type": "string"
         }
       },
@@ -778,6 +1049,10 @@
     "input_schema": {
       "additionalProperties": false,
       "properties": {
+        "category": {
+          "description": "which category to delete the key from (terraform, env, git_http_auth, git_ssh_auth; native is accepted for terraform). Optional: needed only when the same key exists in more than one category, which is refused rather than guessed",
+          "type": "string"
+        },
         "key": {
           "description": "the variable key to delete",
           "type": "string"
@@ -817,7 +1092,7 @@
       "additionalProperties": false,
       "properties": {
         "category": {
-          "description": "terraform, env, git_http_auth, or git_ssh_auth (default terraform); the git_* categories carry private-git-module credentials as a JSON value and are always sensitive",
+          "description": "terraform, env, git_http_auth, or git_ssh_auth (default terraform); native is accepted as an equivalent name for terraform. terraform is the engine's own parameter channel -- Terraform input variables, Pulumi stack config, Ansible extra vars -- one category, delivered by whichever engine the workspace runs; Terrapod's own API calls it native, and this tool reads the compatibility surface, which calls it terraform. The git_* categories carry private-git-module credentials as a JSON value and are always sensitive",
           "type": "string"
         },
         "description": {
@@ -961,6 +1236,17 @@
             "array"
           ]
         },
+        "allow_fork_pr_plans": {
+          "description": "allow a pull request opened from a FORK to get a speculative plan. **Off by default**, which is the safe setting: such a plan runs the fork author's code with this workspace's full credential set (env variables, secret-manager values, git credentials, the runner's cloud identity), and that author has no write access and cannot merge, so the plan is the only path by which their code reaches those credentials. Pull requests from branches in the repository itself always plan and are unaffected. Set it true only on a workspace that holds nothing worth taking, and note that an autodiscovery rule carries its own value for the workspaces it creates (GHSA-gp5w-76rw-c452)",
+          "type": [
+            "null",
+            "boolean"
+          ]
+        },
+        "ansible_version": {
+          "description": "exact ansible-core version for this workspace's configure operations, e.g. 2.21.5; omit or empty to inherit the deployment default",
+          "type": "string"
+        },
         "auto_apply": {
           "description": "auto-apply successful plans (default false)",
           "type": [
@@ -984,7 +1270,7 @@
           "type": "string"
         },
         "execution_backend": {
-          "description": "tofu or terraform (default: server default)",
+          "description": "which binary runs a Terraform-engine workspace: tofu or terraform. A choice WITHIN the Terraform engine — Pulumi has one binary, so this has no meaning on a pulumi workspace (default: server default)",
           "type": "string"
         },
         "execution_mode": {
@@ -1002,9 +1288,29 @@
           "description": "the workspace name (unique within the org)",
           "type": "string"
         },
+        "oidc_audiences": {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "null",
+              "array"
+            ]
+          },
+          "description": "the per-provider audiences this workspace's run identity tokens are minted with -- its cloud identity opt-in (#1901). Omit it (the default) and the workspace overrides nothing, inheriting the deployment's catalogue; a deployment that configures no audiences mints nothing and its runs authenticate with the agent pool's own identity, exactly as before. A MAP keyed on the provider configuration a token is for, never a flat list: the bare provider type exactly as a provider block writes it (aws, vault), or type.alias for one aliased configuration (aws.west). The alias is part of the KEY -- do not split on the dot and do not fold aws.west into aws; they are separate targets, and the runner asks for whichever its configuration actually uses. Each value is ALWAYS a list even for a single entry, because a federation target's audience is one value and a list of several is a deliberate these-are-interchangeable statement; the runner mints one token per target carrying only that target's audiences. An audience is an opaque string the federation target itself names -- whatever your cloud's or secret store's trust configuration expects -- and Terrapod stores it verbatim; nothing here is specific to any one cloud, because Terrapod only mints an OIDC JWT and the runner writes it to a file. What you pass is this workspace's OVERRIDE, merged per key OVER the deployment's own catalogue, so naming one target does not restate the rest. The read side differs and this is the trap: a workspace reports its oidc-audiences as the MERGED view, so writing back what you read would promote every inherited entry into an override. A key whose list is EMPTY is refused (422) -- express no-audiences-for-this-target by leaving the key out, which falls back to the deployment's value, because an empty list is indistinguishable from a typo. A token audienced for two targets is replayable between them, so give a target only its own audiences. Setting this does NOT by itself grant anything: the federation target's own trust policy decides what a token bearing these audiences may do.",
+          "type": "object"
+        },
         "owner_email": {
           "description": "workspace owner email (defaults to the caller)",
           "type": "string"
+        },
+        "pulumi_bind_plan": {
+          "description": "Pulumi workspaces only: bind the update to the approved preview (preview --save-plan then up --plan). Off by default; setting it true is rejected on any other engine",
+          "type": [
+            "null",
+            "boolean"
+          ]
         },
         "terraform_version": {
           "description": "the same version under its original name; prefer engine_version. Setting both to different values is rejected",
@@ -1073,6 +1379,10 @@
     "input_schema": {
       "additionalProperties": false,
       "properties": {
+        "engine": {
+          "description": "return only workspaces on this execution engine: terraform or pulumi. Omit for every engine. Narrow with this before doing anything that assumes one engine — the tools differ by engine",
+          "type": "string"
+        },
         "page_size": {
           "description": "max workspaces to return in this page (default 50)",
           "type": "integer"
@@ -1104,6 +1414,17 @@
             "array"
           ]
         },
+        "allow_fork_pr_plans": {
+          "description": "allow a pull request opened from a FORK to get a speculative plan. **Off by default**, which is the safe setting: such a plan runs the fork author's code with this workspace's full credential set (env variables, secret-manager values, git credentials, the runner's cloud identity), and that author has no write access and cannot merge, so the plan is the only path by which their code reaches those credentials. Pull requests from branches in the repository itself always plan and are unaffected. Set it true only on a workspace that holds nothing worth taking, and note that an autodiscovery rule carries its own value for the workspaces it creates (GHSA-gp5w-76rw-c452)",
+          "type": [
+            "null",
+            "boolean"
+          ]
+        },
+        "ansible_version": {
+          "description": "exact ansible-core version for this workspace's configure operations, e.g. 2.21.5; omit or empty to inherit the deployment default",
+          "type": "string"
+        },
         "auto_apply": {
           "description": "auto-apply successful plans",
           "type": [
@@ -1123,7 +1444,7 @@
           "type": "string"
         },
         "execution_backend": {
-          "description": "tofu or terraform",
+          "description": "which binary runs a Terraform-engine workspace: tofu or terraform. A choice WITHIN the Terraform engine — Pulumi has one binary, so this has no meaning on a pulumi workspace",
           "type": "string"
         },
         "execution_mode": {
@@ -1140,6 +1461,19 @@
         "name": {
           "description": "rename the workspace (empty = leave)",
           "type": "string"
+        },
+        "oidc_audiences": {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "null",
+              "array"
+            ]
+          },
+          "description": "replace this workspace's per-provider audience overrides for its run identity tokens -- its cloud identity opt-in (#1901). Omitting the field leaves the existing overrides alone; pass an EMPTY object to clear every one of them, which drops the workspace back to inheriting the deployment's catalogue wholesale. A MAP keyed on the provider configuration a token is for, never a flat list: the bare provider type exactly as a provider block writes it (aws, vault), or type.alias for one aliased configuration (aws.west). The alias is part of the KEY -- do not split on the dot and do not fold aws.west into aws; they are separate targets, and the runner asks for whichever its configuration actually uses. Each value is ALWAYS a list even for a single entry, because a federation target's audience is one value and a list of several is a deliberate these-are-interchangeable statement; the runner mints one token per target carrying only that target's audiences. An audience is an opaque string the federation target itself names -- whatever your cloud's or secret store's trust configuration expects -- and Terrapod stores it verbatim; nothing here is specific to any one cloud, because Terrapod only mints an OIDC JWT and the runner writes it to a file. What you pass is this workspace's OVERRIDE, merged per key OVER the deployment's own catalogue, so naming one target does not restate the rest. The read side differs and this is the trap: a workspace reports its oidc-audiences as the MERGED view, so writing back what you read would promote every inherited entry into an override. A key whose list is EMPTY is refused (422) -- express no-audiences-for-this-target by leaving the key out, which falls back to the deployment's value, because an empty list is indistinguishable from a typo. A token audienced for two targets is replayable between them, so give a target only its own audiences. Setting this does NOT by itself grant anything: the federation target's own trust policy decides what a token bearing these audiences may do.",
+          "type": "object"
         },
         "pulumi_bind_plan": {
           "description": "Pulumi workspaces only: bind the update to the approved preview (preview --save-plan then up --plan). Off by default; rejected on any other engine",

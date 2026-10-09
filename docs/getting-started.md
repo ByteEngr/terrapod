@@ -378,6 +378,90 @@ For managing variables across multiple workspaces, see variable sets (admin-only
 
 ---
 
+## Your first Pulumi workspace
+
+Everything above uses Terraform or OpenTofu, which is what most people arrive
+for. Pulumi is the same platform — same workspaces, runs, variables, RBAC,
+policy sets, notifications and audit trail — so this section is short by design:
+it covers only what differs.
+
+**There is nothing to turn on, and nothing to decide.** Terrapod offers every
+engine it can run; a deployment that came for Terraform simply never names
+another one, and pays nothing for it either way — an engine's CLI is fetched only
+when a run of that engine happens, so nothing extra is deployed.
+
+The Pulumi surface is always there. It is not reachable without a Pulumi
+workspace to name, and nothing in the UI offers you an engine choice until you
+have more than one engine's workspaces to choose between.
+
+**A workspace is one stack, and its name says so.** Pulumi identifies a stack as
+`organization/project/stack`; a Terrapod workspace has one flat name, so the two
+halves are joined with `::`.
+
+**The project half has to match `name:` in your `Pulumi.yaml`** — Pulumi takes
+the project from the program itself, so a workspace called `billing::dev` in
+front of a program named `payments` is refused when the run starts.
+
+```zsh
+curl -s -X POST https://terrapod.example.com/api/v1/workspaces \
+  -H "Authorization: Bearer $TERRAPOD_TOKEN" \
+  -H "Content-Type: application/vnd.api+json" \
+  -d '{
+    "data": {
+      "type": "workspaces",
+      "attributes": {
+        "name": "my-project::dev",
+        "engine": "pulumi",
+        "execution-mode": "agent"
+      }
+    }
+  }' | jq .
+```
+
+Note `/api/v1`, not `/api/tfe/v2`. The TFE-compatible surface exists for
+`terraform`, `tofu` and `tfci`, and it only ever serves Terraform workspaces —
+a Pulumi workspace is not visible there at all, by design. Use Terrapod's own
+API, which serves every engine.
+
+**Point your machine at it:**
+
+```zsh
+pulumi login https://terrapod.example.com
+```
+
+`pulumi up` from your own machine then uses Terrapod as its state backend, and
+the update appears in the workspace's run history like any other.
+
+**Variables are the ordinary ones.** There is no Pulumi-specific category: a
+workspace's `native` variables *are* its stack config, delivered with
+`pulumi config set` instead of a tfvars file. `sensitive` becomes a real Pulumi
+secret, and keys pass through verbatim — `aws:region` stays `aws:region`.
+
+(`native` is the one category for a workspace's own engine-facing variables,
+whatever the engine. The TFE-compatible surface still calls it `terraform`,
+because that is the name `tfci` and `go-tfe` send, and both spellings are
+accepted on input.)
+
+```zsh
+curl -s -X POST https://terrapod.example.com/api/v1/workspaces/$WS/vars \
+  -H "Authorization: Bearer $TERRAPOD_TOKEN" \
+  -H "Content-Type: application/vnd.api+json" \
+  -d '{"data":{"type":"vars","attributes":{
+        "key":"aws:region","value":"eu-west-1","category":"native"}}}' | jq .
+```
+
+**Pin your provider versions.** Terrapod serves provider plugins from its own
+cache, and a plugin host reached over HTTP cannot answer "what is the newest
+release" — so an unversioned provider reference fails on the platform even
+though it resolves on a laptop. Pin it where your language puts it: the
+dependency manifest for an SDK, or `options.version` in Pulumi YAML.
+
+**What to read next:** [Pulumi](pulumi.md) covers the run lifecycle, binding an
+update to its preview, version pinning, execution hooks, and — importantly — the
+places where Pulumi is *not* coerced into the Terraform flow, and why.
+
+---
+
 ## Setting Up the Private Registry
 
 ![Module Registry](images/registry-modules.png)

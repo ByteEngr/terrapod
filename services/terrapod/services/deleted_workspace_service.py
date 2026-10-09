@@ -104,8 +104,10 @@ def _settings_snapshot(ws: Workspace) -> dict[str, Any]:
         # siblings in the same directory on the (directory, stack) lookup.
         "stack": ws.stack,
         "var_files": list(ws.var_files or []),
+        "oidc_audiences": dict(ws.oidc_audiences or {}),
         "resource_cpu": ws.resource_cpu,
         "parallelism": ws.parallelism,
+        "ansible_version": ws.ansible_version,
         "resource_memory": ws.resource_memory,
         "auto_apply": ws.auto_apply,
         # The boolean above is only a projection — it is true for `always`,
@@ -123,6 +125,7 @@ def _settings_snapshot(ws: Workspace) -> dict[str, Any]:
         "security_scan_severity_threshold": ws.security_scan_severity_threshold,
         "security_scan_skip_rules": list(ws.security_scan_skip_rules or []),
         "debug_mode": ws.debug_mode,
+        "allow_fork_pr_plans": ws.allow_fork_pr_plans,
         "ai_summary_mode": ws.ai_summary_mode,
         "ai_policy_mode": ws.ai_policy_mode,
         "ai_summary_context": ws.ai_summary_context,
@@ -562,14 +565,22 @@ async def restore_workspace(
         # the default version.
         engine_version=settings.get("engine_version")
         or settings.get("terraform_version")
-        or "1.12",
+        or "1.13",
         terragrunt_enabled=bool(settings.get("terragrunt_enabled")),
         terragrunt_version=settings.get("terragrunt_version") or "1.0",
         working_directory=settings.get("working_directory") or "",
         stack=settings.get("stack"),
         var_files=list(settings.get("var_files") or []),
+        # Empty for a snapshot taken before this column existed, which is the
+        # opted-OUT direction on purpose. Restoring a workspace must never hand
+        # it a cloud identity nobody granted it — the mirror of the fork-PR flag
+        # whose restore path defaulted the permissive way.
+        oidc_audiences=settings.get("oidc_audiences") or {},
         resource_cpu=settings.get("resource_cpu") or "1",
         parallelism=settings.get("parallelism") or DEFAULT_PARALLELISM,
+        # "" is the correct fallback, not the deployment default: a snapshot
+        # predating this column means the workspace never pinned one.
+        ansible_version=settings.get("ansible_version") or "",
         resource_memory=settings.get("resource_memory") or "2Gi",
         drift_ignore_rules=list(settings.get("drift_ignore_rules") or []),
         # Settings that only describe how a run is evaluated, and cannot start
@@ -584,6 +595,15 @@ async def restore_workspace(
         ),
         security_scan_skip_rules=list(settings.get("security_scan_skip_rules") or []),
         debug_mode=bool(settings.get("debug_mode", False)),
+        allow_fork_pr_plans=bool(
+            # A snapshot taken before this column existed has no key, and the
+            # fallback has to match the column default or a restored workspace
+            # silently differs from its never-deleted neighbours. It moved with the
+            # default in this release: a snapshot from 1.8 that predates the column
+            # restores CLOSED, which is the safe direction — a restore that re-opened
+            # fork plans would undo the upgrade one workspace at a time.
+            settings.get("allow_fork_pr_plans", False)
+        ),
         ai_summary_mode=settings.get("ai_summary_mode") or "default",
         ai_policy_mode=settings.get("ai_policy_mode") or "default",
         ai_summary_context=settings.get("ai_summary_context") or "",

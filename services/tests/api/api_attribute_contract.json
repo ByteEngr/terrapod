@@ -65,6 +65,8 @@
     "ai-policy-mode",
     "ai-summary-context",
     "ai-summary-mode",
+    "allow-fork-pr-plans",
+    "ansible-version",
     "auto-apply",
     "auto-apply-mode",
     "auto-merge",
@@ -86,6 +88,7 @@
     "name",
     "name-template",
     "notification-templates",
+    "oidc-audiences",
     "on-directory-delete",
     "owner-email",
     "parallelism",
@@ -219,6 +222,30 @@
   "catalog.show_catalog_instance": [
     "input-values"
   ],
+  "cloud_identity.get_oidc_audience_defaults": [
+    "audiences",
+    "issuer-enabled"
+  ],
+  "cloud_identity.list_signing_keys": [
+    "activates-at",
+    "created-at",
+    "kid",
+    "retired-at",
+    "signing"
+  ],
+  "cloud_identity.list_signing_keys:meta": [
+    "signing-kid"
+  ],
+  "cloud_identity.rotate_signing_key_route": [
+    "activates-at",
+    "created-at",
+    "kid",
+    "retired-at",
+    "signing"
+  ],
+  "cloud_identity.rotate_signing_key_route:meta": [
+    "note"
+  ],
   "config_versions._cv_json": [
     "auto-queue-runs",
     "created-at",
@@ -324,6 +351,52 @@
   "ha.whoami": [
     "node-id",
     "role"
+  ],
+  "inventory._group_child_json": [
+    "created-at"
+  ],
+  "inventory._group_json": [
+    "child-count",
+    "created-at",
+    "member-count",
+    "name",
+    "updated-at",
+    "variable-count"
+  ],
+  "inventory._host_group_json": [
+    "created-at"
+  ],
+  "inventory._host_json": [
+    "created-at",
+    "group-count",
+    "name",
+    "updated-at",
+    "variable-count"
+  ],
+  "inventory._settings_json": [
+    "branch",
+    "created-at",
+    "ignore-paths",
+    "include-platform",
+    "repo-url",
+    "updated-at",
+    "working-directory"
+  ],
+  "inventory._var_json": [
+    "created-at",
+    "key",
+    "sensitive",
+    "structured",
+    "updated-at",
+    "value"
+  ],
+  "inventory.show_resolved_inventory": [
+    "group-children",
+    "group-count",
+    "groups",
+    "host-count",
+    "hosts",
+    "limit"
   ],
   "module_autodiscovery_rules._preview_json": [
     "entries",
@@ -626,7 +699,8 @@
     "created-at",
     "email",
     "provider-name",
-    "role-name"
+    "role-name",
+    "subject"
   ],
   "roles._builtin_role_json": [
     "allow-all",
@@ -794,6 +868,7 @@
     "runner-exit-code",
     "runner-exit-reason",
     "runner-exit-status",
+    "save-plan",
     "source",
     "status",
     "status-timestamps",
@@ -908,6 +983,8 @@
     "ai-policy-mode",
     "ai-summary-context",
     "ai-summary-mode",
+    "allow-fork-pr-plans",
+    "ansible-version",
     "auto-apply",
     "auto-apply-mode",
     "auto-merge",
@@ -933,6 +1010,7 @@
     "locked",
     "locked-by",
     "name",
+    "oidc-audiences",
     "operations",
     "owner-email",
     "parallelism",
@@ -1177,6 +1255,7 @@
     "vault.unavailable-reason"
   ],
   "vcs_connections._connection_json": [
+    "allowed-repositories",
     "budget-window-seconds",
     "calls-per-hour",
     "consumers-window-total",
@@ -1189,7 +1268,9 @@
     "has-token",
     "has-webhook-secret",
     "label-totals",
+    "labels",
     "name",
+    "owner-email",
     "provider",
     "rate-limit",
     "rate-limit-observed-at",

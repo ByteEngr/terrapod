@@ -118,6 +118,53 @@ class TestTheAlwaysRefused:
                 await validate_outbound_url("https://webhook.test/hook")
 
 
+class TestAUnicodeHostIsJudgedByWhatItResolvesTo:
+    """GHSA-jhw5-99r7-3fg4, reported as a bypass and refuted — but untested.
+
+    The report is right about its premise and wrong about the consequence, and the
+    two halves are pinned separately here because only the first is obvious.
+
+    `ipaddress.ip_address('\uff11\uff12\uff17.\uff10.\uff10.\uff11')` raises, so a
+    fullwidth host is NOT caught by the literal-IP branch. That routes it into the
+    *stronger* path rather than past it: the guard resolves first and judges every
+    address it gets back, and a resolver folds the fullwidth digits to `127.0.0.1`
+    on the way. So the fold the attack depends on is performed by the very call the
+    guard makes.
+
+    The asymmetry is deliberate and documented in `_literal_ip`: the legacy IPv4
+    spellings (`127.1`, `2130706433`) must be judged WITHOUT a resolver because
+    those skip resolution through a proxy. A unicode host does not skip it.
+    """
+
+    #: Fullwidth digits for 127.0.0.1 — the exact string from the report.
+    FULLWIDTH = "\uff11\uff12\uff17.\uff10.\uff10.\uff11"
+
+    async def test_the_literal_branch_does_not_catch_it(self) -> None:
+        """The report's own observation, kept as the floor the rest rests on."""
+        from terrapod.services.outbound_url_guard import _literal_ip
+
+        assert _literal_ip(self.FULLWIDTH) is None
+
+    async def test_but_it_is_refused_once_resolved(self) -> None:
+        """Which is the half that decides whether the finding holds."""
+        with _resolves_to("127.0.0.1"):
+            with pytest.raises(BlockedURLError, match="loopback"):
+                await validate_outbound_url(f"https://{self.FULLWIDTH}/hook")
+
+    async def test_the_same_holds_for_the_metadata_address(self) -> None:
+        """A fullwidth spelling of 169.254.169.254 is the case worth having,
+        since the metadata endpoint is the target the report names."""
+        with _resolves_to("169.254.169.254"):
+            with pytest.raises(BlockedURLError, match="link-local"):
+                await validate_outbound_url(f"https://{self.FULLWIDTH}/hook")
+
+    async def test_a_unicode_host_resolving_somewhere_public_is_allowed(self) -> None:
+        """The negative path: refusing every non-ASCII host would be its own bug,
+        and an internationalised domain is a legitimate webhook target."""
+        with _resolves_to("93.184.216.34"):
+            await validate_outbound_url("https://b\u00fccher.example/hook")
+
+
 class TestPrivateSpaceIsAllowedByDefault:
     """The narrowness, pinned.
 
@@ -348,3 +395,37 @@ class TestDeliveryThroughAnEgressProxy:
         assert result["success"] is False
         assert "could not resolve" in result["body"]
         client_cls.assert_not_called()
+
+
+class TestAUnicodeSpellingOfALoopbackAddress:
+    """Fullwidth digits do not reach loopback, and the reason is worth pinning.
+
+    `_literal_ip` genuinely does NOT recognise `１２７．０．０．１` — neither
+    `ipaddress` nor `inet_aton` folds fullwidth forms, so the host is treated as
+    a name. That part of the report was correct.
+
+    What makes it harmless is the shape of the guard: it resolves first and
+    judges the RESOLVED address, and `getaddrinfo` performs the very fold the
+    bypass depends on — so the name arrives at `_judge` as `127.0.0.1` and is
+    refused there instead of at the literal check.
+
+    Both halves are asserted. The first documents a gap someone will otherwise
+    rediscover and report again; the second is the property that actually holds,
+    and it would break if the guard were ever reordered to judge the literal and
+    pass unrecognised names straight through.
+    """
+
+    FULLWIDTH_LOOPBACK = "１２７．０．０．１"
+
+    def test_the_literal_check_does_not_recognise_it(self) -> None:
+        from terrapod.services.outbound_url_guard import _literal_ip
+
+        assert _literal_ip(self.FULLWIDTH_LOOPBACK) is None
+        # The ASCII spelling it folds to is recognised, which is the contrast
+        # that makes the line above a gap rather than a property.
+        assert str(_literal_ip("127.0.0.1")) == "127.0.0.1"
+
+    async def test_it_is_still_refused_via_the_resolved_address(self) -> None:
+        with _resolves_to("127.0.0.1"):
+            with pytest.raises(BlockedURLError, match="loopback"):
+                await validate_outbound_url(f"https://{self.FULLWIDTH_LOOPBACK}/hook")

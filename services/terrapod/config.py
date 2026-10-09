@@ -95,7 +95,7 @@ class RunnerConfig(BaseSettings):
         "(e.g. http://terrapod-api:8000). Also the base for presigned storage URLs. "
         "Env override: TERRAPOD_SERVER_URL.",
     )
-    default_terraform_version: str = Field(default="1.12")
+    default_terraform_version: str = Field(default="1.13")
     default_pulumi_version: str = Field(default="3.208")
     default_execution_backend: str = Field(default="tofu")
     # --- Listener operational settings (non-sensitive; from runners.yaml) ---
@@ -446,6 +446,22 @@ class OIDCProviderConfig(BaseModel):
         default_factory=list,
         description="Rules mapping IDP claims to Terrapod roles",
     )
+    # The email claim is the principal: it selects role assignments and owns
+    # workspaces. An IdP that lets a user set their own email, or that simply
+    # does not vouch for it, can therefore hand an attacker a victim's identity
+    # (GHSA-3m8x-ff8g-7x8c). An explicit `email_verified: false` is ALWAYS
+    # rejected regardless of this setting -- the IdP is telling us the address is
+    # unverified, and nothing legitimate relies on trusting it anyway. This
+    # setting governs only the weaker case where the claim is ABSENT: strict
+    # (the 2.0 default) treats absent as unverified and refuses the login.
+    require_email_verified: bool = Field(
+        default=True,
+        description="Require a truthy `email_verified` claim. When true (the default), an OIDC "
+        "login whose claims omit `email_verified` is refused, because the email claim is the "
+        "principal and an unvouched one can be set by its owner. Set false only for an IdP that "
+        "verifies email but does not send the claim; an explicit `email_verified: false` is "
+        "refused either way.",
+    )
 
 
 class SAMLProviderConfig(BaseModel):
@@ -457,7 +473,72 @@ class SAMLProviderConfig(BaseModel):
     )
     metadata_url: str = Field(description="IDP metadata URL")
     entity_id: str = Field(default="", description="SP entity ID")
-    acs_url: str = Field(default="", description="Assertion consumer service URL")
+    acs_url: str = Field(
+        default="",
+        description=(
+            "Assertion consumer service URL — the externally-reachable address the "
+            "IDP posts assertions to. When empty it is derived from "
+            "auth.callback_base_url (falling back to external_url). Set it "
+            "explicitly when a proxy rewrites the path, because this is the URL "
+            "an assertion's Destination and Recipient are checked against."
+        ),
+    )
+    validate_destination: bool = Field(
+        default=True,
+        description=(
+            "Check that an assertion's Destination and Recipient name THIS "
+            "deployment's ACS URL. Without it an assertion the IDP minted for a "
+            "different service provider is accepted here, so anyone who can get "
+            "the IDP to issue one for a host they control can replay it at "
+            "Terrapod and log in as that user. Needs a usable ACS URL (acs_url, "
+            "auth.callback_base_url, or external_url); a login is refused rather "
+            "than waved through if none is configured. Defaults to true from "
+            "2.0; turn it off only for an IDP whose Destination genuinely "
+            "differs from the URL you registered."
+        ),
+    )
+    validate_in_response_to: bool = Field(
+        default=True,
+        description=(
+            "Require the assertion to answer the AuthnRequest this login "
+            "started, by matching InResponseTo against the request id we issued. "
+            "An assertion with no InResponseTo at all is refused too, which the "
+            "underlying library skips. Defaults to true from 2.0; turn it off "
+            "for an IDP that does not echo InResponseTo on the Response "
+            "element, or for IDP-initiated sign-on."
+        ),
+    )
+    reject_replayed_assertions: bool = Field(
+        default=True,
+        description=(
+            "Remember each accepted assertion id in Redis for the remainder of "
+            "its validity window and refuse a second use. Shared across replicas, "
+            "so a captured assertion cannot be re-presented to another pod. An "
+            "IDP never issues the same assertion id twice, so there is no "
+            "legitimate login this refuses. Defaults to true from 2.0; turning "
+            "it off trades away replay protection and buys only independence "
+            "from Redis, never IDP compatibility."
+        ),
+    )
+    want_assertions_signed: bool = Field(
+        default=True,
+        description=(
+            "Require a signature on the assertion itself, not merely somewhere in "
+            "the response. A response signed only at the message level leaves the "
+            "assertion the claims are read from unprotected. Defaults to true "
+            "from 2.0; turn it off for an IDP that signs the message only."
+        ),
+    )
+    reject_deprecated_algorithm: bool = Field(
+        default=True,
+        description=(
+            "Refuse SHA-1 signature and digest algorithms (RSA-SHA1, DSA-SHA1, "
+            "SHA1). A separate decision from want_assertions_signed, so neither "
+            "compatibility problem costs you the other protection. Defaults to "
+            "true from 2.0; turn it off for an IDP that cannot yet be moved off "
+            "SHA-1."
+        ),
+    )
     role_prefixes: list[str] = Field(
         default=["terrapod:", "terrapod-"],
         description="Prefixes to strip from group names to derive role names.",
@@ -485,6 +566,94 @@ class SSOConfig(BaseModel):
     )
 
 
+class OIDCIssuerConfig(BaseSettings):
+    """Terrapod as an OIDC issuer for runs (#1901).
+
+    Off by default, and off means the routes are **not mounted** rather than
+    mounted and refusing: a deployment that has not opted in publishes no trust
+    root at all, which is a stronger statement than a 404.
+
+    Opting in is two decisions, not one. The operator decides whether the
+    install publishes an issuer and which audiences each provider maps to
+    (here); a workspace may then override that mapping for itself. Neither
+    implies the other, and a published issuer whose resolved mapping is empty
+    grants nothing.
+    """
+
+    enabled: bool = Field(
+        default=False,
+        description=(
+            "Publish an OIDC discovery document and JWKS so clouds can federate "
+            "to this Terrapod as an identity provider. Requires the two issuer "
+            "paths on a publicly reachable Ingress — the clouds fetch them "
+            "anonymously, so a tailnet-only hostname will not do."
+        ),
+    )
+    public_url: str = Field(
+        default="",
+        description=(
+            "The issuer URL, exactly as the cloud is configured with it. One "
+            "source for three consumers inside the API — the token's `iss`, the "
+            "discovery document's `issuer`, and its `jwks_uri` — because OIDC "
+            "issuer matching is exact and computing it three times means one of "
+            "them uses the private hostname. Empty derives it from "
+            "webhookIngress.hostname, falling back to external_url."
+        ),
+    )
+    audiences: dict[str, list[str]] = Field(
+        default_factory=dict,
+        description=(
+            "The deployment's audience catalogue: a provider name to the "
+            "audiences a token minted for it should carry. Keyed on the provider "
+            "name as a configuration writes it (`aws`, `google`, `vault`); one "
+            "token is minted per key, carrying only that key's audiences. A "
+            "workspace's own oidc-audiences is MERGED OVER this, so removing a "
+            "workspace override falls back to the value here. Terrapod assumes "
+            "nothing per-cloud — any provider may be mapped to any audience, and "
+            "the cloud-side trust policy is the gate."
+        ),
+    )
+    signing_key_pem: str = Field(
+        default="",
+        description=(
+            "An operator-supplied RSA private key (PKCS8 PEM) to sign with. Wins "
+            "on every startup and is never stored, so rotating it means replacing "
+            "the secret. Empty means Terrapod generates one on first startup and "
+            "persists it, which is what most deployments want."
+        ),
+    )
+    token_ttl_seconds: int = Field(
+        default=900,
+        ge=60,
+        le=43200,
+        description=(
+            "Lifetime of a run identity token. Short because the cloud exchanges "
+            "it for its own credentials immediately and never needs it again; "
+            "note azurerm reads the token file exactly once, at provider init."
+        ),
+    )
+    key_propagation_seconds: int = Field(
+        default=600,
+        ge=0,
+        description=(
+            "How long a rotated-in key is published before it starts signing. A "
+            "published trust root cannot be swapped atomically: the clouds cache "
+            "the JWKS, so signing with a brand-new key produces tokens they "
+            "cannot verify until they next fetch it. Raise this if your cloud "
+            "caches for longer."
+        ),
+    )
+    retired_key_grace_seconds: int = Field(
+        default=3600,
+        ge=0,
+        description=(
+            "How long a retired key stays in the published JWKS. It has to outlive "
+            "token_ttl_seconds, or a token signed moments before a rotation stops "
+            "verifying while it is still inside its own lifetime."
+        ),
+    )
+
+
 class AuthConfig(BaseSettings):
     """Authentication configuration."""
 
@@ -506,9 +675,27 @@ class AuthConfig(BaseSettings):
         ),
     )
     sso: SSOConfig = Field(default_factory=SSOConfig)
+    oidc_issuer: OIDCIssuerConfig = Field(default_factory=OIDCIssuerConfig)
     session_ttl_hours: int = Field(
         default=12,
         description="Session TTL in hours",
+    )
+    session_absolute_ttl_hours: int = Field(
+        default=24,
+        ge=0,
+        description=(
+            "Hard ceiling on a web session's life, measured from login rather "
+            "than from last activity. The sliding session_ttl_hours window is "
+            "clamped to it, so a session kept warm by a polling browser still "
+            "ends here and the user re-authenticates. That ceiling is what "
+            "bounds how long anything resolved at login — the session's roles "
+            "above all — can outlive a change to it (GHSA-pwrq-j4cv-w7qg); the "
+            "revocations on a demotion are the first line, and this is the "
+            "backstop for whatever they miss. Set it at or above "
+            "session_ttl_hours, or the sliding window never gets to slide. 0 "
+            "removes the ceiling and restores an indefinitely-slidable "
+            "session; not recommended."
+        ),
     )
     peer_token_ttl_hours: int = Field(
         default=1,
@@ -1134,40 +1321,6 @@ class PackageCacheConfig(BaseModel):
     )
 
 
-class EngineConfig(BaseModel):
-    """One non-Terraform engine Terrapod can support (#1429)."""
-
-    enabled: bool = Field(
-        default=True,
-        description="Whether this engine's functionality is available at all. Turning "
-        "it off is a master switch: every surface that exists only for this engine "
-        "stops serving, its background work stops running, and the UI hides it. "
-        "Nothing is deleted — stored images and cached artifacts stay exactly where "
-        "they are and reappear if it is turned back on.",
-    )
-
-
-class EnginesConfig(BaseModel):
-    """Which engines beyond Terraform/OpenTofu this deployment offers (#1429).
-
-    Terrapod grows surfaces that exist only for a particular engine — a container
-    registry for Ansible execution environments, PyPI and npm proxies for Pulumi
-    programs. An install that only runs terraform/tofu has no use for any of them,
-    and carrying them makes the product read as more complicated than it is.
-
-    These switches take it back to its traditional shape. They sit *above* the
-    per-capability flags in `registry`: a capability runs only when its own flag is
-    on AND an engine that needs it is enabled, so turning off an engine is decisive
-    and cannot be half-undone by a capability flag left on.
-
-    Terraform/OpenTofu is not listed because it is not optional — it is what
-    Terrapod is.
-    """
-
-    ansible: EngineConfig = Field(default_factory=EngineConfig)
-    pulumi: EngineConfig = Field(default_factory=EngineConfig)
-
-
 class ModuleAutodiscoveryConfig(BaseModel):
     """Limits on org-wide module autodiscovery (#1620).
 
@@ -1293,6 +1446,41 @@ class CostEstimationConfig(BaseModel):
             "mirror of either shape works for air-gapped deployments."
         ),
     )
+    prices_sha256: str = Field(
+        default="",
+        description=(
+            "Expected SHA-256 of the COMPRESSED pricesheet, hex. When set, a "
+            "refresh whose bytes do not match is discarded and the previously "
+            "cached sheet keeps serving. This is the strong integrity check and "
+            "the only one that survives a compromise of wherever the sheet is "
+            "published, because the operator holds the value: pin it to the "
+            "digest in the `prices.yaml.gz.sha256` asset beside the sheet, "
+            "having verified that release's build attestation once "
+            "(`gh attestation verify prices.yaml.gz --repo mattrobinsonsre/terrapod`). "
+            "Left empty, Terrapod still fetches the sibling `.sha256` and refuses "
+            "a mismatch, which catches corruption and a tampered asset but not a "
+            "publisher who can rewrite both."
+        ),
+    )
+    prices_max_compressed_bytes: int = Field(
+        default=256 * 1024 * 1024,
+        ge=1024,
+        description=(
+            "Hard cap on the compressed download. The sheet is ~2 MB, so this is "
+            "far above any legitimate size; it exists so a hostile or broken "
+            "upstream cannot fill the ephemeral PVC. Exceeding it aborts the "
+            "refresh mid-stream and leaves the cached sheet in place."
+        ),
+    )
+    prices_max_decompressed_bytes: int = Field(
+        default=2 * 1024 * 1024 * 1024,
+        ge=1024,
+        description=(
+            "Hard cap on the DECOMPRESSED sheet, which is what a decompression "
+            "bomb spends: gzip reaches ~1000:1, so the compressed cap alone "
+            "bounds this at a terabyte. The real sheet is ~20 MB decompressed."
+        ),
+    )
     default_region: str = Field(
         default="us-east-1",
         description=(
@@ -1317,17 +1505,39 @@ class GitHubWebhookConfig(BaseModel):
     )
 
 
-class GitLabWebhookConfig(BaseModel):
-    """GitLab webhook configuration (optional, for faster feedback).
+class GitLabConfig(BaseModel):
+    """GitLab VCS settings: webhook delivery, and what a connection token may do.
 
-    GitLab does not HMAC-sign the body — it sends the configured secret
-    verbatim in the ``X-Gitlab-Token`` header. This global secret is the
-    fallback when a VCS connection does not set its own ``webhook_secret``.
+    Both fields concern a GitLab access token, from opposite directions — one
+    is a secret GitLab proves itself with on the way in, the other decides
+    whether the connection's own token is allowed back out.
     """
 
     webhook_secret: str = Field(
         default="",
         description="Webhook secret matched against the X-Gitlab-Token header (optional)",
+    )
+    allow_token_delivery_to_runners: bool = Field(
+        default=False,
+        description=(
+            "Allow a `git_http_auth` workspace variable whose source is "
+            "`vcs_connection` to hand a GitLab connection's stored access token "
+            "to a runner Job. OFF by default on every line, and the default is "
+            "the point: a GitLab VCS connection holds a Personal or Group Access "
+            "Token an operator pasted in, and there is no operation that produces "
+            "a narrower copy of one. The token is delivered whole, with every "
+            "permission and every project it covers, into a Job that is also "
+            "running workspace-supplied IaC — and the connection is chosen in a "
+            "variable *value*, so any workspace owner can name any connection an "
+            "admin created. (GitHub is unaffected and needs no switch: its "
+            "installation token is minted per run and is already narrowed to "
+            "`contents: read`.) Turning this on accepts that disclosure "
+            "deliberately; the alternative that needs no switch is a `static` "
+            "git_http_auth credential holding a token the operator scoped "
+            "themselves. With it off, such a variable fails the run with a "
+            "message naming this key — never silently, because a credential that "
+            "vanishes leaves `terraform init` to fail somewhere confusing."
+        ),
     )
 
 
@@ -1335,6 +1545,21 @@ class VCSConfig(BaseModel):
     """VCS integration configuration."""
 
     enabled: bool = Field(default=True, description="Enable VCS integration")
+    require_connection_authorization: bool = Field(
+        default=True,
+        description=(
+            "Require a principal to already have a claim to a VCS connection before "
+            "naming it (GHSA-v8g7-pqrj-8mcm). A connection covers every repository "
+            "its credential can reach, and its id is visible to anyone with read on "
+            "a workspace using it — so without this any authenticated user could "
+            "point a workspace of their own at someone else's installation. A "
+            "platform admin may name any connection; anyone else may name one they "
+            "already own a workspace on. The consequence is deliberate: the FIRST "
+            "workspace for a connection must be created by an admin, since until "
+            "one exists there is no workspace to own. Set false to accept any "
+            "connection id, as releases before this one did."
+        ),
+    )
     poll_interval_seconds: int = Field(
         default=60,
         description=(
@@ -1358,8 +1583,24 @@ class VCSConfig(BaseModel):
             "latency anyone experiences."
         ),
     )
+    require_push_permission_for_commands: bool = Field(
+        default=True,
+        description=(
+            "Require the author of a `terrapod ...` pull-request comment to have push "
+            "access to the repository before the command is acted on (GitHub: the "
+            "collaborator permission API; GitLab: Developer, access level 30, or above "
+            "including membership inherited from the parent group). On by default: a "
+            "comment is a very low bar for `terrapod apply`, which applies real "
+            "infrastructure changes, and on a public repository anyone at all can post "
+            "one. Set to false only to restore the older behaviour, where the "
+            "repository's branch protection was the sole gate -- and understand that "
+            "`terrapod unlock` is not covered by branch protection at all. The check "
+            "fails CLOSED: a command whose author cannot be established is refused, "
+            "with a reply saying so."
+        ),
+    )
     github: GitHubWebhookConfig = Field(default_factory=GitHubWebhookConfig)
-    gitlab: GitLabWebhookConfig = Field(default_factory=GitLabWebhookConfig)
+    gitlab: GitLabConfig = Field(default_factory=GitLabConfig)
     tmpdir: str = Field(
         default="/var/lib/terrapod/tmp",
         description=(
@@ -1534,6 +1775,19 @@ class AgentPoolsConfig(BaseModel):
             "drives both how fast a compromised cert ages out and how often "
             "the API issues fresh ones. For local Tilt, override to ~300s "
             "in values-local.yaml so a renewal cycle finishes in minutes."
+        ),
+    )
+    require_listener_proof_of_possession: bool = Field(
+        default=True,
+        description=(
+            "Require a listener to prove it holds the private key matching its "
+            "certificate, by signing every request. Without this the certificate "
+            "alone authenticates — and a certificate is PUBLIC material that "
+            "travels on every request, so anyone who observes one call can replay "
+            "the header until the certificate expires. On from 2.0. A listener "
+            "image older than 2.0 does not sign, so a mixed fleet must set this "
+            "false until every listener in every pool has been upgraded; see "
+            "docs/upgrading-to-2.0.md."
         ),
     )
     default_join_token_max_uses: int | None = Field(
@@ -3172,16 +3426,18 @@ class Settings(BaseSettings):
         ),
     )
 
-    # Token signing — dedicated secret for stateless HMAC tokens (runner
-    # tokens + run-task callback tokens). When empty, the signing key falls
-    # back to sha256(database_url) for backward compatibility (no in-flight
-    # token is invalidated by upgrading). Set this (Helm: api.tokenSigningKey
-    # / env TERRAPOD_TOKEN_SIGNING_KEY) to decouple token-forgery resistance
-    # from database credentials. See auth/token_signing.py.
+    # Token signing — OPTIONAL bring-your-own secret for the four stateless
+    # HMAC token families (runner tokens, run-task callback tokens, download
+    # tickets, Slack link tokens). Empty is the normal case: Terrapod generates
+    # its own key on first startup and persists it in the database, the way it
+    # does the listener CA (#1994). Set this (Helm: api.tokenSigningKey / env
+    # TERRAPOD_TOKEN_SIGNING_KEY) when your own secret management is the system
+    # of record — it then wins on every startup and the stored key is not read
+    # at all, so rotating your secret takes effect. See auth/token_signing.py.
     token_signing_key: str = Field(
         default="",
-        description="Dedicated HMAC secret for runner + run-task tokens "
-        "(falls back to sha256(database_url) when empty).",
+        description="Optional bring-your-own HMAC secret for the stateless token "
+        "families; when empty Terrapod generates and stores its own.",
     )
 
     # Whether weak secret material is fatal at startup rather than a warning
@@ -3221,7 +3477,6 @@ class Settings(BaseSettings):
     audit: AuditConfig = Field(default_factory=AuditConfig)
 
     # Registry
-    engines: EnginesConfig = Field(default_factory=EnginesConfig)
     registry: RegistryConfig = Field(default_factory=RegistryConfig)
 
     # Service Catalog
@@ -3289,8 +3544,19 @@ class Settings(BaseSettings):
         description="Default execution backend for new workspaces (tofu or terraform)",
     )
     default_terraform_version: str = Field(
-        default="1.12",
+        default="1.13",
         description="Default terraform/tofu version for new workspaces",
+    )
+    default_ansible_version: str = Field(
+        default="2.21.5",
+        description="Default ansible-core version for new workspaces (#2010). A "
+        "workspace may override it, exactly as it overrides its engine version — "
+        "collection compatibility is a per-workspace concern, so one version for the "
+        "whole deployment would be the wrong shape. Deliberately NOT in "
+        "registry.platform_tools: that block is explicitly platform-scoped with no "
+        "per-workspace field. Also unlike those three, ansible-core publishes no "
+        "release binary, so it is pip-installed from the PyPI pull-through proxy "
+        "rather than unpacked from an archive. Review at every minor release.",
     )
     default_dotnet_version: str = Field(
         default="9.0",

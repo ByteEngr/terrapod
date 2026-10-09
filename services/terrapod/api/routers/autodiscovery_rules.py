@@ -45,6 +45,7 @@ from terrapod.engines import known_engines
 from terrapod.logging_config import get_logger
 from terrapod.services import run_service, workspace_settings
 from terrapod.services.parallelism import DEFAULT_PARALLELISM, validate_parallelism
+from terrapod.services.workspace_settings import validate_ansible_version
 
 router = APIRouter(tags=["autodiscovery-rules"])
 logger = get_logger(__name__)
@@ -85,7 +86,9 @@ def _rule_json(rule: AutodiscoveryRule) -> dict:
             "terraform-version": rule.engine_version,
             "resource-cpu": rule.resource_cpu,
             "parallelism": rule.parallelism,
+            "ansible-version": rule.ansible_version,
             "resource-memory": rule.resource_memory,
+            "oidc-audiences": dict(rule.oidc_audiences or {}),
             "auto-apply": rule.auto_apply,
             "auto-apply-mode": run_service.resolve_auto_apply_mode(rule),
             "on-directory-delete": rule.on_directory_delete,
@@ -116,6 +119,7 @@ def _rule_json(rule: AutodiscoveryRule) -> dict:
             "plan-expiry-seconds": rule.plan_expiry_seconds,
             "slack-channel": rule.slack_channel or "",
             "debug-mode": rule.debug_mode,
+            "allow-fork-pr-plans": rule.allow_fork_pr_plans,
             "created-at": _rfc3339(rule.created_at),
             "updated-at": _rfc3339(rule.updated_at),
         },
@@ -276,6 +280,13 @@ def _coerce_attrs(attrs: dict, *, on_create: bool, existing: Any = None) -> dict
         out["engine"] = eng
     if "engine-version" in attrs or "terraform-version" in attrs:
         out["engine_version"] = engine_version_attr(attrs, "")
+    if "ansible-version" in attrs:
+        # Wrapped like `parallelism` below: bare, the rule's ValueError escaped
+        # as a 500 where the guard exists to give a 422.
+        try:
+            out["ansible_version"] = validate_ansible_version(attrs["ansible-version"])
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=str(e)) from e
     if "parallelism" in attrs:
         try:
             out["parallelism"] = validate_parallelism(attrs["parallelism"])
@@ -410,6 +421,7 @@ def _coerce_attrs(attrs: dict, *, on_create: bool, existing: Any = None) -> dict
             workspace_settings.validate_plan_expiry_seconds,
         ),
         ("slack-channel", "slack_channel", workspace_settings.validate_slack_channel),
+        ("oidc-audiences", "oidc_audiences", workspace_settings.validate_oidc_audiences),
     ):
         if key in attrs:
             try:
@@ -421,6 +433,7 @@ def _coerce_attrs(attrs: dict, *, on_create: bool, existing: Any = None) -> dict
         ("auto-merge", "auto_merge"),
         ("drift-detection-enabled", "drift_detection_enabled"),
         ("debug-mode", "debug_mode"),
+        ("allow-fork-pr-plans", "allow_fork_pr_plans"),
     ):
         if key in attrs:
             try:
@@ -701,10 +714,12 @@ def _build_transient_rule(fields: dict[str, Any], conn: VCSConnection) -> Autodi
         # defaults to satisfy the in-memory construction.
         execution_mode=fields.get("execution_mode", "agent"),
         execution_backend=fields.get("execution_backend", "tofu"),
-        engine_version=fields.get("engine_version", "1.12"),
+        engine_version=fields.get("engine_version", "1.13"),
         resource_cpu=fields.get("resource_cpu", "1"),
         parallelism=fields.get("parallelism", DEFAULT_PARALLELISM),
+        ansible_version=fields.get("ansible_version", "2.21.5"),
         resource_memory=fields.get("resource_memory", "2Gi"),
+        oidc_audiences=fields.get("oidc_audiences", {}),
         auto_apply=fields.get("auto_apply", False),
         auto_apply_mode=fields.get("auto_apply_mode", "never"),
         labels=fields.get("labels", {}),

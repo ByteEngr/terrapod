@@ -100,14 +100,31 @@ def _get_client_ip(
     everything to its right was appended by infrastructure we trust and
     everything to its left is whatever the client sent.
 
-    **The list is empty by default, and that is a deliberate trade.** With no
-    trusted proxy the header is ignored entirely and the socket peer is used —
-    which in Terrapod is the BFF pod for every request, so unauthenticated
-    traffic shares one bucket until an operator sets
-    `rate_limit.trusted_proxy_cidrs`. That is a real cost and it is the right
-    default anyway: the alternative is a control that reports per-client limits
-    it is not enforcing. Failing closed is visible; trusting a forgeable header
-    is not.
+    **The default is the private ranges plus CGNAT, not an empty list** — see
+    `rate_limit.trusted_proxy_cidrs` in `config.py`. An earlier version of this
+    docstring said the opposite, which mattered: the whole paragraph below turns
+    on which it is.
+
+    **A client sharing a range with the proxy collapses into the peer's bucket.**
+    The right-most-untrusted rule assumes proxies and clients are disjoint sets.
+    They are not when the default is this broad: a client on a Tailscale tailnet
+    arrives as `100.x`, which is inside the trusted `100.64.0.0/10`, so its own
+    entry is skipped as "infrastructure" and the scan falls through to the peer
+    — the BFF pod — putting every such client in ONE bucket. The same holds for
+    a client on a private `10.x`/`172.16.x`/`192.168.x` network. The breadth
+    that makes the default work out of the box is exactly what defeats it for
+    the deployments it was widened to serve.
+
+    The remedy is configuration, not a different rule here: narrow
+    `trusted_proxy_cidrs` to the pod network your BFF actually runs on. It
+    cannot be narrowed by default because that network differs per cluster —
+    and some (EKS with custom CNI networking) legitimately place pods in
+    `100.64.0.0/10` themselves, so dropping that entry would collapse
+    attribution entirely on those. `docs/rate-limiting.md` carries this.
+
+    An empty list is still supported and means "ignore the header, bucket on the
+    peer", which collapses every unauthenticated caller into one bucket. That is
+    sound only if the ingress sanitises the header.
     """
     if trusted_networks and request.client and _is_trusted(request.client.host, trusted_networks):
         forwarded = request.headers.get("X-Forwarded-For")
@@ -138,6 +155,21 @@ def _get_client_ip(
 # at the canonical prefix fell through to the anonymous per-IP bucket and
 # re-created #1075 — the bug this function exists to prevent.
 _CAPABILITY_PATH_RE = re.compile(r"^/api/(?:tfe/)?v2/(?:plans|applies)/([^/]+)/log$")
+
+# The OIDC issuer's two public documents (#1901). Anonymous by necessity -- a
+# cloud fetches them before any token exists -- so without a tier of their own
+# they land in the unauthenticated IP bucket, and behind the BFF that is ONE
+# bucket shared with every other anonymous request. This is the #1075 shape with
+# a far worse blast radius: exhaust that bucket and the JWKS 429s, so every
+# cloud fails to verify every token and every federated run breaks at once,
+# including runs whose own traffic had nothing to do with filling it.
+#
+# Their own prefix therefore isolates them in both directions -- unrelated
+# traffic cannot starve the trust root, and a cloud retry storm cannot starve
+# anything else. Matched EXACTLY, not by prefix: `/.well-known` would drag in
+# the terraform service-discovery document, which should be a decision rather
+# than a side effect of a bucketing rule.
+_OIDC_ISSUER_PATHS = frozenset({"/.well-known/openid-configuration", "/.well-known/jwks.json"})
 
 
 def _capability_bucket(path: str) -> str | None:
@@ -254,6 +286,11 @@ class RateLimitMiddleware:
       which is how npm/pip/NuGet clients authenticate — one per package, and
       NuGet cannot be configured out of it — so the public bucket is the wrong
       size for them and a restore exhausts it (#1566).
+    - OIDC issuer documents (`/.well-known/{openid-configuration,jwks.json}`):
+      `authenticated_requests_per_minute` in their own bucket. Anonymous by
+      necessity and shared by every cloud, so they must not sit in the
+      unauthenticated IP bucket — a 429 there fails token verification for
+      every federated run at once (#1901).
     - Unauthenticated: base limit (`requests_per_minute`), IP-keyed.
     - Auth endpoints (`/api/v1/auth/*` and its deprecated alias, `/oauth/*`):
       always `auth_requests_per_minute`
@@ -333,6 +370,15 @@ class RateLimitMiddleware:
         if capability is not None:
             limit = self.authenticated_requests_per_minute
             prefix = "api_capability"
+        elif path in _OIDC_ISSUER_PATHS:
+            # Generous, and in its own bucket. These are small, cacheable and
+            # fetched by machines, so legitimate volume is low -- but a 429 here
+            # breaks token verification for every cloud, so the limit exists to
+            # bound abuse rather than to shape normal use. The response carries
+            # a derived `Cache-Control` (see routers/oidc_issuer.py), which is
+            # the real defence; this is the backstop for a client ignoring it.
+            limit = self.authenticated_requests_per_minute
+            prefix = "api_oidc_issuer"
         elif is_auth_endpoint:
             limit = self.auth_requests_per_minute
             prefix = "auth"

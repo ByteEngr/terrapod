@@ -33,11 +33,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from terrapod.api.credentials import extract_credential
 from terrapod.api.dependencies import AuthenticatedUser
 from terrapod.api.prefixes import prefix_of
+from terrapod.auth import capabilities as cap
+from terrapod.auth.capabilities import has_capability
 from terrapod.config import settings
 from terrapod.db.session import get_db
 from terrapod.logging_config import get_logger
 from terrapod.services import registry_collection_service as collections
-from terrapod.services.engine_gating import capability_enabled
+from terrapod.services.capabilities import capability_enabled
 from terrapod.services.package_cache import (
     galaxy,
     goproxy,
@@ -85,7 +87,8 @@ async def authenticate_package_request(request: Request) -> AuthenticatedUser:
     is held open across an artifact transfer.
     """
     from terrapod.api.dependencies import PEER_KIND, _resolve_user_roles, validate_api_token
-    from terrapod.auth.runner_tokens import verify_runner_token
+    from terrapod.auth.runner_token_state import is_run_token_usable_on_its_own_session
+    from terrapod.auth.runner_tokens import verify_runner_token_claims
     from terrapod.auth.sessions import get_session
     from terrapod.db.session import get_db_session
 
@@ -104,8 +107,13 @@ async def authenticate_package_request(request: Request) -> AuthenticatedUser:
         raise _unauthorised()
 
     if token.startswith("runtok:"):
-        run_id = verify_runner_token(token)
-        if run_id is not None:
+        claims = verify_runner_token_claims(token)
+        if claims is not None:
+            # A token whose run has ended is not a credential here either
+            # (GHSA-xmrf-hxq9-m59m) — this surface has its own auth path, so it
+            # needs its own call rather than inheriting `get_current_user`'s.
+            if not await is_run_token_usable_on_its_own_session(claims.run_id):
+                raise _unauthorised()
             request.state.user_email = "runner"
             return AuthenticatedUser(
                 email="runner",
@@ -113,7 +121,8 @@ async def authenticate_package_request(request: Request) -> AuthenticatedUser:
                 roles=["everyone"],
                 provider_name="runner_token",
                 auth_method="runner_token",
-                run_id=run_id,
+                run_id=claims.run_id,
+                run_phase=claims.phase,
             )
 
     async with get_db_session() as db:
@@ -123,7 +132,13 @@ async def authenticate_package_request(request: Request) -> AuthenticatedUser:
             if api_token.kind == PEER_KIND:
                 raise _unauthorised()
             email = api_token.bound_to or ""
-            roles = await _resolve_user_roles(db, email) if email else []
+            roles = (
+                await _resolve_user_roles(
+                    db, email, api_token.identity_provider, api_token.identity_subject
+                )
+                if email
+                else []
+            )
             request.state.user_email = email
             return AuthenticatedUser(
                 email=email,
@@ -131,6 +146,8 @@ async def authenticate_package_request(request: Request) -> AuthenticatedUser:
                 roles=roles,
                 provider_name="api_token",
                 auth_method="api_token",
+                identity_provider=api_token.identity_provider,
+                identity_subject=api_token.identity_subject,
                 kind=api_token.kind,
                 pinned_roles=api_token.pinned_roles,
             )
@@ -144,6 +161,8 @@ async def authenticate_package_request(request: Request) -> AuthenticatedUser:
             roles=session.roles,
             provider_name=session.provider_name,
             auth_method="session",
+            identity_provider=session.provider_name,
+            identity_subject=session.subject,
         )
 
     raise _unauthorised()
@@ -771,6 +790,63 @@ def _published_version_json(row, base: str, namespace: str, name: str, version: 
     }
 
 
+async def _require_collection_write(
+    db: AsyncSession,
+    user: AuthenticatedUser,
+    namespace: str,
+    name: str,
+    *,
+    must_exist: bool,
+) -> None:
+    """Authorise a write to one Galaxy collection, by its own owner and labels.
+
+    Publishing had **authentication only**, so any principal who could reach the
+    endpoint could publish into any namespace: an existing collection was looked
+    up and reused with nothing compared against it, and `owner_email` was used
+    only to stamp a row that did not yet exist. Reading the coordinate out of the
+    archive rather than off the request stops a caller *claiming* a namespace in
+    the URL, but it does not stop them building an archive that declares someone
+    else's.
+
+    `must_exist` is False for publish — an unclaimed namespace may be created by
+    any authenticated principal, the creator becoming its owner, which is the
+    rule the module and provider registries already follow — and True for
+    attaching a signature, which modifies an artifact that is already published.
+    """
+    from terrapod.services.registry_rbac_service import resolve_registry_capabilities_for
+
+    # A runner token is refused here rather than left to the capability resolver.
+    # On the registry axis a runner token gets a read *floor* (`caps |= read_caps`)
+    # which does not cap what follows, and an owner match grants the whole axis --
+    # and a runner token's email is the literal "runner", so a collection owned by
+    # that string would hand a run's own short-lived token publish rights. This
+    # refusal does not depend on that arithmetic holding.
+    if user.auth_method == "runner_token":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Runner tokens cannot publish collections",
+        )
+
+    existing = await collections.get_collection(db, namespace, name)
+    if existing is None:
+        if must_exist:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+        return
+
+    caps = await resolve_registry_capabilities_for(
+        db,
+        user,
+        f"{namespace}.{name}",
+        existing.labels or {},
+        existing.owner_email or "",
+    )
+    if not has_capability(caps, cap.REGISTRY_WRITE):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"registry:write is required on {namespace}.{name}",
+        )
+
+
 @galaxy_router.post("/galaxy/v3/artifacts/collections/", status_code=202)
 async def galaxy_publish(
     request: Request,
@@ -801,6 +877,14 @@ async def galaxy_publish(
     try:
         if size == 0:
             raise HTTPException(status_code=400, detail="Empty upload")
+        # The namespace is only knowable from inside the archive, so the
+        # coordinate is read first and the caller authorised against it before
+        # `publish` writes a row or an object.
+        try:
+            namespace, name, _version = await collections.read_coordinates(tmp_path)
+        except collections.PublishError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        await _require_collection_write(db, user, namespace, name, must_exist=False)
         try:
             row = await collections.publish(db, storage, tmp_path, owner_email=user.email or "")
         except collections.PublishError as exc:
@@ -847,6 +931,8 @@ async def galaxy_attach_signature(
     _galaxy_names(namespace, name)
     if not galaxy.valid_version(version):
         raise HTTPException(status_code=404, detail="Not found")
+
+    await _require_collection_write(db, user, namespace, name, must_exist=True)
 
     sig_bytes = await request.body()
     if not sig_bytes:

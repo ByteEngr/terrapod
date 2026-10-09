@@ -496,7 +496,7 @@ jobs:
             # Root-level tests/*.py are NOT auto-collected by the directory
             # shards below — each must be listed here explicitly, or it silently
             # never runs in CI. All of these are pure-unit (no Postgres/Redis/S3).
-            paths: tests/auth tests/meta tests/runner tests/storage tests/ai_eval tests/config tests/db tests/helm tests/oci tests/test_logging_config.py tests/test_dependency_pins.py tests/test_api_sdk_contract.py tests/test_schema_version.py tests/test_gpg_verify.py tests/test_http_retry.py tests/test_db_iam_auth.py tests/test_redis_iam_auth.py
+            paths: tests/auth tests/meta tests/runner tests/storage tests/ai_eval tests/config tests/db tests/helm tests/oci tests/test_logging_config.py tests/test_dependency_pins.py tests/test_api_sdk_contract.py tests/test_schema_version.py tests/test_gpg_verify.py tests/test_http_retry.py tests/test_db_iam_auth.py tests/test_redis_iam_auth.py tests/crypto tests/test_ha_config.py
             pytest_args: -n auto
           # services-api is sharded across three runners as well as run under
           # xdist within each. One job took ~8.5 min (#1555): ~6 min of pytest
@@ -638,16 +638,44 @@ jobs:
     container: ghcr.io/mattrobinsonsre/mirror/python:3.14-slim
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - name: Install Poetry and export plugin
-        run: pip install poetry poetry-plugin-export
-      - name: Export requirements
-        run: poetry export -f requirements.txt -o requirements.txt --without-hashes
+      - name: Install Poetry
+        # Pinned to the SAME version the images build with (see the `poetry==`
+        # pins in docker/Dockerfile.api and docker/Dockerfile.test). Two reasons,
+        # and the second is the point of GHSA-rgvw-c74c-h75w: the lock format is
+        # version-specific (Poetry 2.x writes lock-version 2.1, which 1.8.4
+        # refuses to read), and the set audited here has to be the same
+        # projection of the same lock that the api image installs — otherwise
+        # this job is once again auditing a resolution nothing ships.
+        #
+        # `export` is built into 1.8.4, so poetry-plugin-export is not needed.
+        run: pip install 'poetry==1.8.4'
+      - name: Check the lock is current
+        # Load-bearing, not belt-and-braces. Measured against Poetry 1.8.4:
+        # `export` against a lock that no longer matches pyproject.toml prints a
+        # warning and exits 0, so without this the job would audit the stale
+        # closure and report it clean. The api image build runs the same check
+        # immediately before its own export, for the same reason.
+        run: poetry check --lock --no-interaction --no-ansi
+        working-directory: services
+      - name: Export the api image's requirement set from the lock
+        # `--only main` and WITH hashes: exactly what docker/Dockerfile.api does,
+        # so the file audited below is byte-for-byte the file that image
+        # installs. (`--only main` is also the default here — measured, 126
+        # packages either way — but being explicit is what keeps it true if the
+        # default ever moves.)
+        run: poetry export --only main -f requirements.txt -o requirements.txt
         working-directory: services
       - name: Run pip-audit
         # Accepted advisories live in pentest/pip-audit-ignore.txt, each with
         # its reasoning and exit condition. Read from the file rather than
         # inlined here so that release-rescan.yml — which re-checks supported
         # releases against current reasoning — cannot drift from this gate.
+        #
+        # All FOUR shipped Python dependency sets, not just the api image's. The
+        # three minimal images install committed hash-pinned requirements, and
+        # before this only trivy's image scan saw them — so an advisory against a
+        # migrations-only dependency (Mako, botocore, google-auth) was never
+        # weighed against the reasoning in the ignore file.
         run: |
           pip install pip-audit
           # POSIX sh, not bash: this job runs in a slim container whose shell
@@ -659,8 +687,23 @@ jobs:
             line="$(echo "$line" | tr -d '[:space:]')"
             [ -n "$line" ] && ignores="$ignores --ignore-vuln $line"
           done < pentest/pip-audit-ignore.txt
-          # shellcheck disable=SC2086
-          pip-audit -r services/requirements.txt --strict --desc $ignores
+          fail=0
+          for req in services/requirements.txt \
+                     services/requirements-listener.txt \
+                     services/requirements-migrations.txt \
+                     services/requirements-runner.txt; do
+            echo "── $req"
+            # shellcheck disable=SC2086
+            pip-audit -r "$req" --strict --desc $ignores || fail=1
+          done
+          if [ "$fail" != "0" ]; then
+            echo
+            echo "An advisory affects a set that ships. Bump the floor in the"
+            echo "matching services/pyproject*.toml, re-run scripts/lock-python-deps.sh,"
+            echo "and commit the regenerated lock — or add the id to"
+            echo "pentest/pip-audit-ignore.txt with its reasoning and exit condition."
+            exit 1
+          fi
 
   # ── Dependency Audit (npm) ────────────────────────────
   npm-audit:
@@ -732,13 +775,51 @@ jobs:
         #
         # It also found two modules Dependabot missed entirely (`publish`,
         # `query`), so it is not merely duplicating the alerts.
+        #
+        # The vulnerability DB is downloaded ONCE, up front, into a shared
+        # cache, and the six scans then run with `--skip-db-update`. Before
+        # this each `docker run` fetched the DB itself — six independent
+        # chances for a transient registry failure, and when one hit (a 404
+        # from mirror.gcr.io on the DB layer, 2026-10-05) the job reported
+        # "High/critical advisories in a Go module" and exited 1. `--exit-code
+        # 1` means findings, but a FATAL init error also exits non-zero, so
+        # `|| fail=1` could not tell "found a CVE" from "never scanned", and
+        # the gate named the wrong cause. Separating the download makes a DB
+        # failure its own attributable failure, before any module is scanned.
         run: |
+          set -u
+          TRIVY="${TRIVY_IMAGE:-ghcr.io/aquasecurity/trivy:0.72.0}"
+          CACHE="${RUNNER_TEMP:-/tmp}/trivy-cache"
+          mkdir -p "$CACHE"
+
+          # Bounded retry: a registry hiccup here is infrastructure, not a
+          # finding, and must not be reported as one. Three attempts with
+          # backoff, then fail with a message that says what actually broke.
+          db_ok=0
+          for attempt in 1 2 3; do
+            echo "── vulnerability DB (attempt $attempt/3)"
+            if docker run --rm -v "$CACHE:/cache" "$TRIVY" \
+                 fs --cache-dir /cache --scanners vuln --download-db-only --quiet; then
+              db_ok=1; break
+            fi
+            [ "$attempt" -lt 3 ] && sleep $((attempt * 15))
+          done
+          if [ "$db_ok" != "1" ]; then
+            echo
+            echo "Could not download the Trivy vulnerability database after 3 attempts."
+            echo "NO MODULE WAS SCANNED — this is an infrastructure failure, not a"
+            echo "finding. Re-run the job; if it persists, check Trivy DB registry"
+            echo "availability (ghcr.io / mirror.gcr.io)."
+            exit 1
+          fi
+
           fail=0
           for m in go-terrapod provider migrate publish query mcp; do
             echo "── $m"
-            docker run --rm -v "$PWD:/src" -w /src \
-              "${TRIVY_IMAGE:-ghcr.io/aquasecurity/trivy:0.72.0}" \
-              fs --scanners vuln --severity HIGH,CRITICAL \
+            docker run --rm -v "$PWD:/src" -v "$CACHE:/cache" -w /src \
+              "$TRIVY" \
+              fs --cache-dir /cache --skip-db-update \
+              --scanners vuln --severity HIGH,CRITICAL \
               --ignorefile /src/pentest/trivy/.trivyignore \
               --exit-code 1 --quiet "$m/go.mod" || fail=1
           done
@@ -777,25 +858,73 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: [python, javascript-typescript]
+        # Go needs `build-mode: manual` (#1963). `none` fails Initialize CodeQL
+        # for Go, and autobuild has nothing to work from: there is no go.mod at
+        # the repository root, every module is one level down. So the build step
+        # below enumerates them.
+        language: [python, javascript-typescript, go]
         include:
           - language: python
             build-mode: none
           - language: javascript-typescript
             build-mode: none
+          - language: go
+            build-mode: manual
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        if: matrix.language == 'go'
+        with:
+          go-version-file: go-terrapod/go.mod
+
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
+        uses: github/codeql-action/init@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
           queries: security-and-quality
           config-file: .github/codeql/codeql-config.yml
 
+      # The manual build for Go. Every module is built, because CodeQL's Go
+      # extractor only sees what the build compiles -- a module left out is
+      # silently unanalysed, which is the failure this whole job exists to avoid.
+      #
+      # The module list is DERIVED from the tree rather than maintained here, so a
+      # new module is covered the day it appears. Two sources of go.mod are not
+      # ours and must not be built: the vendored OCI distribution-spec under
+      # `.conformance/`, and any local `.claude/worktrees/*` copies (absent from a
+      # CI checkout, excluded so the same command works on a laptop).
+      #
+      # `go build ./...` rather than `go vet` or a test build: it compiles every
+      # package without needing test fixtures or network services.
+      - name: Build the Go modules
+        if: matrix.language == 'go'
+        run: |
+          set -euo pipefail
+          mapfile -t mods < <(
+            find . -name go.mod \
+              -not -path './.conformance/*' \
+              -not -path './.claude/*' \
+              -not -path './node_modules/*' \
+              -printf '%h\n' | sort
+          )
+          if [ "${#mods[@]}" -lt 7 ]; then
+            echo "Found only ${#mods[@]} Go module(s): ${mods[*]}"
+            echo "Expected at least 7. The finder has probably stopped matching"
+            echo "rather than the modules having gone away — failing rather than"
+            echo "analysing a fraction of the Go code and reporting success."
+            exit 1
+          fi
+          echo "Building ${#mods[@]} module(s): ${mods[*]}"
+          for m in "${mods[@]}"; do
+            echo "::group::go build $m"
+            (cd "$m" && go build ./...)
+            echo "::endgroup::"
+          done
+
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
+        uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
         with:
           category: codeql-${{ matrix.language }}
 
@@ -834,6 +963,11 @@ jobs:
         run: python3 scripts/docs-audit/check_counts.py
       - name: Named targets, values and paths exist
         run: python3 scripts/docs-audit/check_references.py
+      # Not a docs gate, but it belongs to a job that sees the whole checkout:
+      # the pytest tiers run in an image that does not ship `scripts/`, and the
+      # two mints that regressed live there (GHSA-3m8x-ff8g-7x8c).
+      - name: Every token mint names its identity provider
+        run: python3 scripts/docs-audit/check_token_mints.py
       # Advisory: prints for human review, never fails. Telling a factual
       # boundary from a put-down is a judgement call.
       - name: Peer-fairness review list
@@ -904,63 +1038,65 @@ jobs:
           fi
           echo "all third-party images are overridable, and every mirror ref is listed"
 
-      - name: A token signing key is generated on install, and never on upgrade
+      - name: The chart never mints a token signing key, and yields to a supplied one
         run: |
-          # GHSA-hc47-q72v-4vcm. The asymmetry IS the fix, and it is invisible
-          # in a normal render: generating on upgrade would rotate the key and
-          # invalidate every token in flight -- which is what running plans and
-          # applies authenticate with. So both directions are asserted.
-          # #1781: generation now requires a working `lookup`, and this job has
-          # no cluster -- so a plain render must mint NOTHING. That is the whole
-          # fix: `helm template` is what Argo CD and Flux run, `lookup` returns
-          # nothing there and `.Release.IsInstall` is always true, so the old
-          # unguarded branch minted a fresh key on every render and rotated it
-          # under the running fleet. Two consecutive renders must also agree,
-          # or the checksum annotation below would roll the API every sync.
-          r1=$(helm template tp ./helm/terrapod | grep -c 'token_signing_key:' || true)
-          [ "$r1" = "0" ] \
-            || { echo "a render with no cluster must NOT mint a key (got $r1) -- this rotates"; exit 1; }
-          a=$(helm template tp ./helm/terrapod | grep 'checksum/token-signing' | sed 's/.*: //')
-          b=$(helm template tp ./helm/terrapod | grep 'checksum/token-signing' | sed 's/.*: //')
-          [ -n "$a" ] && [ "$a" = "$b" ] \
-            || { echo "token-signing checksum is not stable across renders ($a vs $b)"; exit 1; }
+          # GHSA-hc47-q72v-4vcm, #1994. The chart used to generate this key, which
+          # put a random value in a rendered manifest -- not a pure function of its
+          # inputs. Under `helm install` a cluster `lookup` for the existing Secret
+          # covered that; under `helm template`, which is what Argo CD and Flux run,
+          # `lookup` returns nothing and `.Release.IsInstall` is ALWAYS true, so the
+          # generating branch minted a fresh key on every render and rotated it under
+          # the running fleet. The API generates and stores its own key now, so the
+          # property to hold is simply that no manifest ever carries one.
+          # One function per render, with helm's exit status checked. Looping over a
+          # string of flags and letting the shell split it looks tidier and is a gate
+          # that cannot fail: a mis-split flag makes helm error, `grep -c` then counts
+          # zero matches in empty output, and the assertion passes for the wrong reason.
+          check_no_key () {
+            out=$(helm template tp ./helm/terrapod "$@") \
+              || { echo "render failed for: $*"; exit 1; }
+            n=$(printf '%s' "$out" | grep -c 'token_signing_key:' || true)
+            [ "$n" = "0" ] \
+              || { echo "a render ($*) carries a signing key (got $n) -- the chart must not hold it"; exit 1; }
+          }
+          check_no_key
+          check_no_key --is-upgrade
+          check_no_key --set api.enabled=false --set web.enabled=false
 
-          # A key change must roll the API pods. Env from a secretKeyRef is
-          # snapshotted at pod start and never refreshes, and the key is a
-          # per-process global -- so without this annotation a changed Secret
-          # leaves older pods on the old key and half of every run's calls 401.
-          grep -q 'checksum/token-signing' ./helm/terrapod/templates/deployment-api.yaml \
-            || { echo "the API pod template has no checksum for the signing key"; exit 1; }
+          # And no template declares one, which is what a render alone cannot tell
+          # you: a template gated off today is a template someone ungates tomorrow.
+          decl=$(grep -rl '^[[:space:]]*token_signing_key:' ./helm/terrapod/templates/ || true)
+          [ -z "$decl" ] \
+            || { echo "these templates declare a signing key: $decl"; exit 1; }
 
-          # An upgrade of a deployment that has no such Secret must emit
-          # nothing, leaving the existing derivation alone.
-          upg=$(helm template tp ./helm/terrapod --is-upgrade | grep -c 'token_signing_key:' || true)
-          [ "$upg" = "0" ] \
-            || { echo "upgrade must NOT generate a key (got $upg) -- this rotates"; exit 1; }
-
-          # An operator-supplied key always wins, and no Secret is generated.
-          own=$(helm template tp ./helm/terrapod --set api.tokenSigningKey.existingSecret=mine)
+          # A supplied key is referenced, never copied. It wins on every startup and
+          # the API does not read its stored key at all, so this is the whole of the
+          # bring-your-own path.
+          own=$(helm template tp ./helm/terrapod --set api.tokenSigningKey.existingSecret=mine --set api.tokenSigningKey.existingSecretKey=sk)
           echo "$own" | grep -q 'name: mine' \
-            || { echo "an operator-supplied secret must be used"; exit 1; }
+            || { echo "an operator-supplied secret must be referenced"; exit 1; }
+          echo "$own" | grep -q 'key: sk' \
+            || { echo "the supplied secret key name must be honoured"; exit 1; }
           echo "$own" | grep -q 'token_signing_key:' \
-            && { echo "must not generate a key when one is supplied"; exit 1; }
+            && { echo "a supplied key must be referenced, not copied into a Secret"; exit 1; }
 
-          # When a key IS generated it must be long enough to be a key rather
-          # than a token-shaped string. Asserted against the template's own
-          # literal, since a cluster-less render no longer emits one (#1781).
-          klen=$(grep -o 'randAlphaNum [0-9]*' ./helm/terrapod/templates/secret-token-signing.yaml | awk '{print $2}')
-          [ -n "$klen" ] && [ "$klen" -ge 32 ] \
-            || { echo "generated key would be only $klen chars"; exit 1; }
+          # Rotating a SUPPLIED key must roll the API pods: env from a secretKeyRef is
+          # snapshotted at pod start and never refreshes, and the key is a per-process
+          # global, so without this a changed Secret leaves older pods on the old key
+          # and half of every run's calls 401 (v1.7.3). Asserted against the template,
+          # because the annotation is computed from a cluster lookup that a renderer
+          # cannot do -- which is also why the docs tell a GitOps operator to restart
+          # the API themselves after rotating.
+          grep -q 'checksum/token-signing' ./helm/terrapod/templates/deployment-api.yaml \
+            || { echo "the API pod template has no checksum for a supplied signing key"; exit 1; }
 
-          # A listener-only release must not render it at all. The key is read
-          # by the API alone -- a listener asks the API for runner tokens and
-          # never signs anything -- so a listener release that generated one
-          # would mint a key nothing reads and, in a namespace the API release
-          # also targets, fight that release over owning the same Secret.
-          lst=$(helm template tp ./helm/terrapod --set api.enabled=false --set web.enabled=false | grep -c 'token_signing_key:' || true)
-          [ "$lst" = "0" ] \
-            || { echo "a listener-only install must not generate a signing key (got $lst)"; exit 1; }
-          echo "signing key: generated on install, absent on upgrade, yielded to when supplied, absent without an API"
+          # With no key supplied there is nothing to checksum and nothing to inject.
+          plain=$(helm template tp ./helm/terrapod)
+          echo "$plain" | grep -q 'checksum/token-signing' \
+            && { echo "a default render carries a signing-key checksum; nothing supplies one"; exit 1; }
+          echo "$plain" | grep -q 'TERRAPOD_TOKEN_SIGNING_KEY' \
+            && { echo "a default render injects a signing key env var; the API stores its own"; exit 1; }
+          echo "signing key: never minted by the chart, referenced when supplied, absent otherwise"
 
       - name: The strong-secrets switch reaches the pod and stays off by default
         run: |
@@ -986,6 +1122,108 @@ jobs:
           echo "$out" | grep -q 'TERRAPOD_REQUIRE_STRONG_SECRETS' \
             && { echo "must not be set via env; it is non-sensitive config"; exit 1; }
           echo "the strong-secrets switch renders, defaults off, and is ConfigMap-only"
+
+      - name: The GitLab git-credential switch renders, on every profile, and stays off
+        run: |
+          # Config-channel contract for the GitLab half of the VCS-connection
+          # git credential. A GitLab connection holds an access token that
+          # cannot be narrowed, so the switch decides whether a runner Job --
+          # chosen by whoever set a workspace variable -- receives it whole.
+          #
+          # A missing render line here is the worst shape this contract takes:
+          # the key would look configurable in values.yaml, the pod would never
+          # see it, and the CODE default (off) would quietly win. That fails
+          # safe, so nothing breaks and nobody notices -- until an operator who
+          # deliberately turned it ON finds their runs refused with a message
+          # telling them to set a key they already set.
+          #
+          # Asserted on all three profiles, because the eval and local profiles
+          # are where a `with`-style guard would silently drop a false.
+          for f in values.yaml values-local.yaml values-eval.yaml; do
+            out=$(helm template ./helm/terrapod -f "helm/terrapod/$f")
+            echo "$out" | grep -q 'allow_token_delivery_to_runners: false' \
+              || { echo "$f: the GitLab git-credential switch must render, and render false"; exit 1; }
+          done
+          # Turning it on must actually reach the pod.
+          on=$(helm template ./helm/terrapod --set api.config.vcs.gitlab.allow_token_delivery_to_runners=true)
+          echo "$on" | grep -q 'allow_token_delivery_to_runners: true' \
+            || { echo "setting it true does not reach the ConfigMap"; exit 1; }
+          # Policy, not a credential: ConfigMap only, never a TERRAPOD_* env var.
+          helm template ./helm/terrapod -f helm/terrapod/values.yaml \
+            | grep -q 'TERRAPOD_VCS__GITLAB__ALLOW_TOKEN_DELIVERY_TO_RUNNERS' \
+            && { echo "must not be set via env; it is non-sensitive config"; exit 1; }
+          echo "the GitLab git-credential switch renders off on every profile and is ConfigMap-only"
+
+      - name: An explicit false reaches the pod, and nothing unmodelled is rendered
+        run: |
+          # The config CHANNEL contract, both directions, in the job that has a helm
+          # binary. There is an equivalent pytest (tests/helm/
+          # test_rendered_config_matches_settings.py) and it can only ever SKIP in
+          # CI, because docker/Dockerfile.test deliberately ships no helm — so this
+          # is the leg that actually runs. Both failures it exists for have happened
+          # in one release:
+          #
+          #  - a `| default true` cleanup deleted the render line for
+          #    vcs.require_connection_authorization as collateral. The key stayed in
+          #    values.yaml and in the values snapshot, so every gate stayed green
+          #    while an operator's explicit `false` silently stopped reaching the pod
+          #    -- and they would then have met a 403 whose own text told them to set
+          #    the key that had stopped working.
+          #  - four keys carried in from the 2.0 line were rendered to every
+          #    deployment while `Settings` modelled none of them, and
+          #    values.schema.json is additionalProperties:false, so an operator could
+          #    not even override one.
+          #
+          # Direction 1: a deliberate `false` survives. Go templates treat false as
+          # empty, so this is the half `| default true` and `with` silently break.
+          for k in \
+            vcs.require_connection_authorization \
+            vcs.require_push_permission_for_commands \
+            database.pool_pre_ping \
+            notifications.smtp.use_tls
+          do
+            leaf="${k##*.}"
+            helm template ./helm/terrapod --set "api.config.${k}=false" \
+              | grep -q "${leaf}: false" \
+              || { echo "setting ${k}=false does not reach the ConfigMap"; exit 1; }
+          done
+          echo "an explicit false reaches the pod for all four keys"
+
+          # Direction 2: every key rendered into config.yaml is one Settings accepts,
+          # on all three profiles -- the eval profile included, because a key behind
+          # a `with` block only appears when a profile sets it.
+          for f in values.yaml values-local.yaml values-eval.yaml; do
+            helm template ./helm/terrapod -f "helm/terrapod/$f" \
+              | python3 scripts/ci/check_rendered_config_keys.py \
+              || { echo "rendered config disagrees with Settings on $f"; exit 1; }
+          done
+
+      - name: The comment-command push gate reaches the pod and stays on by default
+        run: |
+          # Config-channel contract for the PR-comment authorization gate. The
+          # switch decides whether `terrapod apply` from a pull-request comment
+          # requires the author to have push access, so a render line that goes
+          # missing is not cosmetic: an operator who turns it off still gets it
+          # on, or -- the direction that matters -- a chart that stops rendering
+          # it silently falls back to the code default and nobody finds out
+          # which way round it was.
+          out=$(helm template ./helm/terrapod -f helm/terrapod/values.yaml)
+          echo "$out" | grep -q 'require_push_permission_for_commands:' \
+            || { echo "require_push_permission_for_commands is not rendered into the ConfigMap"; exit 1; }
+          # Default ON: commenting is not authorization.
+          echo "$out" | grep -q 'require_push_permission_for_commands: true' \
+            || { echo "the push gate must default to true"; exit 1; }
+          # And turning it OFF must actually reach the pod. This is the half a
+          # `| default true` or a `with` block silently breaks, because Go
+          # templates treat false as empty -- the operator asks for off and the
+          # chart renders on.
+          off=$(helm template ./helm/terrapod --set api.config.vcs.require_push_permission_for_commands=false)
+          echo "$off" | grep -q 'require_push_permission_for_commands: false' \
+            || { echo "setting it false does not reach the ConfigMap"; exit 1; }
+          # It is policy, not a credential -- ConfigMap only (house rule).
+          echo "$out" | grep -q 'TERRAPOD_VCS__REQUIRE_PUSH_PERMISSION' \
+            && { echo "must not be set via env; it is non-sensitive config"; exit 1; }
+          echo "the comment-command push gate renders, defaults on, and honours false"
 
       - name: The Vault value source reaches the pod, and its credential never does
         run: |
@@ -1154,6 +1392,101 @@ jobs:
             echo "FAIL: Vault volumes rendered while api.config.vault.enabled is false"; exit 1
           }
           echo "vault jwt projects its token; the custom CA is mounted at ca_file"
+
+      - name: Every SAML assertion check reaches the pod, in both positions
+        run: |
+          # The config-channel contract for the SAML hardening switches.
+          #
+          # These default to FALSE in the code (config.py: `Field(default=False)`
+          # on all five), so the operator's action is to turn them ON, and the
+          # render line is the part that can silently fail: `{{ if .want_assertions_signed }}`
+          # would drop the key for an operator who set it, the code default would
+          # stand, and their deliberate opt-IN would be inert — a deployment less
+          # protected than its own values.yaml says. The opposite position is
+          # asserted too, because `| default` treats false as empty and would
+          # render the wrong value for someone who has deliberately written one:
+          # harmless while the default is false, a lockout the moment it is not.
+          #
+          # (The carried version of this comment said these default to TRUE, which
+          # contradicted the loop below it and is not what the code does.)
+          #
+          # Both halves matter for a different reason too: `validate_destination`
+          # is what makes an assertion's Destination and Recipient mean anything,
+          # and an IDP that cannot satisfy one of these checks needs the opt-out
+          # to work or its operator cannot log in at all.
+          cat > /tmp/saml-values.yaml <<'EOF'
+          api:
+            config:
+              auth:
+                callback_base_url: "https://terrapod.example.com"
+                sso:
+                  saml:
+                    - name: strict-idp
+                      metadata_url: https://idp.example.com/metadata
+                      entity_id: "https://terrapod.example.com"
+                      acs_url: "https://terrapod.example.com/api/terrapod/v1/auth/saml/acs"
+                      validate_destination: true
+                      validate_in_response_to: true
+                      reject_replayed_assertions: true
+                      want_assertions_signed: true
+                      reject_deprecated_algorithm: true
+                    - name: legacy-idp
+                      metadata_url: https://old-idp.example.com/metadata
+                      validate_destination: false
+                      validate_in_response_to: false
+                      reject_replayed_assertions: false
+                      want_assertions_signed: false
+                      reject_deprecated_algorithm: false
+                    - name: silent-idp
+                      metadata_url: https://quiet-idp.example.com/metadata
+          EOF
+          docker run --rm -v "$PWD:/chart" -v /tmp:/tmp -w /chart "${HELM_IMAGE:-alpine/helm:3.17.2}" \
+            template terrapod helm/terrapod \
+            --set postgresql.url=postgresql+asyncpg://t:t@db:5432/terrapod \
+            --set redis.url=redis://redis:6379 \
+            -f /tmp/saml-values.yaml > /tmp/rendered-saml.yaml
+
+          cm=$(awk '/^kind: ConfigMap/,/^---/' /tmp/rendered-saml.yaml)
+
+          # The ACS URL is what an assertion's Destination is checked against.
+          echo "$cm" | grep -q 'acs_url: "https://terrapod.example.com/api/terrapod/v1/auth/saml/acs"' || {
+            echo "auth.sso.saml[].acs_url never reaches the rendered ConfigMap"
+            echo "add a render line to templates/configmap-api.yaml"
+            exit 1
+          }
+
+          for key in validate_destination validate_in_response_to \
+                     reject_replayed_assertions want_assertions_signed \
+                     reject_deprecated_algorithm; do
+            # On this release line these default to FALSE in code, so the
+            # operator's action is to turn them ON. A swallowed `true` would
+            # leave that opt-in inert and the deployment less protected than its
+            # values.yaml says — the direction that matters here.
+            echo "$cm" | grep -q "$key: true" || {
+              echo "an operator's explicit true for $key never reaches the pod."
+              echo "add a render line to templates/configmap-api.yaml; the code"
+              echo "default on this line is false, so the opt-in would be inert."
+              exit 1
+            }
+            # The opposite position too. `| default` treats false as empty, so a
+            # template written that way renders the wrong value for an operator
+            # who has deliberately written one — harmless while the code default
+            # is false, and a lockout the moment it is not.
+            echo "$cm" | grep -q "$key: false" || {
+              echo "an operator's explicit false for $key is swallowed by the template."
+              echo "use hasKey, not '| default'."
+              exit 1
+            }
+            # And a provider that sets nothing renders nothing, so the code
+            # default applies rather than a value the chart invented.
+            count=$(echo "$cm" | grep -c "$key:" || true)
+            [ "$count" = "2" ] || {
+              echo "$key rendered $count times for three providers, two of which set it."
+              echo "an unset switch must render no line at all."
+              exit 1
+            }
+          done
+          echo "the SAML assertion checks render in both positions, and an unset one does not"
 
       - name: Every retention key in values.yaml reaches the rendered ConfigMap
         run: |
@@ -1332,28 +1665,42 @@ jobs:
             echo "FAIL: a join token rendered as a literal value instead of a secretKeyRef (#1411)"; exit 1
           fi
           echo "Multi-pool bootstrap renders with tokens by secretKeyRef OK"
-      - name: Engine gates render, including false (#1429)
+      - name: Capability flags render, including false (#1986)
         run: |
+          # There is no engine on/off switch any more (#1986) — these per-capability
+          # flags are what survived, and they are the half that was load-bearing: the
+          # OCI registry originally shipped a flag NOTHING read, so `enabled: false`
+          # stopped two scheduled tasks while /v2/ went on serving push, pull and
+          # mirror. A missing render line reinstates exactly that.
           out=$(docker run --rm -v "$PWD:/chart" -w /chart "${HELM_IMAGE:-alpine/helm:3.17.2}" \
             template terrapod helm/terrapod \
               --namespace terrapod \
               --set postgresql.url=postgresql+asyncpg://t:t@db:5432/terrapod \
               --set redis.url=redis://redis:6379)
-          echo "$out" | grep -q "engines:" || { echo "FAIL: the engines block did not render — both gates would fall back to the code default and an operator could not switch Ansible or Pulumi off at all (#1429)"; exit 1; }
-          # `false` is the whole point of these keys, and Helm's `with` treats it
-          # as empty — a template using it drops the key silently, the code default
-          # (true) wins, and an operator who switched an engine off still has it.
+          echo "$out" | grep -q "oci:" || { echo "FAIL: registry.oci did not render into config.yaml (#1986)"; exit 1; }
+          echo "$out" | grep -q "package_cache:" || { echo "FAIL: registry.package_cache did not render into config.yaml (#1986)"; exit 1; }
+          # `false` is the whole point of these keys, and Helm's `with` treats it as
+          # empty — a template using it drops the key silently, the code default
+          # (true) wins, and a capability an operator switched off still serves.
           off=$(docker run --rm -v "$PWD:/chart" -w /chart "${HELM_IMAGE:-alpine/helm:3.17.2}" \
             template terrapod helm/terrapod \
               --namespace terrapod \
               --set postgresql.url=postgresql+asyncpg://t:t@db:5432/terrapod \
               --set redis.url=redis://redis:6379 \
-              --set api.config.engines.ansible.enabled=false \
-              --set api.config.engines.pulumi.enabled=false)
-          echo "$off" | grep -qE "ansible:\s*$" || { echo "FAIL: engines.ansible did not render when set false (#1429)"; exit 1; }
-          echo "$off" | grep -A1 -E "ansible:\s*$" | grep -q "enabled: false" || { echo "FAIL: engines.ansible.enabled=false rendered as something other than false — 'off' would silently mean 'on' (#1429)"; exit 1; }
-          echo "$off" | grep -A1 -E "pulumi:\s*$" | grep -q "enabled: false" || { echo "FAIL: engines.pulumi.enabled=false rendered as something other than false (#1429)"; exit 1; }
-          echo "Engine gates render OK, including false"
+              --set api.config.registry.oci.enabled=false \
+              --set api.config.registry.package_cache.pypi.enabled=false \
+              --set api.config.registry.package_cache.npm.enabled=false \
+              --set api.config.registry.package_cache.galaxy.enabled=false \
+              --set api.config.registry.package_cache.pulumi.enabled=false \
+              --set api.config.registry.package_cache.go.enabled=false \
+              --set api.config.registry.package_cache.nuget.enabled=false)
+          # Counted, not grepped one at a time: `enabled: false` occurs elsewhere in
+          # the document, so the count within the registry block is what proves all
+          # seven arrived. None of the seven is false by default, so the delta is
+          # unambiguous and a single dropped flag fails this.
+          got=$(echo "$off" | sed -n '/^    registry:/,/^      provider_cache:/p' | grep -c "enabled: false")
+          [ "$got" = "7" ] || { echo "FAIL: $got of 7 capability flags rendered as false — a flag Helm dropped silently means the capability still serves (#1986)"; echo "$off" | sed -n '/^    registry:/,/^      provider_cache:/p'; exit 1; }
+          echo "Capability flags render OK, including false"
 
       - name: OCI garbage collection renders into config.yaml (#1419)
         run: |
@@ -1433,13 +1780,14 @@ jobs:
           echo "$hook" | grep -q "path: /api/v1/vcs-events" || { echo "FAIL: webhookIngress missing canonical vcs-events path (#1529)"; exit 1; }
           echo "$hook" | grep -q "path: /api/v1/task-stage-results" || { echo "FAIL: webhookIngress missing canonical task-stage-results path (#1529)"; exit 1; }
           echo "$hook" | grep -q "path: /api/terrapod/v1/vcs-events" || { echo "FAIL: webhookIngress dropped the deprecated alias path — already-registered webhooks would stop routing (#1529)"; exit 1; }
-          # Engine gating (#1429/#1522): the engine switches must reach the pod, or
-          # an operator who turned Pulumi off still gets its service surface mounted
-          # — the exact failure the OCI registry shipped with.
-          echo "$out" | grep -q "engines:" || { echo "FAIL: engines config not rendered into config.yaml (#1429)"; exit 1; }
-          off=$(helm template ./helm/terrapod --set api.config.engines.pulumi.enabled=false)
-          echo "$off" | grep -qE "pulumi:\s*$" || { echo "FAIL: engines.pulumi block missing when disabled (#1522)"; exit 1; }
-          echo "$off" | grep -q "enabled: false" || { echo "FAIL: engines.pulumi.enabled=false did not render (#1522)"; exit 1; }
+          # Capability flags (#1986): there is no engine switch, but each optional
+          # surface keeps its own flag and those must reach the pod — a flag nothing
+          # delivers is the defect the OCI registry shipped with, where
+          # `enabled: false` stopped the scheduled tasks and /v2/ served on.
+          echo "$out" | grep -q "oci:" || { echo "FAIL: registry.oci not rendered into config.yaml (#1986)"; exit 1; }
+          echo "$out" | grep -q "package_cache:" || { echo "FAIL: registry.package_cache not rendered into config.yaml (#1986)"; exit 1; }
+          off=$(helm template ./helm/terrapod --set api.config.registry.package_cache.pulumi.enabled=false)
+          echo "$off" | sed -n '/        pulumi:/,/        go:/p' | grep -q "enabled: false" || { echo "FAIL: package_cache.pulumi.enabled=false did not render — the proxy would go on serving (#1986)"; exit 1; }
           # The Pulumi CLI is a platform tool, not a baked-in binary (#1523): a
           # Terraform-only deployment should not carry another engine's binary, and
           # a missing render line leaves the version inert with the code default
@@ -1744,6 +2092,256 @@ jobs:
           echo "$stock" | grep -q "priorityClassName:" && { echo "FAIL: priorityClassName set by default"; exit 1; }
           echo "control-plane PriorityClasses render OK and are off by default (#751)"
 
+      - name: A separate runner namespace renders a working topology
+        run: |
+          # GHSA-p8xx-7rwg-9f72. Where runner Jobs run is the operator's call, so
+          # the DEFAULTS do not move: runnerNamespace stays empty and
+          # networkPolicies stays off. What has to hold is that CHOOSING the
+          # separated topology produces something that WORKS — both bugs below
+          # appear only once the isolation is on, which is the worst direction
+          # for a security control to fail in.
+          #
+          # `# Source: <template>` is the signal for "did this template render at
+          # all": helm drops an empty manifest entirely, marker and all.
+          H() { docker run --rm -v "$PWD:/chart" -w /chart "${HELM_IMAGE:-alpine/helm:3.17.2}" \
+                  template terrapod helm/terrapod \
+                  --set postgresql.url=postgresql+asyncpg://t:t@db:5432/terrapod \
+                  --set redis.url=redis://redis:6379 "$@"; }
+          WEB_FROM='networkPolicies.web.ingressFrom[0].namespaceSelector.matchLabels.kubernetes\.io/metadata\.name=kube-system'
+
+          # 1. The in-cluster API URL is a FQDN, on EVERY profile. This value is
+          #    runners.yaml's server_url, which the listener hands to every
+          #    runner Job as TP_API_URL — and a bare Service name resolves only
+          #    from the release namespace, i.e. only while the isolation is off.
+          for f in values.yaml values-local.yaml values-eval.yaml; do
+            su=$(docker run --rm -v "$PWD:/chart" -w /chart "${HELM_IMAGE:-alpine/helm:3.17.2}" \
+                   template terrapod helm/terrapod -f "helm/terrapod/$f" \
+                 | grep 'server_url:' | head -1)
+            case "$su" in
+              *.svc.cluster.local:8000*) ;;
+              *) echo "$f: server_url is not a cluster-local FQDN: $su"
+                 echo "runner Jobs run in listener.runnerNamespace, where a bare Service name does not resolve"
+                 exit 1 ;;
+            esac
+          done
+
+          # 2. With the runners moved out, the API policy must admit them with a
+          #    namespaceSelector. A bare podSelector matches only pods in the
+          #    policy's OWN namespace, so without this the policy denies every
+          #    run's API call while looking perfectly correct.
+          api_np=$(H --set listener.runnerNamespace=tp-runners \
+                     --set networkPolicies.enabled=true --set "$WEB_FROM" \
+                     --show-only templates/networkpolicy-api.yaml)
+          echo "$api_np" | grep -q 'kubernetes.io/metadata.name: tp-runners' || {
+            echo "the API NetworkPolicy does not admit runners from their own namespace"; exit 1; }
+          echo "$api_np" | grep -q 'app.kubernetes.io/name: terrapod-runner' || {
+            echo "the API NetworkPolicy no longer selects runner pods at all"; exit 1; }
+
+          # 3. Every namespaced object the topology needs lands in that namespace:
+          #    the listener's Role + RoleBinding, the runner SA, the runner policy.
+          n=$(H --set listener.runnerNamespace=tp-runners --set networkPolicies.enabled=true \
+                --set "$WEB_FROM" | grep -c '^  namespace: tp-runners')
+          [ "$n" -ge 4 ] || { echo "expected >=4 objects in the runner namespace, got $n"; exit 1; }
+
+          # 4. The co-located arrangement must be UNCHANGED: a bare podSelector,
+          #    and no namespaceSelector naming a namespace it is already in.
+          same_np=$(H --set networkPolicies.enabled=true --set "$WEB_FROM" \
+                      --show-only templates/networkpolicy-api.yaml)
+          echo "$same_np" | grep -q 'app.kubernetes.io/name: terrapod-runner' || {
+            echo "the co-located API policy no longer admits runner pods"; exit 1; }
+          echo "$same_np" | grep -q 'namespaceSelector' && {
+            echo "a namespaceSelector is rendered when runners share the release namespace"; exit 1; }
+
+          # 5. The runner Namespace is created only on request, and only when it
+          #    is genuinely separate — otherwise two manifest entries would claim
+          #    the release namespace.
+          H --set namespace.createRunner=true --set listener.runnerNamespace=tp-runners \
+            | grep -q 'name: tp-runners' || { echo "namespace.createRunner did not create it"; exit 1; }
+          H --set namespace.createRunner=true | grep -q 'templates/namespace.yaml' && {
+            echo "a runner Namespace was rendered with no separate namespace to create"; exit 1; }
+          H --set listener.runnerNamespace=tp-runners | grep -q 'templates/namespace.yaml' && {
+            echo "a runner Namespace was rendered without namespace.createRunner"; exit 1; }
+
+          # 6. An explicit `false` must survive — `hasKey`/a plain `if`, never
+          #    `| default`, which would coerce it back to true.
+          H --set namespace.createRunner=false --set listener.runnerNamespace=tp-runners \
+            | grep -q 'templates/namespace.yaml' && {
+            echo "createRunner=false still created the namespace — a | default swallowed the false"; exit 1; }
+          H --set networkPolicies.enabled=false | grep -q 'kind: NetworkPolicy' && {
+            echo "networkPolicies.enabled=false still rendered policies"; exit 1; }
+
+          echo "the separated runner namespace renders a working topology, and the defaults are unmoved"
+
+      - name: No credential supplied in values is rendered into a manifest
+        run: |
+          # GHSA-93m3-v3h4-4qvw. Four credentials used to be rendered as literal
+          # env values: the database URL (the API Deployment plus the migrations,
+          # preflight, bootstrap and backup Jobs), the listener's join token, and
+          # the bootstrap admin password and pool token. A Deployment or Job spec
+          # is readable by anyone with `get` on it in the namespace, by
+          # `helm get values`, and by whatever stores the rendered manifest.
+          #
+          # This is the rendered half of the contract: pass each one through
+          # --set with a recognisable value, then assert it appears in no object
+          # whose kind is not Secret. Grepping for "secretKeyRef" would only show
+          # that SOME path uses one; this shows no path does not.
+          out=$(docker run --rm -v "$PWD:/chart" -w /chart "${HELM_IMAGE:-alpine/helm:3.17.2}" \
+            template terrapod helm/terrapod \
+            --set postgresql.url='postgresql+asyncpg://u:TPDBSECRET@db:5432/terrapod' \
+            --set redis.url=redis://redis:6379 \
+            --set listener.joinToken=TPJOINSECRET \
+            --set bootstrap.adminEmail=a@example.com \
+            --set bootstrap.adminPassword=TPPWSECRET \
+            --set bootstrap.poolName=p1 \
+            --set bootstrap.poolToken=TPPOOLSECRET \
+            --set preflight.enabled=true \
+            --set backup.enabled=true)
+
+          # Split the manifest per document and check each one's kind.
+          printf '%s\n' "$out" | awk -v RS='\n---\n' '
+            { kind=""; for (i = 1; i <= NF; i++) if ($i == "kind:") { kind = $(i+1); break }
+              if ($0 ~ /TPDBSECRET|TPJOINSECRET|TPPWSECRET|TPPOOLSECRET/ && kind != "Secret")
+                { print "LEAK in kind=" kind; bad = 1 } }
+            END { exit bad ? 1 : 0 }' || {
+            echo "a credential supplied in values was rendered into a non-Secret object."
+            echo "it must reach its consumer by secretKeyRef from a chart-managed Secret."
+            exit 1; }
+
+          # And each one must actually be delivered, not merely absent: a
+          # credential that reaches nothing is a broken install, not a fix.
+          for want in TPDBSECRET TPJOINSECRET TPPWSECRET TPPOOLSECRET; do
+            printf '%s\n' "$out" | grep -q "$want" \
+              || { echo "$want is in no Secret at all — the value is being dropped"; exit 1; }
+          done
+          # Anchored and end-matched: `name: terrapod-bootstrap` unanchored would
+          # also match the bootstrap Job's own `terrapod-bootstrap-1`, so the
+          # check would pass with no Secret rendered at all.
+          for ref in '-database-url' '-listener-join-token' '-bootstrap'; do
+            printf '%s\n' "$out" | grep -qE "^  name: terrapod$ref\$" \
+              || { echo "the chart-managed Secret terrapod$ref was not rendered"; exit 1; }
+          done
+
+          # The Secrets that feed a pre-install hook must themselves be hooks at a
+          # lower weight, or the migrations Job (weight -5) starts with nothing to
+          # read. The join-token Secret is deliberately NOT a hook: its only
+          # consumer is an ordinary Deployment, and Secret sorts before Deployment.
+          printf '%s\n' "$out" | grep -B 20 'name: terrapod-database-url' | grep -q '"-25"' \
+            || { echo "the database-URL Secret is not a pre-install hook at weight -25"; exit 1; }
+
+          # An operator's own Secret must still win, and the chart must then
+          # render no Secret of its own for that credential.
+          own=$(docker run --rm -v "$PWD:/chart" -w /chart "${HELM_IMAGE:-alpine/helm:3.17.2}" \
+            template terrapod helm/terrapod \
+            --set postgresql.existingSecret=my-db --set postgresql.existingSecretKey=dsn \
+            --set redis.url=redis://redis:6379 \
+            --set listener.existingSecret=my-listener)
+          echo "$own" | grep -q 'name: my-db' || { echo "postgresql.existingSecret is ignored"; exit 1; }
+          echo "$own" | grep -q 'name: my-listener' || { echo "listener.existingSecret is ignored"; exit 1; }
+          echo "$own" | grep -q 'name: terrapod-database-url' && {
+            echo "the chart rendered its own database Secret despite existingSecret"; exit 1; }
+          echo "$own" | grep -q 'name: terrapod-listener-join-token' && {
+            echo "the chart rendered its own join-token Secret despite existingSecret"; exit 1; }
+
+          echo "every credential supplied in values reaches its consumer from a Secret, and only from a Secret"
+
+      - name: Bootstrap join tokens are bounded, and an explicit 0 survives
+        run: |
+          # GHSA-93m3-v3h4-4qvw, second half. A bootstrap join token was created
+          # with no expiry and no use limit — a permanent, unlimited credential
+          # for joining a listener to the pool, and a listener in the pool
+          # receives every variable the runs it claims resolve.
+          B() { docker run --rm -v "$PWD:/chart" -w /chart "${HELM_IMAGE:-alpine/helm:3.17.2}" \
+                  template terrapod helm/terrapod \
+                  --set postgresql.url=postgresql+asyncpg://t:t@db:5432/terrapod \
+                  --set redis.url=redis://redis:6379 \
+                  --set bootstrap.adminEmail=a@example.com --set bootstrap.adminPassword=p \
+                  --set bootstrap.poolName=p1 "$@" \
+                  --show-only templates/job-bootstrap.yaml; }
+
+          # Rendered unconditionally, so a limit an operator sets can never be
+          # silently inert, and the chart's defaults cannot drift from the CLI's.
+          B | grep -A1 'TERRAPOD_BOOTSTRAP_POOL_TOKEN_MAX_USES' | grep -q 'value: "1"' \
+            || { echo "the default use limit does not reach the Job"; exit 1; }
+          B | grep -A1 'TERRAPOD_BOOTSTRAP_POOL_TOKEN_TTL_SECONDS' | grep -q 'value: "86400"' \
+            || { echo "the default token lifetime does not reach the Job"; exit 1; }
+
+          # An operator's own values reach the Job.
+          B --set bootstrap.poolTokenMaxUses=3 --set bootstrap.poolTokenTTLSeconds=600 \
+            | grep -A1 'POOL_TOKEN_MAX_USES' | grep -q 'value: "3"' \
+            || { echo "poolTokenMaxUses does not reach the Job"; exit 1; }
+
+          # And the one that matters: an explicit 0 is the documented opt-out
+          # (unlimited / never expires), and Go templates treat 0 as empty — so
+          # `| default 1` here would render 1 and turn a deliberate "no limit"
+          # into the tightest limit there is, on a token a listener needs.
+          # `dig` is what keeps the two apart.
+          zero=$(B --set bootstrap.poolTokenMaxUses=0 --set bootstrap.poolTokenTTLSeconds=0)
+          echo "$zero" | grep -A1 'POOL_TOKEN_MAX_USES' | grep -q 'value: "0"' \
+            || { echo "an explicit poolTokenMaxUses=0 was swallowed — use dig, not | default"; exit 1; }
+          echo "$zero" | grep -A1 'POOL_TOKEN_TTL_SECONDS' | grep -q 'value: "0"' \
+            || { echo "an explicit poolTokenTTLSeconds=0 was swallowed"; exit 1; }
+
+          echo "bootstrap join tokens render bounded by default, and an explicit 0 survives"
+      - name: The cloud identity audience catalogue reaches the ConfigMap
+        run: |
+          # Leg 3 of the config-channel contract. A values key with no render
+          # line is SILENTLY INERT -- the operator sets it, it never reaches the
+          # pod, and the code default wins. For this key that failure is
+          # invisible in the worst way: every workspace would fall through to the
+          # agent pool's identity while the chart says otherwise.
+          out=$(helm template tp ./helm/terrapod \
+            --set api.config.auth.oidc_issuer.enabled=true \
+            --set-json 'api.config.auth.oidc_issuer.audiences={"aws":["sts.amazonaws.com"],"vault":["https://vault.example.com"]}')
+          echo "$out" | grep -q 'audiences:' \
+            || { echo "FAIL: oidc_issuer.audiences does not render into config.yaml"; exit 1; }
+          echo "$out" | grep -q 'sts.amazonaws.com' \
+            || { echo "FAIL: a configured audience value is missing from config.yaml"; exit 1; }
+          echo "$out" | grep -q 'https://vault.example.com' \
+            || { echo "FAIL: a second target's audience is missing from config.yaml"; exit 1; }
+          # Absent by default, on every profile: an empty map is what makes the
+          # whole feature opt-in, and a stray default would hand every workspace
+          # an audience nobody chose.
+          for prof in values.yaml values-local.yaml values-eval.yaml; do
+            stock=$(helm template tp ./helm/terrapod -f "helm/terrapod/$prof") \
+              || { echo "FAIL: $prof does not render"; exit 1; }
+            echo "$stock" | grep -q 'audiences:' \
+              && { echo "FAIL: $prof renders an audience catalogue by default"; exit 1; }
+          done
+          echo "cloud identity audience catalogue renders OK and is empty by default (#1901)"
+
+      - name: An issuer-only webhook Ingress is a renderable configuration
+        run: |
+          # values.yaml advertises "enabling this block with ONLY those two
+          # paths, and no webhook path at all" as first-class, for a deployment
+          # that polls VCS and wants nothing else public. The chart supplies the
+          # two issuer paths itself, so the way to express that is an empty
+          # allow-list -- which the validation guard refused outright, because it
+          # judged the operator's list rather than the resolved set. The chart
+          # contradicting its own documented configuration is the kind of thing
+          # only a render catches.
+          out=$(helm template tp ./helm/terrapod \
+            --set webhookIngress.enabled=true \
+            --set webhookIngress.hostname=hooks.example.com \
+            --set 'webhookIngress.paths=null' \
+            --set api.config.auth.oidc_issuer.enabled=true) \
+            || { echo "FAIL: an issuer-only webhook Ingress does not render"; exit 1; }
+          echo "$out" | grep -q 'path: /.well-known/openid-configuration' \
+            || { echo "FAIL: the discovery path is missing from the issuer-only Ingress"; exit 1; }
+          echo "$out" | grep -q 'path: /.well-known/jwks.json' \
+            || { echo "FAIL: the JWKS path is missing from the issuer-only Ingress"; exit 1; }
+          echo "$out" | grep -q 'path: /api/terrapod/v1/vcs-events' \
+            && { echo "FAIL: a webhook path leaked into an issuer-only Ingress"; exit 1; }
+          # And the guard still fires where it should: with the issuer off, an
+          # empty allow-list really would accept nothing.
+          if helm template tp ./helm/terrapod \
+            --set webhookIngress.enabled=true \
+            --set webhookIngress.hostname=hooks.example.com \
+            --set 'webhookIngress.paths=null' >/dev/null 2>&1; then
+            echo "FAIL: an empty allow-list with no issuer rendered an Ingress that accepts nothing"
+            exit 1
+          fi
+          echo "issuer-only webhook Ingress renders, and an empty allow-list is still refused (#1901)"
+
   # ── Config-channel contract (#617) ────────────────────
   # Renders the chart (every values profile) and parses the rendered ConfigMaps
   # THROUGH the real Pydantic config models (Settings / RunnerConfig), asserting
@@ -1787,12 +2385,24 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Install ${{ matrix.tool }}
         run: |
+          # Pinned by version AND verified by checksum. A version pin alone says
+          # which URL to fetch, not which bytes arrive: a release asset can be
+          # replaced, and kind.sigs.k8s.io/dl is a redirect. These binaries build
+          # the cluster that a tag-gating job boots the release candidate in, so
+          # an unverified download is a gate that can be rewritten from outside
+          # (the installer-pinning half of GHSA-34pp-q7wp-3j54). Bump the version
+          # and the checksum together — the upstream checksum files are
+          # <url>.sha256sum for kind and checksums.txt for k3d.
           if [ "${{ matrix.tool }}" = "kind" ]; then
             curl -fsSLo ./kind https://kind.sigs.k8s.io/dl/v0.32.0/kind-linux-amd64
+            echo "50030de23cf40a18505f20426f6a8506bedf13c6e509244bd1fa9463721b0f54  ./kind" \
+              | sha256sum -c -
             sudo install -m 0755 ./kind /usr/local/bin/kind && rm -f ./kind
           else
             # Download the pinned k3d release binary directly (no curl|bash).
             curl -fsSLo ./k3d https://github.com/k3d-io/k3d/releases/download/v5.9.0/k3d-linux-amd64
+            echo "06d8f25bc3a971c4eb29e0ff08429b180402db0f4dec838c9eac427e296800a0  ./k3d" \
+              | sha256sum -c -
             sudo install -m 0755 ./k3d /usr/local/bin/k3d && rm -f ./k3d
           fi
       # ── Get the amd64 images built by this run ───────────────────────────────
@@ -2038,10 +2648,30 @@ jobs:
 
       - name: Upload SARIF
         if: always()
-        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
+        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
         with:
           sarif_file: semgrep-results.sarif
           category: semgrep
+
+      # Semgrep ran without `--error`, so a finding was reported and the job
+      # still passed — the gate could not fail, which is the whole of the
+      # finding. Gate on the count AFTER the suppression filter above rather
+      # than on semgrep's own exit code, so the gate and the upload agree about
+      # what counts as a finding; `--error` would judge it before that filter.
+      # Ordered after the upload, and the upload is `always()`, so a finding is
+      # always visible in code scanning as well as failing the build.
+      - name: Fail on Semgrep findings
+        if: always()
+        run: |
+          set -euo pipefail
+          f=semgrep-results.sarif
+          [ -s "$f" ] || { echo "no SARIF produced — semgrep did not run"; exit 1; }
+          n=$(jq '[.runs[].results[]] | length' "$f")
+          echo "semgrep findings after suppression: $n"
+          if [ "$n" -ne 0 ]; then
+            jq -r '.runs[].results[] | "  \(.ruleId): \(.locations[0].physicalLocation.artifactLocation.uri)"' "$f"
+            exit 1
+          fi
 
   # ── Build Images ───────────────────────────────────────
   # Built per-arch in SEPARATE jobs (not one arch×image matrix) so the
@@ -2078,7 +2708,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
         with:
           driver-opts: image=${{ env.BUILDKIT_IMAGE }}
 
@@ -2103,7 +2733,7 @@ jobs:
           chmod 0755 docker/query-bin/terrapod-query
 
       - name: Build and push
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           context: .
           file: ${{ matrix.dockerfile }}
@@ -2161,7 +2791,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
         with:
           driver-opts: image=${{ env.BUILDKIT_IMAGE }}
 
@@ -2186,7 +2816,7 @@ jobs:
           chmod 0755 docker/query-bin/terrapod-query
 
       - name: Build and push
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           context: .
           file: ${{ matrix.dockerfile }}
@@ -2468,8 +3098,16 @@ jobs:
 
           # crane and skopeo are stricter than docker about parts of the spec,
           # and skopeo copy exercises pull and push in one operation.
+          # To a file and checksummed, rather than piped straight into tar: a
+          # pipe cannot be verified before it is consumed, and this binary is one
+          # of the things asserting the registry is spec-compliant (the
+          # installer-pinning half of GHSA-34pp-q7wp-3j54). Bump the version and
+          # the checksum together — upstream publishes checksums.txt.
           crane_url=https://github.com/google/go-containerregistry/releases/download/v0.20.3/go-containerregistry_Linux_x86_64.tar.gz
-          curl -fsSL "$crane_url" | tar -xz -C /tmp crane
+          curl -fsSLo /tmp/crane.tar.gz "$crane_url"
+          echo "36c67a932f489b3f2724b64af90b599a8ef2aa7b004872597373c0ad694dc059  /tmp/crane.tar.gz" \
+            | sha256sum -c -
+          tar -xzf /tmp/crane.tar.gz -C /tmp crane
           /tmp/crane auth login localhost:3000 -u tp -p "$TOKEN"
           test "$(/tmp/crane ls localhost:3000/smoke/app)" = "v1"
           /tmp/crane digest localhost:3000/smoke/app:v1
@@ -2583,22 +3221,22 @@ jobs:
       - name: Real clients, with and without a route to the internet
         run: scripts/airgap-gate.sh http://localhost:3000
 
-      # The other half of the engine gate (#1429): switched off, these surfaces
-      # are ABSENT rather than answering 404, while terraform's own provider
-      # mirror, module registry and binary cache still answer. Asserted per-PR in
-      # unit tests; asserting it against a running stack is what makes it true
-      # rather than believed.
-      - name: Restart with the ansible and pulumi engines disabled
+      # The other half of the capability flags (#1986): switched off, these
+      # surfaces are ABSENT rather than answering 404, while terraform's own
+      # provider mirror, module registry and binary cache still answer. Asserted
+      # per-PR in unit tests; asserting it against a running stack is what makes
+      # it true rather than believed.
+      - name: Restart with the registry and package cache switched off
         run: |
           TERRAPOD_FS_BASE_URL=http://web:3000 \
-          TERRAPOD_ENGINES_ANSIBLE=false TERRAPOD_ENGINES_PULUMI=false \
+          TERRAPOD_OCI_ENABLED=false TERRAPOD_PACKAGE_CACHE_ENABLED=false \
             docker compose -f e2e/docker-compose.e2e.yml up -d
           for _ in $(seq 1 30); do
             curl -sf http://localhost:3000/ >/dev/null 2>&1 && break
             sleep 4
           done
 
-      - name: Gated-off surfaces are absent, terraform's still answer
+      - name: Switched-off surfaces are absent, terraform's still answer
         run: scripts/airgap-gate.sh --gated-off http://localhost:3000
 
       - name: Stack logs on failure
@@ -2811,7 +3449,7 @@ jobs:
       # overwrite the other's findings.
       - name: Upload SARIF (amd64)
         if: always()
-        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
+        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
         with:
           sarif_file: trivy-${{ matrix.image }}-amd64.sarif
           category: trivy-${{ matrix.image }}-amd64
@@ -2867,7 +3505,7 @@ jobs:
       # overwrite the other's findings.
       - name: Upload SARIF (arm64)
         if: always()
-        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
+        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
         with:
           sarif_file: trivy-${{ matrix.image }}-arm64.sarif
           category: trivy-${{ matrix.image }}-arm64
@@ -2896,12 +3534,16 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write       # keyless cosign signing of the manifest (OIDC)
     strategy:
       fail-fast: false
       matrix:
         image: [terrapod-api, terrapod-web, terrapod-runner, terrapod-listener, terrapod-migrations]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
       - name: Log in to GHCR
         uses: ./.github/actions/ghcr-login
@@ -2910,12 +3552,54 @@ jobs:
           username: ${{ github.actor }}
 
       - name: Create multi-arch manifest
+        id: manifest
         run: |
           sha_short="${{ needs.prepare.outputs.sha_short }}"
           echo "Creating manifest for ${{ matrix.image }}:sha-$sha_short"
           docker buildx imagetools create -t "$REGISTRY/${{ matrix.image }}:sha-$sha_short" \
             "$REGISTRY/${{ matrix.image }}:sha-${sha_short}-amd64" \
             "$REGISTRY/${{ matrix.image }}:sha-${sha_short}-arm64"
+
+          digest=$(docker buildx imagetools inspect \
+            "$REGISTRY/${{ matrix.image }}:sha-$sha_short" --format '{{.Manifest.Digest}}')
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "Manifest digest: $digest"
+
+      # GHSA-34pp-q7wp-3j54. This job's `if:` is the whole gate set — lint, test,
+      # audits, CodeQL, trivy, secret scan — so a manifest built here is a
+      # manifest those checks passed on. Signing it is what makes that fact
+      # carryable: `sha-<short>` is a MUTABLE tag, and on a tag push whose images
+      # already exist every gate job is skipped, so the release job has nothing
+      # else left to distinguish a gated digest from one somebody pushed over the
+      # tag afterwards. It verifies this signature before it retags anything.
+      #
+      # Signed by digest, so the signature is attached to the bytes rather than
+      # to the name, and keyless so there is no key to hold: the Fulcio
+      # certificate names this workflow and this ref, which is precisely the
+      # claim the release job needs and precisely what an actor with
+      # packages:write cannot manufacture.
+      - name: Sign the manifest (cosign keyless)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          subject="$REGISTRY/${{ matrix.image }}@${{ steps.manifest.outputs.digest }}"
+
+          # Same retry as the release job's signing step, for the same reason: a
+          # keyless sign reaches the Actions OIDC endpoint, Fulcio and Rekor, and
+          # with no ambient token cosign falls back to an interactive device flow
+          # that waits out its full code validity before failing.
+          for attempt in 1 2 3; do
+            if cosign sign "$subject"; then
+              echo "Signed $subject"
+              exit 0
+            fi
+            echo "cosign sign failed for $subject (attempt $attempt/3)"
+            if [ "$attempt" -lt 3 ]; then
+              sleep $((attempt * 15))
+            fi
+          done
+          echo "::error::cosign sign gave up on $subject after 3 attempts"
+          exit 1
 
   # ── Release ────────────────────────────────────────────
   # The release stage is five jobs — a tiny pre-create that owns the
@@ -3106,21 +3790,76 @@ jobs:
           username: ${{ github.actor }}
           helm: 'true'
 
-      - name: Retag images with version
+      # ── The release's trust anchor (GHSA-34pp-q7wp-3j54) ──────────────────────
+      #
+      # Everything below this step derives from `sha-<short>`, and that tag is
+      # MUTABLE: anyone with packages:write can push over it. Worse, a tag push
+      # whose images already exist deliberately SKIPS every gate job — that skip
+      # is what makes a same-commit release take minutes instead of a full
+      # rebuild — and the quality gate counts `skipped` as a pass. So on its own,
+      # "the short-SHA tag exists" says nothing about what is under it, and the
+      # retag, the cosign signatures and the SLSA provenance would all have
+      # attested whatever that was.
+      #
+      # `create-manifests` signs the manifest it builds, and it runs only when
+      # the whole gate set passed. Verifying that signature here is what carries
+      # the gates' verdict across the skip: a digest that verifies came out of a
+      # gated run. An actor with packages:write can push an image, but cannot
+      # make Fulcio issue a certificate naming this workflow.
+      #
+      # The identity is pinned to THIS repository's ci.yml on `main` or on a
+      # version tag — the only two refs that can legitimately build a manifest
+      # (PRs are excluded from create-manifests, and `release/**` only ever runs
+      # on pull_request). Hardcoded rather than built from `github.repository`,
+      # for the same reason REGISTRY is: it is a trust anchor, and a trust anchor
+      # read from the environment it is anchoring is not one. Move it with
+      # REGISTRY if this ever lives somewhere else.
+      #
+      # The digests resolved here are what every later step consumes, so nothing
+      # re-reads a mutable tag between the verification and the use of it.
+      - name: Verify the short-SHA manifests came from a gated run
+        id: digests
+        env:
+          COSIGN_OIDC_ISSUER: https://token.actions.githubusercontent.com
+          COSIGN_IDENTITY_RE: ^https://github\.com/mattrobinsonsre/terrapod/\.github/workflows/ci\.yml@refs/(heads/main|tags/v[0-9]+\.[0-9]+\.[0-9]+)$
         run: |
           sha_short="${{ needs.prepare.outputs.sha_short }}"
+          : > "$RUNNER_TEMP/digests.txt"
+
+          for image in terrapod-api terrapod-web terrapod-runner terrapod-listener terrapod-migrations; do
+            digest=$(docker buildx imagetools inspect \
+              "$REGISTRY/$image:sha-$sha_short" --format '{{.Manifest.Digest}}')
+            echo "── verifying $image@$digest"
+            cosign verify \
+              --certificate-oidc-issuer "$COSIGN_OIDC_ISSUER" \
+              --certificate-identity-regexp "$COSIGN_IDENTITY_RE" \
+              "$REGISTRY/$image@$digest"
+            echo "$image $digest" >> "$RUNNER_TEMP/digests.txt"
+            # Hyphens → underscores for the output key, consumed by the SLSA
+            # provenance and SBOM steps below.
+            echo "${image//-/_}_digest=$digest" >> "$GITHUB_OUTPUT"
+          done
+
+          echo "All five manifests verified as built by a gated run."
+
+      - name: Retag images with version
+        run: |
           version="${{ needs.prepare.outputs.version }}"
 
+          # By DIGEST, from the list the step above verified — NOT by re-reading
+          # `sha-<short>`. Re-reading the tag here would reopen the exact window
+          # the verification just closed (GHSA-34pp-q7wp-3j54).
+          #
           # GHCR occasionally returns 5xx on manifest reads/writes during
           # a retag — wrap with the shared 5/10/20/40s backoff helper.
-          for image in terrapod-api terrapod-web terrapod-runner terrapod-listener terrapod-migrations; do
-            echo "Retagging $image:sha-$sha_short -> $version + latest"
+          while read -r image digest; do
+            echo "Retagging $image@$digest -> $version + latest"
             .github/scripts/with-retry.sh "imagetools create $image" -- \
               docker buildx imagetools create \
                 -t "$REGISTRY/$image:$version" \
                 -t "$REGISTRY/$image:latest" \
-                "$REGISTRY/$image:sha-$sha_short"
-          done
+                "$REGISTRY/$image@$digest"
+          done < "$RUNNER_TEMP/digests.txt"
 
       - name: Publish Helm chart
         run: |
@@ -3137,16 +3876,32 @@ jobs:
         run: |
           version="${{ needs.prepare.outputs.version }}"
 
-          # Install syft: fetch the installer pinned to a release tag (not main)
-          # to a file, then run it (no curl|sh pipe), installing a pinned version.
+          # Install syft: fetch the installer to a file, verify it, then run it
+          # (no curl|sh pipe), installing a pinned version.
+          #
+          # Fetched by COMMIT SHA, and checksummed. A release tag is a mutable
+          # ref — it can be moved, and `raw.githubusercontent.com/<org>/<repo>/
+          # <tag>/...` then serves different bytes under the same URL. This script
+          # runs with the release job's credentials, which is the second half of
+          # GHSA-34pp-q7wp-3j54: pinning the version it installs was never the
+          # same thing as pinning the thing doing the installing.
+          #
+          # The three values move together. SYFT_INSTALLER_COMMIT is the commit
+          # that anchore/syft's v1.46.0 tag points at (its install.sh is identical
+          # to the one that tag serves today — verified byte-for-byte); the sha256
+          # is of that file.
+          #
           # NOTE: `-s --` belongs ONLY to the piped `curl | sh -s -- ARGS` idiom
           # (where `-s` tells sh to read the script from stdin). When running the
           # installer as a FILE, the args go straight to syft's install.sh, whose
           # usage is `install.sh [-v] [-b DIR] [-d] [TAG]` — so pass `-b DIR TAG`
           # directly; `-s` is rejected as an illegal option.
           SYFT_VERSION=v1.46.0
+          SYFT_INSTALLER_COMMIT=b15c5dbfe2bb21c9d73002c1056a829c8c411c75
+          SYFT_INSTALLER_SHA256=8a277b4b4dc21809ecd9a0e4926f4d7319affc6451a607fdeb3e5e1fbd9bc573
           curl -sSfL -o "$RUNNER_TEMP/syft-install.sh" \
-            "https://raw.githubusercontent.com/anchore/syft/${SYFT_VERSION}/install.sh"
+            "https://raw.githubusercontent.com/anchore/syft/${SYFT_INSTALLER_COMMIT}/install.sh"
+          echo "${SYFT_INSTALLER_SHA256}  $RUNNER_TEMP/syft-install.sh" | sha256sum -c -
           sh "$RUNNER_TEMP/syft-install.sh" -b /usr/local/bin "$SYFT_VERSION"
 
           for image in terrapod-api terrapod-web terrapod-runner terrapod-listener terrapod-migrations; do
@@ -3157,9 +3912,11 @@ jobs:
       # Supply-chain attestation (#549): keyless cosign signatures + SBOM
       # attestations on every release image and the Helm chart, anchored to
       # this workflow's GitHub OIDC identity and logged in Rekor. Signing is
-      # done by immutable digest so it's independent of the retag above.
+      # done by immutable digest so it's independent of the retag above — and
+      # since GHSA-34pp-q7wp-3j54 that digest comes from the verified list rather
+      # than from inspecting the freshly-written `:$version` tag, so the subject
+      # signed here is provably the subject the gates ran against.
       - name: Sign images + Helm chart (cosign keyless)
-        id: digests
         env:
           COSIGN_YES: "true"
         run: |
@@ -3191,15 +3948,16 @@ jobs:
             return 1
           }
 
-          for image in terrapod-api terrapod-web terrapod-runner terrapod-listener terrapod-migrations; do
-            digest=$(docker buildx imagetools inspect "$REGISTRY/$image:$version" --format '{{.Manifest.Digest}}')
+          # The verified digests, not a fresh `imagetools inspect` of `:$version`.
+          # Those resolve to the same thing today, but one reads a tag that was
+          # just written and the other reads the value a signature vouched for —
+          # and the SBOM and SLSA provenance steps below attest whichever one this
+          # loop used (they read `steps.digests.outputs.*`, now produced by the
+          # verification step).
+          while read -r image digest; do
             echo "Signing $image@$digest"
             sign "$REGISTRY/$image@$digest"
-            # Expose the digest (hyphens → underscores for the output key) so the
-            # SBOM + SLSA provenance steps below can attest the same immutable
-            # subject as OCI 1.1 referrers.
-            echo "${image//-/_}_digest=$digest" >> "$GITHUB_OUTPUT"
-          done
+          done < "$RUNNER_TEMP/digests.txt"
 
           # Helm chart OCI artifact (cosign resolves the tag to its digest).
           echo "Signing Helm chart terrapod:$chart_version"
@@ -3548,10 +4306,18 @@ jobs:
 
   release-finalize:
     name: Release — Finalize (notes + chart + SBOMs)
-    needs: [prepare, helm-eval-boot, release-create, release-images, release-provider, release-migrate, release-publish, release-query, release-mcp]
+    # `create-manifests` is listed explicitly even though release-create and
+    # release-images already gate on it. It is now the job that SIGNS the digests
+    # the release verifies (GHSA-34pp-q7wp-3j54), so it is the release's trust
+    # anchor and should be a named condition here rather than an inherited one —
+    # which is also what the six-site rule asks of every job that runs on a tag.
+    # v1.2.2 published while `Migrate Lint` was red for exactly the opposite
+    # reason: a hand-listed subset that nobody extended.
+    needs: [prepare, helm-eval-boot, create-manifests, release-create, release-images, release-provider, release-migrate, release-publish, release-query, release-mcp]
     if: |
       always()
       && needs.prepare.outputs.is_tag == 'true'
+      && (needs.create-manifests.result == 'success' || needs.create-manifests.result == 'skipped')
       && needs.release-create.result == 'success'
       && needs.release-images.result == 'success'
       && needs.release-provider.result == 'success'

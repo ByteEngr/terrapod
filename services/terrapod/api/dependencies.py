@@ -31,6 +31,7 @@ from terrapod.auth.sessions import (
     refresh_session,
 )
 from terrapod.config import settings
+from terrapod.db.models import subject_matches as _subject_matches
 from terrapod.db.session import get_db
 from terrapod.logging_config import get_logger
 
@@ -63,12 +64,28 @@ class AuthenticatedUser:
     provider_name: str
     auth_method: str  # "session", "api_token", or "runner_token"
     run_id: str | None = None  # Set only for runner_token auth
+    #: The Job phase a runner token claims (GHSA-xmrf-hxq9-m59m). `plan` or
+    #: `apply` for a token minted with one; **None means the token makes no
+    #: claim**, which is what a listener older than the claim produces — read it
+    #: as "skip the phase check", never as a mismatch. Only ever set alongside
+    #: `run_id`, for runner_token auth.
+    run_phase: str | None = None
     # Token kind (#495). For service tokens, `roles` stays the owner's live
     # roles and `pinned_roles` carries the token's own scope; the per-resource
     # min()/detached resolution happens in the resolve_*_for() wrappers, and
     # the kind-attenuated platform-role view is computed by effective_platform_roles().
     kind: str = "interactive"
     pinned_roles: list[str] | None = None
+    # The IdP this principal authenticated with, matching
+    # `RoleAssignment.provider_name`. NOT the same as `provider_name`, which for a
+    # token is the literal "api_token" (the auth METHOD) -- reading that as an IdP
+    # is how role resolution ended up provider-blind (GHSA-3m8x-ff8g-7x8c). None
+    # for a runner token, and for a credential minted before the provider was
+    # recorded; either way it resolves to no roles rather than to all of them.
+    identity_provider: str | None = None
+    # The IdP subject, where known. Lets a subject-pinned role assignment be matched
+    # for this principal; None matches unpinned assignments only.
+    identity_subject: str | None = None
 
 
 def effective_platform_roles(user: AuthenticatedUser) -> set[str]:
@@ -88,42 +105,168 @@ def effective_platform_roles(user: AuthenticatedUser) -> set[str]:
     return roles
 
 
-async def _resolve_user_roles(db: AsyncSession, email: str) -> list[str]:
-    """Resolve a user's roles from role_assignments + platform_role_assignments.
+def label_reach_roles(user: AuthenticatedUser) -> set[str]:
+    """The narrowest defensible role set for a per-resource LABEL grant.
 
-    Checks Redis cache first (60s TTL). On miss, queries both tables and
-    caches the result.
+    Neither `user.roles` nor `effective_platform_roles(user)` is right on its own,
+    and each is wrong in the opposite direction:
+
+    - `user.roles` is the LIVE set, so for a `service_bound` token it includes roles
+      the token was deliberately not pinned to — the pin is defeated.
+    - `effective_platform_roles` returns PINNED-only for a `service_detached` token,
+      so it includes roles the principal no longer holds.
+
+    The intersection is narrower than both and escapes in neither direction, which is
+    what a grant wants. For an interactive principal it is simply the live set.
+
+    `admin` is dropped because a caller that needs the admin bypass asks for it
+    explicitly, with the attenuated `effective_platform_roles` view. Leaving it in
+    means `rbac_service.check_access` short-circuits to True on it, re-granting
+    through the label path exactly the admin a pin had just removed. The other
+    built-in names contribute nothing to `check_access`'s allow/deny sets — it
+    subtracts them before loading roles — so they are harmless either way.
+    """
+    roles = set(user.roles)
+    if user.kind in ("service_bound", "service_detached"):
+        roles &= set(user.pinned_roles or [])
+    roles.discard("admin")
+    return roles
+
+
+def _cache_slot(identity_provider: str | None, identity_subject: str | None) -> str:
+    """The per-principal slot inside the email-keyed role cache.
+
+    The cache key is the email (five call sites already invalidate by it), so the
+    value is a map and this is its key. It must include the subject as well as the
+    provider: two principals can share an address at one provider -- which is the
+    entire reason subject pinning exists -- so a provider-only slot would serve one
+    of them the other's pinned roles.
+
+    NUL-separated because neither a provider name nor a subject can contain it, so
+    no pair of distinct principals can collide on one slot.
+    """
+    return f"{identity_provider}\x00{identity_subject or ''}"
+
+
+async def _resolve_user_roles(
+    db: AsyncSession,
+    email: str,
+    identity_provider: str | None,
+    identity_subject: str | None = None,
+) -> list[str]:
+    """Resolve a principal's roles from role_assignments + platform_role_assignments.
+
+    **Both assignment tables are keyed (provider, email), and this must join on
+    both.** It used to query on email alone, so a token minted after a login at
+    one provider inherited every role assigned to that address under *any*
+    provider -- up to platform admin -- which is the whole of
+    GHSA-3m8x-ff8g-7x8c. An attacker needed only an account at the weakest
+    configured provider, using a victim's address.
+
+    ``identity_provider`` is the IdP the principal authenticated with.
+    **None resolves to no roles beyond ``everyone``**: a token minted before the
+    column existed cannot be attributed, and picking a provider for it would
+    reinstate the hole. Such tokens must be re-minted.
+
+    ``identity_subject`` narrows it further. An assignment may pin itself to one IdP
+    subject, which is the stable half of an identity -- it survives the user changing
+    their email, and an attacker who acquires the address does not acquire it. A pinned
+    assignment matches only that subject; an unpinned one (the normal case, since a
+    ``sub`` is opaque and an operator types an address) matches on provider and email as
+    before. **An unknown subject therefore matches unpinned assignments only**, which is
+    the fail-closed direction.
+
+    Cached in Redis for 60s. The cache key stays ``tp:token_roles:{email}`` and
+    the *value* holds a per-provider map, deliberately: five call sites already
+    invalidate by that exact key, and adding the provider to the key would mean
+    finding and fixing every one of them -- missing one leaves a stale role set
+    serving after a demotion, which is the failure this function exists to avoid.
     """
     from terrapod.db.models import PlatformRoleAssignment, RoleAssignment
     from terrapod.redis.client import get_redis_client
 
+    if not email or not identity_provider:
+        return ["everyone"] if email else []
+
     redis = get_redis_client()
     cache_key = _TOKEN_ROLES_PREFIX + email
+    cache_slot = _cache_slot(identity_provider, identity_subject)
 
-    # Check cache
     cached = await redis.get(cache_key)
+    by_provider: dict[str, list[str]] = {}
     if cached is not None:
-        return json.loads(cached)
+        try:
+            loaded = json.loads(cached)
+            # A list is the pre-provider-scoping shape. Discard it rather than
+            # reading it: it is the union across providers, which is the bug.
+            if isinstance(loaded, dict):
+                by_provider = loaded
+        except (TypeError, ValueError):
+            by_provider = {}
+        # Keyed by provider AND subject: two principals can share an address at one
+        # provider (that is the whole reason pinning exists), so a provider-only key
+        # would serve one of them the other's pinned roles.
+        if cache_slot in by_provider:
+            return by_provider[cache_slot]
 
-    # Query platform roles (admin, audit)
+    # Platform roles (admin, audit)
     result = await db.execute(
-        select(PlatformRoleAssignment.role_name).where(PlatformRoleAssignment.email == email)
+        select(PlatformRoleAssignment.role_name).where(
+            PlatformRoleAssignment.email == email,
+            PlatformRoleAssignment.provider_name == identity_provider,
+            _subject_matches(PlatformRoleAssignment, identity_subject),
+        )
     )
     roles: set[str] = {row[0] for row in result.all()}
 
-    # Query custom role assignments
-    result = await db.execute(select(RoleAssignment.role_name).where(RoleAssignment.email == email))
+    # Custom role assignments
+    result = await db.execute(
+        select(RoleAssignment.role_name).where(
+            RoleAssignment.email == email,
+            RoleAssignment.provider_name == identity_provider,
+            _subject_matches(RoleAssignment, identity_subject),
+        )
+    )
     roles.update(row[0] for row in result.all())
 
-    # Always include 'everyone'
     roles.add("everyone")
+    role_list = _drop_roles_requiring_external_sso(sorted(roles), identity_provider, email)
 
-    role_list = sorted(roles)
-
-    # Cache for 60s
-    await redis.set(cache_key, json.dumps(role_list), ex=_TOKEN_ROLES_CACHE_TTL)
+    by_provider[cache_slot] = role_list
+    await redis.set(cache_key, json.dumps(by_provider), ex=_TOKEN_ROLES_CACHE_TTL)
 
     return role_list
+
+
+def _drop_roles_requiring_external_sso(
+    roles: list[str], identity_provider: str, email: str
+) -> list[str]:
+    """Apply ``require_external_sso_for_roles`` to a non-login principal.
+
+    The login path refuses outright (``_enforce_external_sso_requirement`` in
+    routers/auth.py), but it only ever saw the session's role set -- so a token
+    minted by a local account carried the restricted roles anyway and the policy
+    was advisory in practice (GHSA-3m8x-ff8g-7x8c).
+
+    Here the roles are ATTENUATED rather than the request refused. A token is used
+    by automation that cannot be prompted to go and log in via SSO, so a blanket
+    403 on every call would convert a policy violation into an outage; dropping
+    the restricted roles leaves the token doing exactly what it is still entitled
+    to. Acting with fewer roles than minted is survivable, acting with more is the
+    vulnerability.
+    """
+    restricted = settings.auth.require_external_sso_for_roles
+    if not restricted or identity_provider != "local":
+        return roles
+
+    kept = [r for r in roles if r not in restricted]
+    if len(kept) != len(roles):
+        logger.warning(
+            "Dropped roles requiring external SSO from a local principal",
+            email=email,
+            dropped=sorted(set(roles) - set(kept)),
+        )
+    return kept
 
 
 async def get_current_user(
@@ -143,12 +286,25 @@ async def get_current_user(
     if credentials is not None:
         token = credentials.credentials
 
-        # Try runner token first (fast HMAC check, no DB/Redis)
+        # Try runner token first (HMAC check, then one Redis read — and a single
+        # indexed column read only when that misses, see runner_token_state).
         if token.startswith("runtok:"):
-            from terrapod.auth.runner_tokens import verify_runner_token
+            from terrapod.auth.runner_token_state import is_run_token_usable
+            from terrapod.auth.runner_tokens import verify_runner_token_claims
 
-            run_id = verify_runner_token(token)
-            if run_id is not None:
+            claims = verify_runner_token_claims(token)
+            if claims is not None:
+                # A signature-valid token for a run that has ended is not a
+                # credential (GHSA-xmrf-hxq9-m59m). Checked here rather than per
+                # endpoint so it covers everything a runner reaches — the binary
+                # cache and provider mirror as much as the artifact routes.
+                if not await is_run_token_usable(claims.run_id, db):
+                    AUTH_FAILURES.labels(method="runner_token", reason="run_not_active").inc()
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="Invalid or expired token",
+                        headers={"WWW-Authenticate": "Bearer"},
+                    )
                 request.state.user_email = "runner"  # for audit middleware
                 return AuthenticatedUser(
                     email="runner",
@@ -156,7 +312,8 @@ async def get_current_user(
                     roles=["everyone"],
                     provider_name="runner_token",
                     auth_method="runner_token",
-                    run_id=run_id,
+                    run_id=claims.run_id,
+                    run_phase=claims.phase,
                 )
 
         # Try API token (fast hash + indexed DB lookup)
@@ -173,7 +330,23 @@ async def get_current_user(
 
             # Resolve roles from DB (cached in Redis for 60s)
             email = api_token.bound_to or ""
-            roles = await _resolve_user_roles(db, email) if email else []
+            if email and api_token.identity_provider is None:
+                # Fails closed to no roles, which is right but undiagnosable from
+                # the outside: the caller just starts getting 403s. Name the token
+                # so an operator can find and re-mint it. Only reachable for a
+                # token minted before the provider was recorded.
+                logger.warning(
+                    "API token has no recorded identity provider; it resolves to no roles",
+                    token_id=api_token.id,
+                    bound_to=email,
+                )
+            roles = (
+                await _resolve_user_roles(
+                    db, email, api_token.identity_provider, api_token.identity_subject
+                )
+                if email
+                else []
+            )
 
             request.state.user_email = email  # for audit middleware
             return AuthenticatedUser(
@@ -182,6 +355,8 @@ async def get_current_user(
                 roles=roles,
                 provider_name="api_token",
                 auth_method="api_token",
+                identity_provider=api_token.identity_provider,
+                identity_subject=api_token.identity_subject,
                 kind=api_token.kind,
                 pinned_roles=api_token.pinned_roles,
             )
@@ -201,6 +376,8 @@ async def get_current_user(
                 roles=session.roles,
                 provider_name=session.provider_name,
                 auth_method="session",
+                identity_provider=session.provider_name,
+                identity_subject=session.subject,
             )
 
     if credentials is not None:
@@ -239,12 +416,21 @@ async def authenticate_request(request: Request) -> AuthenticatedUser:
         )
     token = auth_header[7:]  # strip "Bearer "
 
-    # Try runner token first (no DB needed)
+    # Try runner token first. Its own short-lived session for the run-state
+    # check, so nothing is held across an SSE stream.
     if token.startswith("runtok:"):
-        from terrapod.auth.runner_tokens import verify_runner_token
+        from terrapod.auth.runner_token_state import is_run_token_usable_on_its_own_session
+        from terrapod.auth.runner_tokens import verify_runner_token_claims
 
-        run_id = verify_runner_token(token)
-        if run_id is not None:
+        claims = verify_runner_token_claims(token)
+        if claims is not None:
+            if not await is_run_token_usable_on_its_own_session(claims.run_id):
+                AUTH_FAILURES.labels(method="runner_token", reason="run_not_active").inc()
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid or expired token",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
             request.state.user_email = "runner"
             return AuthenticatedUser(
                 email="runner",
@@ -252,7 +438,8 @@ async def authenticate_request(request: Request) -> AuthenticatedUser:
                 roles=["everyone"],
                 provider_name="runner_token",
                 auth_method="runner_token",
-                run_id=run_id,
+                run_id=claims.run_id,
+                run_phase=claims.phase,
             )
 
     # Try API token and session with a short-lived DB session
@@ -267,7 +454,13 @@ async def authenticate_request(request: Request) -> AuthenticatedUser:
                     headers={"WWW-Authenticate": "Bearer"},
                 )
             email = api_token.bound_to or ""
-            roles = await _resolve_user_roles(db, email) if email else []
+            roles = (
+                await _resolve_user_roles(
+                    db, email, api_token.identity_provider, api_token.identity_subject
+                )
+                if email
+                else []
+            )
             request.state.user_email = email
             return AuthenticatedUser(
                 email=email,
@@ -275,6 +468,8 @@ async def authenticate_request(request: Request) -> AuthenticatedUser:
                 roles=roles,
                 provider_name="api_token",
                 auth_method="api_token",
+                identity_provider=api_token.identity_provider,
+                identity_subject=api_token.identity_subject,
                 kind=api_token.kind,
                 pinned_roles=api_token.pinned_roles,
             )
@@ -292,6 +487,8 @@ async def authenticate_request(request: Request) -> AuthenticatedUser:
             roles=session.roles,
             provider_name=session.provider_name,
             auth_method="session",
+            identity_provider=session.provider_name,
+            identity_subject=session.subject,
         )
 
     raise HTTPException(
@@ -299,6 +496,46 @@ async def authenticate_request(request: Request) -> AuthenticatedUser:
         detail="Invalid or expired token",
         headers={"WWW-Authenticate": "Bearer"},
     )
+
+
+async def _enforce_listener_pop(request: "Request", cert) -> None:
+    """Require the caller to hold the private key behind `cert`.
+
+    Called from BOTH listener auth paths — `authenticate_listener` (the SSE one,
+    which cannot use yield-dependencies) and `get_listener_identity` (everything
+    else). It is one function on purpose: every check those two perform before
+    this point is satisfied by a COPY of the certificate, which is public and is
+    sent on every request, so a path that skipped this would accept a replayed
+    header indefinitely while looking fully authenticated. A guard that lives in
+    one entry point and not its sibling is enforced only where someone happens to
+    be looking.
+    """
+    from terrapod.auth.listener_pop import (
+        NONCE_HEADER,
+        SIGNATURE_HEADER,
+        TIMESTAMP_HEADER,
+        ProofOfPossessionError,
+        verify_request,
+    )
+    from terrapod.config import settings
+
+    if not settings.agent_pools.require_listener_proof_of_possession:
+        return
+    h = request.headers
+    try:
+        await verify_request(
+            cert,
+            method=request.method,
+            path=request.url.path,
+            timestamp=h.get(TIMESTAMP_HEADER.lower(), ""),
+            nonce=h.get(NONCE_HEADER.lower(), ""),
+            signature=h.get(SIGNATURE_HEADER.lower(), ""),
+        )
+    except ProofOfPossessionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Listener proof of possession failed: {exc}",
+        ) from None
 
 
 async def authenticate_listener(request: Request) -> "ListenerIdentity":
@@ -375,6 +612,8 @@ async def authenticate_listener(request: Request) -> "ListenerIdentity":
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Certificate fingerprint not registered",
         )
+
+    await _enforce_listener_pop(request, cert)
 
     return ListenerIdentity(
         listener_id=uuid.UUID(listener["id"]),
@@ -456,14 +695,28 @@ async def require_admin_or_audit(
     return user
 
 
-def require_runner_for_run(user: AuthenticatedUser, run_id: str) -> None:
+def require_runner_for_run(
+    user: AuthenticatedUser, run_id: str, *, phase: str | None = None
+) -> None:
     """Reject the request unless the caller is a runner-token authenticated
-    for this exact run.
+    for this exact run — and, where ``phase`` is given, for that phase.
 
     Used by runner-protocol endpoints (artifact upload/download, OPA
     policy bundle/results) so a leaked token from one run can't drive
     actions on another. Not a FastAPI dependency — call it inside the
     handler with the path's ``run_id`` after resolving the user.
+
+    ``phase`` is the Job phase this endpoint belongs to — ``plan`` or ``apply``
+    — and is passed only where the endpoint genuinely belongs to one. A run has
+    two Jobs and each gets its own token, so without it a plan-phase token drove
+    the apply-phase routes and vice versa (GHSA-xmrf-hxq9-m59m): a speculative
+    pull-request plan's own token could post an apply result or an apply log.
+
+    **A token carrying no phase claim passes any phase.** That is a listener
+    older than the claim, and refusing it would break every run on a lagging
+    listener image for a defence in depth — the run-scoping above still holds,
+    and `upload_state` keeps its own plan-only guard. Absence is "no claim", not
+    "wrong claim".
     """
     if user.auth_method != "runner_token":
         raise HTTPException(
@@ -482,6 +735,11 @@ def require_runner_for_run(user: AuthenticatedUser, run_id: str) -> None:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Token not scoped to this run",
         )
+    if phase is not None and user.run_phase is not None and user.run_phase != phase:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Token not scoped to the {phase} phase of this run",
+        )
 
 
 # ── Listener Certificate Auth ────────────────────────────────────────────
@@ -499,6 +757,7 @@ class ListenerIdentity:
 
 
 async def get_listener_identity(
+    request: Request,
     x_terrapod_client_cert: str = Header(None),
 ) -> ListenerIdentity:
     """Authenticate a runner listener via X-Terrapod-Client-Cert header.
@@ -582,6 +841,8 @@ async def get_listener_identity(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Certificate fingerprint not registered",
         )
+
+    await _enforce_listener_pop(request, cert)
 
     return ListenerIdentity(
         listener_id=uuid.UUID(listener["id"]),

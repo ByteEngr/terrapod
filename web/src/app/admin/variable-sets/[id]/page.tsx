@@ -24,6 +24,7 @@ import { getAuthState, isAdmin } from '@/lib/auth'
 import { useConfirm } from '@/lib/use-confirm'
 import { apiFetch, fetchAllPages } from '@/lib/api'
 import { usePollingInterval } from '@/lib/use-polling-interval'
+import { categoryKey } from '@/lib/variable-category'
 
 interface VarsetAttrs {
   name: string
@@ -110,7 +111,7 @@ export default function VariableSetDetailPage() {
   const [showAddVar, setShowAddVar] = useState(false)
   const [varKey, setVarKey] = useState('')
   const [varValue, setVarValue] = useState('')
-  const [varCategory, setVarCategory] = useState('terraform')
+  const [varCategory, setVarCategory] = useState('native')
   const [varSensitive, setVarSensitive] = useState(false)
   const [varHcl, setVarHcl] = useState(false)
   const [addingVar, setAddingVar] = useState(false)
@@ -120,6 +121,14 @@ export default function VariableSetDetailPage() {
   // field, so the pair cannot work and the API refuses it (#1439). Mirrors the
   // workspace page: don't offer the source, and don't send it.
   const isGitCat = varCategory === 'git_http_auth' || varCategory === 'git_ssh_auth'
+  /**
+   * No engine is passed: a set is org-scoped and reaches workspaces of either
+   * kind, so there is no engine whose word for the category would be right.
+   */
+  const categoryLabel = (category: string) => {
+    const key = categoryKey(category)
+    return key ? t(`detail.${key}`) : category
+  }
   const isVaultSource = varSource === 'vault' && !isGitCat
   const [vaultAvailable, setVaultAvailable] = useState(false)
   const [vaultInstances, setVaultInstances] = useState<string[]>([])
@@ -129,7 +138,7 @@ export default function VariableSetDetailPage() {
   const [editingVarId, setEditingVarId] = useState<string | null>(null)
   const [editVarKey, setEditVarKey] = useState('')
   const [editVarValue, setEditVarValue] = useState('')
-  const [editVarCategory, setEditVarCategory] = useState('terraform')
+  const [editVarCategory, setEditVarCategory] = useState('native')
   const [editVarSensitive, setEditVarSensitive] = useState(false)
   const [editVarHcl, setEditVarHcl] = useState(false)
   const [savingVar, setSavingVar] = useState(false)
@@ -215,7 +224,7 @@ export default function VariableSetDetailPage() {
 
   async function loadVariables() {
     try {
-      setVariables(await fetchAllPages<Variable>(`/api/v2/varsets/${varsetId}/relationships/vars`))
+      setVariables(await fetchAllPages<Variable>(`/api/v1/varsets/${varsetId}/relationships/vars`))
     } catch (err) {
       setError(err instanceof Error ? err.message : t('detail.errors.loadVars'))
     } finally {
@@ -250,7 +259,7 @@ export default function VariableSetDetailPage() {
   async function loadAllWorkspaces() {
     try {
       // Page through the whole list so every workspace is assignable.
-      setAllWorkspaces(await fetchAllPages<WorkspaceRef>('/api/v2/organizations/default/workspaces'))
+      setAllWorkspaces(await fetchAllPages<WorkspaceRef>('/api/v1/workspaces'))
     } catch {
       // Non-critical
     }
@@ -325,7 +334,7 @@ export default function VariableSetDetailPage() {
     setAddingVar(true)
     setError('')
     try {
-      const res = await apiFetch(`/api/v2/varsets/${varsetId}/relationships/vars`, {
+      const res = await apiFetch(`/api/v1/varsets/${varsetId}/relationships/vars`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/vnd.api+json' },
         body: JSON.stringify({
@@ -350,7 +359,7 @@ export default function VariableSetDetailPage() {
       }
       setVarKey('')
       setVarValue('')
-      setVarCategory('terraform')
+      setVarCategory('native')
       setVarSensitive(false)
       setVarHcl(false)
       setVarSource('static')
@@ -401,7 +410,7 @@ export default function VariableSetDetailPage() {
       } else if (editVarValue !== '') {
         attrs.value = editVarValue
       }
-      const res = await apiFetch(`/api/v2/varsets/${varsetId}/relationships/vars/${editingVarId}`, {
+      const res = await apiFetch(`/api/v1/varsets/${varsetId}/relationships/vars/${editingVarId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/vnd.api+json' },
         body: JSON.stringify({ data: { type: 'vars', attributes: attrs } }),
@@ -423,7 +432,7 @@ export default function VariableSetDetailPage() {
     if (!confirmDelete(t('detail.confirmDeleteVar'))) return
     setError('')
     try {
-      const res = await apiFetch(`/api/v2/varsets/${varsetId}/relationships/vars/${varId}`, { method: 'DELETE' })
+      const res = await apiFetch(`/api/v1/varsets/${varsetId}/relationships/vars/${varId}`, { method: 'DELETE' })
       if (!res.ok) throw new Error(t('detail.errors.deleteVar'))
       await loadVariables()
     } catch (err) {
@@ -688,7 +697,13 @@ export default function VariableSetDetailPage() {
                     <label htmlFor="var-cat" className="block text-sm font-medium text-slate-300 mb-1">{t('detail.varCategory')}</label>
                     <select id="var-cat" value={varCategory} onChange={(e) => setVarCategory(e.target.value)}
                       className="w-full px-3 py-2 border border-slate-600 rounded-lg bg-slate-700 text-slate-100 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent">
-                      <option value="terraform">{t('detail.categoryTerraform')}</option>
+                      {/* One category for the engine's own parameters,
+                          whatever the workspace runs (#1898): Terraform input
+                          variables, Pulumi stack config, Ansible extra vars are
+                          one role with three deliveries, and the runner
+                          dispatches on the engine. An engine-specific option
+                          here would be the mechanism showing through. */}
+                      <option value="native">{t('detail.categoryNative')}</option>
                       <option value="env">{t('detail.categoryEnv')}</option>
                       <option value="git_http_auth">Git HTTPS credential</option>
                       <option value="git_ssh_auth">Git SSH credential</option>
@@ -703,7 +718,7 @@ export default function VariableSetDetailPage() {
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input type="checkbox" checked={varHcl} onChange={(e) => setVarHcl(e.target.checked)}
                         className="rounded border-slate-600 bg-slate-700 text-brand-600 focus:ring-brand-500" />
-                      <span className="text-sm text-slate-300">HCL</span>
+                      <span className="text-sm text-slate-300">{t('detail.structured')}</span>
                     </label>
                   </div>
                 </div>
@@ -762,9 +777,9 @@ export default function VariableSetDetailPage() {
                           </td>
                           <td className="px-4 py-3 text-xs text-slate-400">
                             <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-                              v.attributes.category === 'terraform' ? 'bg-purple-900/50 text-purple-300' : 'bg-cyan-900/50 text-cyan-300'
+                              v.attributes.category === 'native' ? 'bg-purple-900/50 text-purple-300' : 'bg-cyan-900/50 text-cyan-300'
                             }`}>
-                              {v.attributes.category}
+                              {categoryLabel(v.attributes.category)}
                             </span>
                           </td>
                           <td className="px-4 py-3 text-end">
@@ -804,9 +819,9 @@ export default function VariableSetDetailPage() {
                         <div className="flex items-start justify-between gap-2 mb-1.5">
                           <span className="text-sm font-mono font-medium text-slate-200 break-all">{v.attributes.key}</span>
                           <span className={`shrink-0 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-                            v.attributes.category === 'terraform' ? 'bg-purple-900/50 text-purple-300' : 'bg-cyan-900/50 text-cyan-300'
+                            v.attributes.category === 'native' ? 'bg-purple-900/50 text-purple-300' : 'bg-cyan-900/50 text-cyan-300'
                           }`}>
-                            {v.attributes.category}
+                            {categoryLabel(v.attributes.category)}
                           </span>
                         </div>
                         <div className="mb-2 text-sm text-slate-400 font-mono break-all">

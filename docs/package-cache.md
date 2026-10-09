@@ -201,6 +201,20 @@ A published version is **immutable**: republishing the same version is refused
 rather than replacing it, since a client that has already resolved it and cached
 its digest would otherwise receive different bytes under the same name.
 
+**Who may publish.** A namespace nobody has published to yet is open to any
+authenticated principal, and whoever creates it becomes its owner — the same rule
+the module and provider registries follow. Once a collection exists, publishing a
+further version into it requires **`registry:write` on that collection**, resolved
+from its owner and labels exactly as for a registry module. So a second publisher
+cannot add versions to someone else's namespace, which matters more here than
+elsewhere because the namespace is declared inside the archive rather than given
+in the URL: reading it from `MANIFEST.json` stops a caller *claiming* a namespace
+they do not own, but not building a tarball that declares one.
+
+**Runner tokens cannot publish or sign**, whatever capabilities their workspace
+would otherwise resolve to. A run's own short-lived token exists to download
+dependencies, not to add artifacts to the registry.
+
 Published collections are **not** cache entries and are never evicted by the
 retention sweep. A cached artifact is a copy of something upstream still has; a
 published one is the only copy there is.
@@ -216,6 +230,10 @@ curl -X PUT \
   --data-binary @manifest.sig \
   "$TERRAPOD/api/v1/package-cache/galaxy/v3/collections/acme/widgets/versions/1.0.0/signature"
 ```
+
+Signing requires **`registry:write` on the collection**, as publishing does, and
+the collection must already exist — there is no create-by-signing path, so an
+unknown collection is a 404 rather than a permission answer.
 
 The body is a detached OpenPGP signature over the collection's `MANIFEST.json`.
 Terrapod verifies it against a **public key already registered** with the
@@ -337,31 +355,31 @@ bounded; a `.nupkg` at a version is **immutable** and needs no TTL.
 this only appears in local testing.
 
 
-## Engine gating
+## Turning a proxy off
 
-These proxies exist to serve Pulumi programs and Ansible collections. PyPI serves
-both, npm serves Pulumi only and Galaxy Ansible only — so npm goes away with
-`api.config.engines.pulumi.enabled: false`, Galaxy with
-`api.config.engines.ansible.enabled: false`, and PyPI only once *both* engines
-are off. Cached artifacts are never deleted by turning an engine off. See
-[engine gating](#engine-gating).
+Every proxy is on by default and each has its own switch. There is **no engine
+on/off switch above them** — Terrapod offers every engine it can run, so these
+flags are the only thing that decides whether a proxy serves.
 
-The engine switches sit **above** the per-capability flags in `registry`. A
-capability serves only when its own flag is on *and* an engine that needs it is
-enabled, so `registry.oci.enabled: true` does not bring the registry back once
-Ansible is off. That is deliberate: switching an engine off should be one
-decision, not a hunt for every capability that belongs to it.
-
-| Capability | Needs |
+| Proxy | Switch |
 |---|---|
-| Container registry (`/v2/`) | `engines.ansible` |
-| PyPI proxy | `engines.ansible` **or** `engines.pulumi` |
-| npm proxy | `engines.pulumi` |
-| Galaxy proxy | `engines.ansible` |
-| Pulumi plugin proxy | `engines.pulumi` |
-| Go module proxy | `engines.pulumi` |
-| NuGet proxy | `engines.pulumi` |
+| all six at once | `api.config.registry.package_cache.enabled` |
+| PyPI | `api.config.registry.package_cache.pypi.enabled` |
+| npm | `api.config.registry.package_cache.npm.enabled` |
+| Galaxy | `api.config.registry.package_cache.galaxy.enabled` |
+| Pulumi plugins | `api.config.registry.package_cache.pulumi.enabled` |
+| Go modules | `api.config.registry.package_cache.go.enabled` |
+| NuGet | `api.config.registry.package_cache.nuget.enabled` |
+
+Setting one to `false` means the routes are **never registered** — the proxy is
+absent from the API and from the OpenAPI schema, not mounted and answering 404.
+A surface that refuses every request is still a surface: it sits in the schema,
+carries its dependencies, and reads to anyone auditing the deployment as
+something you do.
+
+**Never destructive.** Cached artifacts stay exactly where they are and come
+back untouched when you turn the proxy on again.
 
 Terraform and OpenTofu's own caches — the provider network mirror, the engine
-binary cache, the module registry — are not gateable and are unaffected by any of
-this.
+binary cache, the module registry — have no such switch. They are what Terrapod
+is, not an optional engine's supporting cast.

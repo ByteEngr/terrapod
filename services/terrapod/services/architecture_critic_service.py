@@ -45,6 +45,7 @@ from terrapod.db.models import (
     Workspace,
 )
 from terrapod.db.session import get_db_session
+from terrapod.engines import critiques_architecture
 from terrapod.logging_config import get_logger
 from terrapod.services.state_graph_service import (
     _resource_address,
@@ -374,6 +375,11 @@ def _internal_reader() -> Any:
         roles=["admin"],
         provider_name="internal",
         auth_method="session",
+        # Not an IdP identity at all: this principal is synthesised in-process and
+        # never resolves roles from the assignment tables, so there is no provider
+        # to join on. Stated rather than defaulted so the parity guard can tell a
+        # deliberate internal principal from a forgotten call site.
+        identity_provider=None,
     )
 
 
@@ -531,6 +537,19 @@ async def generate_critique(
             await db.execute(select(Workspace).where(Workspace.id == workspace_id))
         ).scalar_one_or_none()
         if ws is None:
+            return None
+        if not critiques_architecture(ws.engine):
+            # Before any state is loaded, because the failure is silent past this
+            # point: `compact_state_for_critique` reuses `build_graph_from_state`,
+            # which handed another engine's state finds no `mode`/`name`/
+            # `instances` and returns an EMPTY graph rather than raising. The
+            # critic would go on to write confident prose about a stack with no
+            # resources in it and store that as the workspace's review (#1911).
+            logger.info(
+                "architecture critic: engine not critiqued",
+                workspace_id=str(workspace_id),
+                engine=ws.engine,
+            )
             return None
         sv = (
             await db.execute(

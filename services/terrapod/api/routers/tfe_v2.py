@@ -45,6 +45,7 @@ from typing import Any
 from fastapi import APIRouter, Body, Depends, HTTPException, Path, Request, Response, status
 from fastapi.responses import JSONResponse
 from sqlalchemy import and_, func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from terrapod.api.capability_access import resolve_capability_or_authenticate
@@ -53,12 +54,14 @@ from terrapod.api.dependencies import (
     AuthenticatedUser,
     effective_platform_roles,
     get_current_user,
+    label_reach_roles,
     require_non_runner,
 )
+from terrapod.api.engine_scope import engine_filter, load_workspace_scoped
 from terrapod.api.ids import parse_id
 from terrapod.api.labels import validate_labels
 from terrapod.api.pagination import MAX_PAGE_SIZE, build_meta, paginate, parse_page_params
-from terrapod.api.prefixes import TFE_PREFIX
+from terrapod.api.prefixes import TFE_PREFIX, is_tfe_path
 from terrapod.api.serialization import default_engine_version
 from terrapod.api.serialization import engine_version_attr as _engine_version_attr
 from terrapod.auth import capabilities as cap
@@ -88,6 +91,7 @@ from terrapod.services.workspace_name import validate_workspace_name
 from terrapod.services.workspace_rbac_service import (
     resolve_workspace_capabilities_for,
 )
+from terrapod.services.workspace_settings import validate_ansible_version
 from terrapod.storage import get_storage
 from terrapod.storage.keys import state_key
 
@@ -99,6 +103,26 @@ router = APIRouter(tags=["tfe-v2"])
 # native management and dual-mounted at /api/terrapod/v1 + a deprecated
 # /api/v2 alias (removed in v0.24.0 — see #278).
 extensions_router = APIRouter(tags=["tfe-v2-management"])
+
+#: The routes that must answer for EVERY engine, mounted on BOTH surfaces (#1911).
+#:
+#: Locking a workspace and reading its state history are not Terraform concepts —
+#: every engine Terrapod runs has state and a lock protecting it. But these routes
+#: existed only on the TFE surface, which serves Terraform alone, so on a Pulumi
+#: workspace the UI's State tab errored and its padlock 404d. The capability was
+#: there; it had no door.
+#:
+#: Mounted here rather than moved: `terraform`/`tofu` drive the same paths through
+#: their cloud backend, so they cannot move, and serving both is purely additive.
+#: The handlers scope themselves on the REQUEST's prefix — the TFE mount still
+#: 404s a Pulumi workspace, exactly as before — which is why every one of them
+#: threads `request` down to `load_workspace_scoped`.
+#:
+#: The state-version WRITE routes stay TFE-only. They are the `go-tfe` upload
+#: protocol (create, then PUT content to a capability URL); a Pulumi workspace's
+#: state is published by its own update-complete path (#1564), never pushed
+#: through this one.
+dual_router = APIRouter(tags=["tfe-v2"])
 logger = get_logger(__name__)
 
 TFP_API_VERSION = "2.6"
@@ -125,14 +149,13 @@ def _engine_filter(model):
     globally, across engines, so a guard that filtered by engine would decide a
     name was free and then hit an IntegrityError — turning a clean 422 into a 500.
     The introspection test knows about that exception by name.
+
+    Delegates to `api/engine_scope.engine_filter`, which is the one
+    implementation (#1572). It used to live here, and living here is what let the
+    rule hold in this file while eight other router mounts on the same surface
+    served other engines' rows unfiltered.
     """
-    if model is Run:
-        # Runs store no engine (#1536); a run's is its workspace's. Every call
-        # site already reaches runs through engine-filtered workspaces, so this
-        # is defence in depth, kept because handing a non-Terraform row to a
-        # `terraform` client is a silent wrong answer.
-        return Run.workspace_id.in_(select(Workspace.id).where(Workspace.engine == TERRAFORM))
-    return model.engine == TERRAFORM
+    return engine_filter(model)
 
 
 def _primary_run_filter():
@@ -257,6 +280,14 @@ def _validate_pulumi_bind_plan(raw: object, engine: str) -> bool:
             status_code=422, detail="pulumi-bind-plan applies only to Pulumi workspaces"
         )
     return raw
+
+
+def _validate_ansible_version(raw: object) -> str:
+    """HTTP wrapper over the canonical rule in `services.workspace_settings`."""
+    try:
+        return validate_ansible_version(raw)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 def _validate_parallelism(raw: object) -> int:
@@ -495,7 +526,8 @@ async def create_project_unsupported(
 
 
 def _compute_health_conditions(
-    ws: Workspace, live_pool_ids: frozenset[uuid.UUID] | None = None
+    ws: Workspace,
+    live_pool_ids: frozenset[uuid.UUID] | None = None,
 ) -> list[dict]:
     """Compute all active health conditions from workspace DB fields.
 
@@ -504,6 +536,7 @@ def _compute_health_conditions(
     ``_resolve_live_pools``). When it is None the caller had no liveness
     information available, and the liveness condition is skipped rather than
     guessed — a false "no runner" banner is worse than a missing one.
+
     """
     conditions: list[dict] = []
 
@@ -612,11 +645,27 @@ async def _resolve_live_pools(workspaces: list[Workspace]) -> frozenset[uuid.UUI
     return None if live is None else frozenset(live)
 
 
+def _merged_oidc_audiences(ws: Workspace) -> dict[str, list[str]]:
+    """This workspace's effective audience map (#1901).
+
+    Its own override merged over the deployment catalogue, per key, which is
+    the shape every read consumer is promised. Kept as a named helper rather
+    than inlined because the merge is also what `run_service` snapshots at run
+    creation, and the two must not drift.
+    """
+    from terrapod.config import settings
+    from terrapod.services import cloud_identity_resolver
+
+    return cloud_identity_resolver.resolve_for_workspace(ws, settings=settings)
+
+
 def _workspace_json(
     ws: Workspace,
     caps: frozenset[str] | None = None,
     latest_run: Run | None = None,
     live_pool_ids: frozenset[uuid.UUID] | None = None,
+    *,
+    tfe: bool,
 ) -> dict:
     """Serialize a Workspace to TFE V2 JSON:API format.
 
@@ -625,7 +674,7 @@ def _workspace_json(
     capabilities. Otherwise defaults to no access (empty set).
 
     ``live_pool_ids`` feeds the pool-liveness health condition — see
-    ``_resolve_live_pools``.
+    ``_resolve_live_pools``, resolved once per request.
     """
     caps = caps or frozenset()
     ws_pools = pool_set.workspace_pool_ids(ws)
@@ -640,7 +689,7 @@ def _workspace_json(
             "created-at": _rfc3339(latest_run.created_at),
         }
 
-    return {
+    payload = {
         "data": {
             "id": f"ws-{ws.id}",
             "type": "workspaces",
@@ -661,6 +710,9 @@ def _workspace_json(
                 # it, so serialising it beats the UI assuming.
                 "engine": ws.engine,
                 # Pulumi only (#1553); always false elsewhere.
+                # Pulumi-only. Dropped from the compatibility surface below,
+                # after this literal rather than inside it — see the `tfe` pop at
+                # the end of this function.
                 "pulumi-bind-plan": ws.pulumi_bind_plan,
                 # One version, two spellings (#1559). `engine-version` is the
                 # canonical one now that the column pins whichever engine the
@@ -670,6 +722,11 @@ def _workspace_json(
                 # `structured`/`hcl` on variables.
                 "engine-version": ws.engine_version or "",
                 "terraform-version": ws.engine_version or "",
+                # Empty means "the deployment default", which is what most
+                # workspaces carry -- the resolved value is not substituted in,
+                # because a client writing a read straight back would then pin
+                # every workspace to whatever the default was at read time.
+                "ansible-version": ws.ansible_version or "",
                 "terragrunt-enabled": ws.terragrunt_enabled,
                 "terragrunt-version": ws.terragrunt_version or "",
                 "working-directory": ws.working_directory,
@@ -682,6 +739,23 @@ def _workspace_json(
                 "resource-cpu": ws.resource_cpu,
                 "parallelism": ws.parallelism,
                 "resource-memory": ws.resource_memory,
+                # The MERGED view, not the stored override: the workspace's own
+                # map resolved over the deployment catalogue, per key. Clients
+                # see what this workspace would actually mint for, because the
+                # override alone is unreadable on its own — a key's absence
+                # means "inherit", and without the merge a reader cannot tell
+                # that from "nothing here".
+                #
+                # No DB access: the resolver is a dict merge over
+                # `settings.auth.oidc_issuer.audiences`, so this adds no query
+                # and cannot desynchronise a test that scripts `db.execute` in
+                # order (the #1565 trap).
+                #
+                # The consequence is the provider's, and it is handled there:
+                # a read is a SUPERSET of what was written, so a consumer must
+                # reconcile only the keys it owns rather than storing this
+                # wholesale. See the `oidc_audiences` attribute.
+                "oidc-audiences": _merged_oidc_audiences(ws),
                 "vcs-repo-url": ws.vcs_repo_url,
                 "vcs-branch": ws.vcs_branch,
                 "vcs-connection-id": f"vcs-{ws.vcs_connection_id}"
@@ -723,6 +797,7 @@ def _workspace_json(
                 "vcs-last-error": ws.vcs_last_error,
                 "vcs-last-error-at": _rfc3339(ws.vcs_last_error_at),
                 "vcs-workflow": ws.vcs_workflow,
+                "allow-fork-pr-plans": ws.allow_fork_pr_plans,
                 "auto-merge": ws.auto_merge,
                 "auto-merge-strategy": ws.auto_merge_strategy,
                 "latest-run": latest_run_attr,
@@ -825,6 +900,23 @@ def _workspace_json(
             },
         }
     }
+    if tfe:
+        # `pulumi-bind-plan` is a Pulumi concept, and this surface serves
+        # Terraform alone — it could only ever be `false` here (#1911). "Harmless"
+        # was a property of today's value, not of the attribute, and it was the
+        # one Pulumi concept reaching a wire pinned to Terraform.
+        #
+        # Removed here rather than made conditional inside the literal, because
+        # the attribute-contract gate AST-reads that literal and cannot see
+        # through a `**spread` — building it that way made the key vanish from
+        # the snapshot entirely, un-freezing it for the native consumers that DO
+        # read it. A pop keeps it frozen and still takes it off this wire.
+        #
+        # Gated on the door and not on `ws.engine`, so the native representation
+        # is unchanged for every engine: a consumer already reading this key on a
+        # Terraform workspace keeps getting it.
+        payload["data"]["attributes"].pop("pulumi-bind-plan", None)
+    return payload
 
 
 def _parse_tag_filters(request: Request) -> list[tuple[str, str | None]]:
@@ -976,7 +1068,11 @@ async def _list_workspaces_impl(query, user, db, request, latest_runs_for) -> JS
             caps = await resolve_workspace_capabilities_for(db, user, ws)
             data.append(
                 _workspace_json(
-                    ws, caps, latest_run=latest_runs.get(ws.id), live_pool_ids=live_pools
+                    ws,
+                    caps,
+                    latest_run=latest_runs.get(ws.id),
+                    live_pool_ids=live_pools,
+                    tfe=is_tfe_path(request.url.path),
                 )["data"]
             )
         return JSONResponse(
@@ -998,7 +1094,11 @@ async def _list_workspaces_impl(query, user, db, request, latest_runs_for) -> JS
         if caps:
             visible.append(
                 _workspace_json(
-                    ws, caps, latest_run=latest_runs.get(ws.id), live_pool_ids=live_pools
+                    ws,
+                    caps,
+                    latest_run=latest_runs.get(ws.id),
+                    live_pool_ids=live_pools,
+                    tfe=is_tfe_path(request.url.path),
                 )["data"]
             )
 
@@ -1016,14 +1116,39 @@ async def _list_workspaces_impl(query, user, db, request, latest_runs_for) -> JS
 
 @router.get("/organizations/default/workspaces/{workspace_name}")
 async def show_workspace(
+    request: Request,
     workspace_name: str = Path(...),
     user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
-    """Show a workspace by organization and name."""
+    """Show a workspace by organization and name (TFE surface: Terraform only)."""
+    return await _show_workspace_by_name(workspace_name, user, db, request=request)
 
+
+async def _show_workspace_by_name(
+    workspace_name: str,
+    user: AuthenticatedUser,
+    db: AsyncSession,
+    *,
+    request: Request,
+) -> JSONResponse:
+    """The by-name lookup, scoped on the surface that asked.
+
+    No native route is mounted here, and that is the point: the native surface
+    already resolves a name, because `GET /api/v1/workspaces/{ref}` takes an id
+    OR a name (`workspace_extensions._native_workspace`) — a Pulumi workspace is
+    addressed by its `project::stack` name everywhere a person meets it. A second
+    native path for the same lookup would be surface for nothing. The gap #1911
+    names is in the *consumer*: the UI's deep-link resolver reached for the TFE
+    route, which serves Terraform alone.
+    """
+    scoped = is_tfe_path(request.url.path)
     result = await db.execute(
-        select(Workspace).where(Workspace.name == workspace_name, _engine_filter(Workspace))
+        select(Workspace).where(
+            Workspace.name == workspace_name,
+            # One statement so the source-introspection guard can see the filter.
+            _engine_filter(Workspace) if scoped else True,
+        )
     )
     ws = result.scalar_one_or_none()
     if ws is None:
@@ -1045,7 +1170,15 @@ async def show_workspace(
     # Load latest primary run for this workspace (excludes module-test / speculative PR runs)
     run_result = await db.execute(
         select(Run)
-        .where(Run.workspace_id == ws.id, _primary_run_filter(), _engine_filter(Run))
+        .where(
+            Run.workspace_id == ws.id,
+            _primary_run_filter(),
+            # Runs of a workspace this surface has already been allowed to see,
+            # so the filter is redundant on the TFE side and wrong on the native
+            # one — a Pulumi workspace's own runs are what a native caller asked
+            # for.
+            _engine_filter(Run) if scoped else True,
+        )
         .order_by(Run.created_at.desc())
         .limit(1)
     )
@@ -1053,7 +1186,11 @@ async def show_workspace(
 
     return JSONResponse(
         content=_workspace_json(
-            ws, caps, latest_run=latest_run, live_pool_ids=await _resolve_live_pools([ws])
+            ws,
+            caps,
+            latest_run=latest_run,
+            live_pool_ids=await _resolve_live_pools([ws]),
+            tfe=scoped,
         ),
         headers=_tfe_headers(),
     )
@@ -1137,6 +1274,32 @@ async def _resolve_pool_set_attrs(
     return requested
 
 
+async def _enforce_repository_allowlist(db, *, conn_id, repo_url: str) -> None:
+    """403 if this connection may not be pointed at this repository.
+
+    GHSA-v8g7-pqrj-8mcm's second half. Separate from the connection gate because
+    the two have different remedies: "you may not use this connection" is a claim
+    problem and "this connection may not go there" is a scoping one, and collapsing
+    them sends the operator to ask for the wrong thing.
+    """
+    from terrapod.db.models import VCSConnection as _VCSConnection
+    from terrapod.services.vcs_connection_rbac import (
+        repository_allowed,
+        repository_refusal_detail,
+    )
+
+    conn = await db.get(_VCSConnection, conn_id)
+    if conn is None:
+        return  # the caller's own existence check reports this
+    if not repository_allowed(conn, repo_url):
+        raise HTTPException(
+            status_code=403,
+            detail=repository_refusal_detail(
+                conn_id, repo_url, list(conn.allowed_repositories or [])
+            ),
+        )
+
+
 @router.post("/organizations/default/workspaces")
 async def create_workspace(
     body: dict = Body(...),
@@ -1151,7 +1314,7 @@ async def create_workspace(
     lives. Pinning it here rather than reading it from the body is what keeps a
     TFE client unable to express an engine it could not then see.
     """
-    return await _create_workspace_impl(body, user, db, engine=TERRAFORM)
+    return await _create_workspace_impl(body, user, db, engine=TERRAFORM, tfe=True)
 
 
 async def _create_workspace_impl(
@@ -1160,6 +1323,7 @@ async def _create_workspace_impl(
     db: AsyncSession,
     *,
     engine: str,
+    tfe: bool,
 ) -> JSONResponse:
     """The shared create, parameterised by engine (#1535).
 
@@ -1203,6 +1367,34 @@ async def _create_workspace_impl(
         vcs_conn_id_str = vcs_conn_data.get("id", "")
         if vcs_conn_id_str:
             vcs_connection_id = _parse_conn_id(vcs_conn_id_str)
+
+    # GHSA-v8g7-pqrj-8mcm: a connection id is discoverable — it is serialised to
+    # anyone with read on a workspace using it — and naming one grants everything
+    # that credential reaches, so the reference needs authorising like any other
+    # grant. Checked here, after BOTH the attribute and the relationship have been
+    # resolved, so neither spelling slips past.
+    if vcs_connection_id is not None:
+        from terrapod.services.vcs_connection_rbac import (
+            may_reference_connection,
+            refusal_detail,
+        )
+
+        if not await may_reference_connection(
+            db,
+            conn_id=vcs_connection_id,
+            actor_email=user.email,
+            is_platform_admin="admin" in effective_platform_roles(user),
+            actor_roles=sorted(label_reach_roles(user)),
+        ):
+            raise HTTPException(status_code=403, detail=refusal_detail(vcs_connection_id))
+
+        # The residual half of the same finding: being entitled to the connection
+        # says nothing about WHICH repository it may be pointed at, and the URL is
+        # just a string on the workspace. An empty allowlist means any, so this is
+        # inert until an operator narrows a connection.
+        await _enforce_repository_allowlist(
+            db, conn_id=vcs_connection_id, repo_url=attrs.get("vcs-repo-url", "")
+        )
 
     from terrapod.config import settings
 
@@ -1273,10 +1465,31 @@ async def _create_workspace_impl(
         auto_merge=_422(
             workspace_settings.validate_bool, attrs.get("auto-merge", False), "auto-merge"
         ),
+        # Defaults OFF — see the fallback on the next line, which is what sets it
+        # (GHSA-gp5w-76rw-c452). A fork PR's speculative plan executes its author's code
+        # with the workspace's full credential set, and that author has no write
+        # access and cannot merge — so this is the only path by which their code
+        # reaches those credentials. Same-repository PRs are unaffected.
+        allow_fork_pr_plans=_422(
+            workspace_settings.validate_bool,
+            attrs.get("allow-fork-pr-plans", False),
+            "allow-fork-pr-plans",
+        ),
         auto_merge_strategy=auto_merge_strategy,
         auto_apply_mode=auto_apply_mode,
         execution_backend=attrs.get("execution-backend", settings.default_execution_backend),
         engine_version=_engine_version_attr(attrs, default_engine_version(engine)),
+        # Only what the CLIENT supplied is policy-checked. The deployment
+        # default is the operator's own pin, and `get_or_cache_binary` already
+        # draws exactly this line: the pre-release policy governs the version a
+        # USER picks, not one an operator deliberately set in Helm. Validating
+        # the default here would 422 every workspace create on a deployment
+        # whose default is a pre-release.
+        ansible_version=(
+            _validate_ansible_version(attrs["ansible-version"])
+            if "ansible-version" in attrs
+            else settings.default_ansible_version
+        ),
         terragrunt_enabled=_422(
             workspace_settings.validate_bool,
             attrs.get("terragrunt-enabled", False),
@@ -1295,6 +1508,9 @@ async def _create_workspace_impl(
         parallelism=_validate_parallelism(attrs.get("parallelism", DEFAULT_PARALLELISM)),
         pulumi_bind_plan=_validate_pulumi_bind_plan(attrs.get("pulumi-bind-plan", False), engine),
         resource_memory=attrs.get("resource-memory", "2Gi"),
+        oidc_audiences=_422(
+            workspace_settings.validate_oidc_audiences, attrs.get("oidc-audiences")
+        ),
         labels=validate_labels(attrs.get("labels", {})),
         owner_email=user.email,
         vcs_connection_id=vcs_connection_id,
@@ -1346,7 +1562,38 @@ async def _create_workspace_impl(
     )
     pool_set.set_workspace_pools(ws, requested_pool_ids)
     db.add(ws)
-    await db.commit()
+
+    # GHSA-49q6-pm68-3xgw. An assignment rule selects on attributes this caller
+    # just chose, so a new workspace can be shaped to match another team's
+    # rule-assigned variable set and receive its secrets. Flush — not commit — so
+    # the real selector can be asked about the pending row, then refuse any
+    # rule-assigned set it pulls in. A new workspace starts from nothing, so every
+    # match is growth.
+    from terrapod.services.varset_self_join import refuse_varset_growth
+
+    try:
+        # Inside the try, not above it. A flush is where the database first sees the
+        # row, so it is where a duplicate name or an unknown `vcs-connection-id`
+        # surfaces — and an uncaught `IntegrityError` here is a 500 for two things the
+        # caller got wrong and can fix. The commit below raised the same way before
+        # this flush existed, so the 500 is not new; it is simply now in a place with
+        # somewhere to catch it.
+        await db.flush()
+        await refuse_varset_growth(
+            db,
+            workspace_id=ws.id,
+            before=set(),
+            is_platform_admin="admin" in effective_platform_roles(user),
+            actor_email=user.email,
+        )
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        raise _workspace_integrity_error(exc, name) from exc
+    except Exception:
+        await db.rollback()
+        raise
+
     await db.refresh(ws)
 
     logger.info("Workspace created", workspace=name, owner=user.email)
@@ -1360,14 +1607,58 @@ async def _create_workspace_impl(
     await publish_workspace_event(str(ws.id), "workspace_created")
 
     return JSONResponse(
-        content=_workspace_json(ws, cap.caps_for_level("admin")),
+        content=_workspace_json(ws, cap.caps_for_level("admin"), tfe=tfe),
         status_code=201,
         headers=_tfe_headers(),
     )
 
 
-async def _get_workspace_by_id(workspace_id: str, db: AsyncSession) -> Workspace:
-    """Look up a workspace by its ws-{uuid} ID."""
+#: Postgres SQLSTATEs, read off the driver exception rather than matched in the
+#: message text — a constraint name in a message is not a contract and differs
+#: between backends, while these codes are in the SQL standard.
+_UNIQUE_VIOLATION = "23505"
+_FOREIGN_KEY_VIOLATION = "23503"
+
+
+def _workspace_integrity_error(exc: IntegrityError, name: str) -> HTTPException:
+    """Translate a workspace write's `IntegrityError` into the status it deserves.
+
+    Both of these are the caller's input, not a server fault, and both answered 500
+    before: a duplicate name (two creates racing, or simply a name already taken) and
+    an `vcs-connection-id` naming a connection that does not exist. The constraint
+    name is deliberately not echoed back — it is an internal detail, and the caller
+    does not need it to fix either case.
+    """
+    sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+    if sqlstate == _UNIQUE_VIOLATION:
+        return HTTPException(status_code=409, detail=f"A workspace named {name!r} already exists")
+    if sqlstate == _FOREIGN_KEY_VIOLATION:
+        return HTTPException(
+            status_code=422,
+            detail=(
+                "A referenced resource does not exist. Check `vcs-connection-id` and "
+                "`agent-pool-id` name resources that are present."
+            ),
+        )
+    # An integrity error that is neither is a genuine surprise, and guessing a 4xx for
+    # it would hide a server-side bug behind a message blaming the caller.
+    return HTTPException(status_code=500, detail="Could not save the workspace")
+
+
+async def _get_workspace_by_id(
+    workspace_id: str, db: AsyncSession, *, request: Request | None = None
+) -> Workspace:
+    """Look up a workspace by its ws-{uuid} ID, scoped to the surface that asked.
+
+    `request` of None reads as the TFE surface, matching `load_workspace_scoped`.
+    Every TFE-only handler in this module therefore keeps omitting it and keeps
+    its existing behaviour; the `dual_router` handlers MUST pass it. A handler
+    that forgets 404s its own native route — visibly wrong, never a leak.
+
+    The uuid parse stays here rather than moving into the shared loader: a
+    malformed id is a client error worth a clean 404, and without it the
+    comparison reaches the driver as a cast failure.
+    """
     import uuid as _uuid
 
     ws_uuid = workspace_id.removeprefix("ws-")
@@ -1375,13 +1666,7 @@ async def _get_workspace_by_id(workspace_id: str, db: AsyncSession) -> Workspace
         _uuid.UUID(ws_uuid)
     except ValueError:
         raise HTTPException(status_code=404, detail="Workspace not found") from None
-    result = await db.execute(
-        select(Workspace).where(Workspace.id == ws_uuid, _engine_filter(Workspace))
-    )
-    ws = result.scalar_one_or_none()
-    if ws is None:
-        raise HTTPException(status_code=404, detail="Workspace not found")
-    return ws
+    return await load_workspace_scoped(workspace_id, db, request=request)
 
 
 async def _require_ws_capability(
@@ -1389,9 +1674,14 @@ async def _require_ws_capability(
     required: str,
     user: AuthenticatedUser,
     db: AsyncSession,
+    *,
+    request: Request | None = None,
 ) -> tuple[Workspace, frozenset[str]]:
-    """Load workspace and check capability. Returns (workspace, capability set)."""
-    ws = await _get_workspace_by_id(workspace_id, db)
+    """Load workspace and check capability. Returns (workspace, capability set).
+
+    `request` carries the surface through to `_get_workspace_by_id`; see there.
+    """
+    ws = await _get_workspace_by_id(workspace_id, db, request=request)
     caps = await resolve_workspace_capabilities_for(db, user, ws)
     if not has_capability(caps, required):
         raise HTTPException(
@@ -1399,6 +1689,41 @@ async def _require_ws_capability(
             detail=f"Requires '{required}' capability on workspace",
         )
     return ws, caps
+
+
+async def _load_state_version_scoped(
+    state_version_id: str,
+    db: AsyncSession,
+    *,
+    request: Request | None,
+) -> StateVersion:
+    """Load a state version by id, 404ing on the TFE surface if it belongs to
+    another engine's workspace (#1911).
+
+    This was the gap the workspace filter did not cover. `select(StateVersion)`
+    names a model the engine guard did not watch, and the owning workspace was
+    then loaded by primary key *from the row that query had already returned* —
+    which reads as derived-and-therefore-already-scoped, and is not. So
+    `GET /api/tfe/v2/workspaces/{id}` 404d a Pulumi workspace while
+    `GET /api/tfe/v2/state-versions/{sv}` handed a `terraform` CLI its state.
+
+    `request` of None reads as the TFE surface, the conservative direction, for
+    the same reason as `_get_workspace_by_id`.
+    """
+    sv_uuid = parse_id(state_version_id, "sv-", detail="State version not found")
+    scoped = request is None or is_tfe_path(request.url.path)
+    result = await db.execute(
+        select(StateVersion).where(
+            StateVersion.id == sv_uuid,
+            # One statement, so the source-introspection guard can see the
+            # filter — it reads the statement a `select()` sits in.
+            engine_filter(StateVersion) if scoped else True,
+        )
+    )
+    sv = result.scalar_one_or_none()
+    if sv is None:
+        raise HTTPException(status_code=404, detail="State version not found")
+    return sv
 
 
 async def _runner_state_read_allowed(
@@ -1508,7 +1833,11 @@ async def show_workspace_by_id(
 
     return JSONResponse(
         content=_workspace_json(
-            ws, caps, latest_run=latest_run, live_pool_ids=await _resolve_live_pools([ws])
+            ws,
+            caps,
+            latest_run=latest_run,
+            live_pool_ids=await _resolve_live_pools([ws]),
+            tfe=True,
         ),
         headers=_tfe_headers(),
     )
@@ -1643,7 +1972,7 @@ async def patch_workspace(
     engine (#1554); both go through `update_workspace`.
     """
     ws, old_caps = await _require_ws_capability(workspace_id, cap.WORKSPACE_SETTINGS, user, db)
-    return await update_workspace(ws, old_caps, body, user, db)
+    return await update_workspace(ws, old_caps, body, user, db, tfe=True)
 
 
 async def update_workspace(
@@ -1652,12 +1981,32 @@ async def update_workspace(
     body: dict,
     user: AuthenticatedUser,
     db: AsyncSession,
+    *,
+    tfe: bool,
 ) -> JSONResponse:
     """Apply a settings update to a workspace the caller already looked up.
 
     Shared by both surfaces. The lookup and the settings check stay with each
     route, so which engines a surface can reach is decided there and nowhere here.
     """
+    # GHSA-49q6-pm68-3xgw. Snapshotted BEFORE any attribute moves, because an
+    # assignment rule selects on the very attributes this PATCH may change, so the
+    # comparison has to straddle the whole edit rather than one field of it.
+    #
+    # Skipped entirely when the body cannot move the answer — a description edit, a
+    # notification toggle — because this costs three queries and a workspace PATCH
+    # should not pay them to learn nothing. `touches_rule_selectable` fails OPEN, so
+    # an attribute nobody has classified counts as touching.
+    from terrapod.services.varset_self_join import (
+        rule_assigned_varset_ids,
+        touches_rule_selectable,
+    )
+
+    _patch_attrs = body.get("data", {}).get("attributes", {}) or {}
+    _patch_rels = body.get("data", {}).get("relationships", {}) or {}
+    _varsets_checked = touches_rule_selectable(_patch_attrs, _patch_rels)
+    _varsets_before_patch = await rule_assigned_varset_ids(db, ws.id) if _varsets_checked else set()
+
     attrs = body.get("data", {}).get("attributes", {})
 
     # Handle workspace rename
@@ -1789,6 +2138,12 @@ async def update_workspace(
             )
         )
 
+    if "allow-fork-pr-plans" in attrs:
+        ws.allow_fork_pr_plans = _422(
+            workspace_settings.validate_bool,
+            attrs["allow-fork-pr-plans"],
+            "allow-fork-pr-plans",
+        )
     if "auto-merge" in attrs:
         ws.auto_merge = _422(workspace_settings.validate_bool, attrs["auto-merge"], "auto-merge")
     if "auto-merge-strategy" in attrs:
@@ -1806,6 +2161,8 @@ async def update_workspace(
         ws.execution_backend = backend
     if "engine-version" in attrs or "terraform-version" in attrs:
         ws.engine_version = _engine_version_attr(attrs, ws.engine_version)
+    if "ansible-version" in attrs:
+        ws.ansible_version = _validate_ansible_version(attrs["ansible-version"])
     if "slack-channel" in attrs:
         # Slack opt-in channel (#556): empty clears it (workspace goes silent).
         ws.slack_channel = (attrs["slack-channel"] or "").strip()[:128]
@@ -1830,6 +2187,10 @@ async def update_workspace(
         ws.resource_cpu = attrs["resource-cpu"]
     if "resource-memory" in attrs:
         ws.resource_memory = attrs["resource-memory"]
+    if "oidc-audiences" in attrs:
+        ws.oidc_audiences = _422(
+            workspace_settings.validate_oidc_audiences, attrs["oidc-audiences"]
+        )
     if "labels" in attrs:
         # Validate up-front (size limits + reserved-key check). Raises 422
         # before any self-lockout logic so the error path stays simple and
@@ -1948,6 +2309,11 @@ async def update_workspace(
     # only the relationship — so the obvious PATCH, mirroring the create body
     # that worked, was accepted with a 200 and silently ignored. Silently
     # dropping a recognised field is worse than rejecting it: the caller has no
+    # Captured before either spelling is applied, so the gate below fires only on a
+    # CHANGE. A PATCH that leaves the connection alone must not start failing for
+    # someone who legitimately administers the workspace today.
+    _conn_before_patch = ws.vcs_connection_id
+
     # way to tell it did nothing. The relationship stays canonical and wins
     # when both are present.
     if "vcs-connection-id" in attrs:
@@ -1984,6 +2350,57 @@ async def update_workspace(
             if "drift-detection-enabled" not in attrs and ws.vcs_connection_id:
                 ws.drift_detection_enabled = True
 
+    # The same gate as create (GHSA-v8g7-pqrj-8mcm), after both spellings have been
+    # applied — PATCH accepts the attribute and the relationship, and the
+    # relationship wins, so checking one would leave the other open.
+    if ws.vcs_connection_id is not None and ws.vcs_connection_id != _conn_before_patch:
+        from terrapod.services.vcs_connection_rbac import (
+            may_reference_connection,
+            refusal_detail,
+        )
+
+        if not await may_reference_connection(
+            db,
+            conn_id=ws.vcs_connection_id,
+            actor_email=user.email,
+            is_platform_admin="admin" in effective_platform_roles(user),
+            actor_roles=sorted(label_reach_roles(user)),
+        ):
+            raise HTTPException(status_code=403, detail=refusal_detail(ws.vcs_connection_id))
+
+    # Re-checked on every PATCH that leaves a connection attached, not only when the
+    # connection itself changes: the repo URL is separately settable, so an entitled
+    # owner could otherwise repoint an allowlisted connection at anything its
+    # credential can read without the connection gate ever firing.
+    if ws.vcs_connection_id is not None:
+        await _enforce_repository_allowlist(
+            db, conn_id=ws.vcs_connection_id, repo_url=ws.vcs_repo_url or ""
+        )
+
+    # GHSA-49q6-pm68-3xgw, the edit path. `_varsets_before_patch` was taken before
+    # any attribute moved; growing the set of rule-assigned variable sets reaching
+    # this workspace is the escalation, shrinking it is a de-escalation and allowed.
+    from terrapod.services.varset_self_join import refuse_varset_growth
+
+    if _varsets_checked:
+        try:
+            # Inside the try for the same reason as the create path: a rename can
+            # collide and an `IntegrityError` escaping here is a 500 for a 409.
+            await db.flush()
+            await refuse_varset_growth(
+                db,
+                workspace_id=ws.id,
+                before=_varsets_before_patch,
+                is_platform_admin="admin" in effective_platform_roles(user),
+                actor_email=user.email,
+            )
+        except IntegrityError as exc:
+            await db.rollback()
+            raise _workspace_integrity_error(exc, ws.name) from exc
+        except Exception:
+            await db.rollback()
+            raise
+
     await db.commit()
     await db.refresh(ws)
 
@@ -2013,7 +2430,12 @@ async def update_workspace(
         logger.info("Workspace renamed", old_name=old_name, new_name=ws.name)
 
     return JSONResponse(
-        content=_workspace_json(ws, old_caps, live_pool_ids=await _resolve_live_pools([ws])),
+        content=_workspace_json(
+            ws,
+            old_caps,
+            live_pool_ids=await _resolve_live_pools([ws]),
+            tfe=tfe,
+        ),
         headers=_tfe_headers(),
     )
 
@@ -2056,7 +2478,7 @@ async def delete_workspace(
 # ── State Versions ───────────────────────────────────────────────────────────
 
 
-@router.get("/workspaces/{workspace_id}/state-versions")
+@dual_router.get("/workspaces/{workspace_id}/state-versions")
 async def list_state_versions(
     request: Request,
     workspace_id: str = Path(...),
@@ -2064,7 +2486,9 @@ async def list_state_versions(
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """List all state versions for a workspace, ordered by serial DESC."""
-    ws, _ = await _require_ws_capability(workspace_id, cap.STATE_READ_METADATA, user, db)
+    ws, _ = await _require_ws_capability(
+        workspace_id, cap.STATE_READ_METADATA, user, db, request=request
+    )
 
     result = await db.execute(
         select(StateVersion)
@@ -2085,7 +2509,7 @@ async def list_state_versions(
     )
 
 
-@router.get("/workspaces/{workspace_id}/current-state-version")
+@dual_router.get("/workspaces/{workspace_id}/current-state-version")
 async def current_state_version(
     request: Request,
     workspace_id: str = Path(...),
@@ -2100,7 +2524,7 @@ async def current_state_version(
     owner. All other principals continue through the standard
     workspace RBAC path.
     """
-    ws = await _get_workspace_by_id(workspace_id, db)
+    ws = await _get_workspace_by_id(workspace_id, db, request=request)
     if not await _runner_state_read_allowed(db, user, ws):
         caps = await resolve_workspace_capabilities_for(db, user, ws)
         if not has_capability(caps, cap.STATE_READ_METADATA):
@@ -2122,19 +2546,15 @@ async def current_state_version(
     return JSONResponse(content=_state_version_json(sv, request), headers=_tfe_headers())
 
 
-@router.get("/state-versions/{state_version_id}/download")
+@dual_router.get("/state-versions/{state_version_id}/download")
 async def download_state(
+    request: Request,
     state_version_id: str = Path(...),
     user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Download the raw state JSON for a state version. Requires plan permission."""
-    sv_uuid = state_version_id.removeprefix("sv-")
-
-    result = await db.execute(select(StateVersion).where(StateVersion.id == sv_uuid))
-    sv = result.scalar_one_or_none()
-    if sv is None:
-        raise HTTPException(status_code=404, detail="State version not found")
+    sv = await _load_state_version_scoped(state_version_id, db, request=request)
 
     # Raw state may contain secrets. Authorization paths:
     # * Runner-token principals (agent-mode runs hitting this endpoint
@@ -2313,7 +2733,7 @@ def _state_version_json(
     }
 
 
-@router.get("/state-versions/{state_version_id}")
+@dual_router.get("/state-versions/{state_version_id}")
 async def show_state_version(
     request: Request,
     state_version_id: str = Path(...),
@@ -2324,11 +2744,7 @@ async def show_state_version(
 
     go-tfe reads this to get hosted-state-upload-url before uploading.
     """
-    sv_uuid = state_version_id.removeprefix("sv-")
-    result = await db.execute(select(StateVersion).where(StateVersion.id == sv_uuid))
-    sv = result.scalar_one_or_none()
-    if sv is None:
-        raise HTTPException(status_code=404, detail="State version not found")
+    sv = await _load_state_version_scoped(state_version_id, db, request=request)
 
     # Check read permission on workspace
     ws = await db.get(Workspace, sv.workspace_id)
@@ -2394,17 +2810,30 @@ async def create_state_version(
         run_id=run_uuid,
     )
     db.add(sv)
-    await db.flush()
 
     # A new state version landed → any other apply-capable planned run on this
     # workspace now has a stale plan; auto-discard them (#647).
     from terrapod.services import run_service
 
-    await run_service.discard_stale_plans_for_state_change(
-        db, ws.id, serial, exclude_run_id=run_uuid
-    )
-
-    await db.commit()
+    try:
+        # The serial check above is check-then-act, so two concurrent uploads for the
+        # same serial both pass it and the second violates the unique constraint. That
+        # is a 409 — the same 409 the check itself raises — and it answered 500. The
+        # race is not theoretical here: this is the CLI's state-upload path, and two
+        # applies finishing together is how it is reached.
+        await db.flush()
+        await run_service.discard_stale_plans_for_state_change(
+            db, ws.id, serial, exclude_run_id=run_uuid
+        )
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+        if sqlstate == _UNIQUE_VIOLATION:
+            raise HTTPException(
+                status_code=409, detail="State version serial already exists"
+            ) from exc
+        raise HTTPException(status_code=500, detail="Could not save the state version") from exc
     await db.refresh(sv)
 
     from terrapod.api.metrics import STATE_VERSIONS_CREATED
@@ -2460,7 +2889,12 @@ async def upload_state_content(
     )
     sv_uuid = parse_id(segment, "sv-", detail="State version not found")
 
-    result = await db.execute(select(StateVersion).where(StateVersion.id == sv_uuid))
+    # TFE-only route, so the filter is unconditional: this is the `go-tfe` upload
+    # protocol, and another engine's state is never pushed through it however the
+    # capability was obtained (#1911).
+    result = await db.execute(
+        select(StateVersion).where(StateVersion.id == sv_uuid, engine_filter(StateVersion))
+    )
     sv = result.scalar_one_or_none()
     if sv is None:
         raise HTTPException(status_code=404, detail="State version not found")
@@ -2653,7 +3087,7 @@ def _lock_reason_from_body(lock_info: dict) -> str | None:
     return None
 
 
-@router.post("/workspaces/{workspace_id}/actions/lock")
+@dual_router.post("/workspaces/{workspace_id}/actions/lock")
 async def lock_workspace(
     request: Request,
     workspace_id: str = Path(...),
@@ -2662,7 +3096,9 @@ async def lock_workspace(
 ) -> JSONResponse:
     """Lock a workspace. Requires plan permission."""
     await ha_role.ensure_leader("lock workspaces")
-    ws, caps = await _require_ws_capability(workspace_id, cap.WORKSPACE_LOCK, user, db)
+    ws, caps = await _require_ws_capability(
+        workspace_id, cap.WORKSPACE_LOCK, user, db, request=request
+    )
 
     # Parse lock info from request body
     import json as json_mod
@@ -2697,18 +3133,22 @@ async def lock_workspace(
 
     await publish_workspace_event(str(ws.id), "workspace_lock_change", {"locked": True})
 
-    return JSONResponse(content=_workspace_json(ws, caps), headers=_tfe_headers())
+    return JSONResponse(
+        content=_workspace_json(ws, caps, tfe=is_tfe_path(request.url.path)),
+        headers=_tfe_headers(),
+    )
 
 
-@router.post("/workspaces/{workspace_id}/actions/unlock")
+@dual_router.post("/workspaces/{workspace_id}/actions/unlock")
 async def unlock_workspace(
+    request: Request,
     workspace_id: str = Path(...),
     user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """Unlock a workspace. Plan for own lock, admin for force-unlock."""
     await ha_role.ensure_leader("unlock workspaces")
-    ws = await _get_workspace_by_id(workspace_id, db)
+    ws = await _get_workspace_by_id(workspace_id, db, request=request)
     caps = await resolve_workspace_capabilities_for(db, user, ws)
 
     # Check: at minimum the lock capability is required
@@ -2737,11 +3177,15 @@ async def unlock_workspace(
 
     await publish_workspace_event(str(ws.id), "workspace_lock_change", {"locked": False})
 
-    return JSONResponse(content=_workspace_json(ws, caps), headers=_tfe_headers())
+    return JSONResponse(
+        content=_workspace_json(ws, caps, tfe=is_tfe_path(request.url.path)),
+        headers=_tfe_headers(),
+    )
 
 
-@router.post("/workspaces/{workspace_id}/actions/force-unlock")
+@dual_router.post("/workspaces/{workspace_id}/actions/force-unlock")
 async def force_unlock_workspace(
+    request: Request,
     workspace_id: str = Path(...),
     user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -2755,7 +3199,7 @@ async def force_unlock_workspace(
     ID to match and is gated on the workspace:force-unlock capability (#662).
     """
     await ha_role.ensure_leader("unlock workspaces")
-    ws = await _get_workspace_by_id(workspace_id, db)
+    ws = await _get_workspace_by_id(workspace_id, db, request=request)
     caps = await resolve_workspace_capabilities_for(db, user, ws)
 
     if not has_capability(caps, cap.WORKSPACE_FORCE_UNLOCK):
@@ -2776,4 +3220,7 @@ async def force_unlock_workspace(
 
     await publish_workspace_event(str(ws.id), "workspace_lock_change", {"locked": False})
 
-    return JSONResponse(content=_workspace_json(ws, caps), headers=_tfe_headers())
+    return JSONResponse(
+        content=_workspace_json(ws, caps, tfe=is_tfe_path(request.url.path)),
+        headers=_tfe_headers(),
+    )

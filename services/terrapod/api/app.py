@@ -28,7 +28,7 @@ from terrapod.config import settings
 from terrapod.db.session import close_db, get_db_session, init_db
 from terrapod.logging_config import configure_logging, get_logger
 from terrapod.redis.client import close_redis, init_redis
-from terrapod.services.engine_gating import capability_enabled
+from terrapod.services.capabilities import capability_enabled
 from terrapod.storage import close_storage, init_storage
 
 from .errors import UPSTREAM_FAILURE_HEADER
@@ -81,24 +81,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
 
         replication.install_outbox_hooks()
 
-    # Initialize app-layer encryption at rest (#553) BEFORE the CA — the CA
-    # private key column is EncryptedText, so the service must be ready first.
-    # Fail CLOSED when encryption is enabled (a wrong/missing key must crash);
-    # tolerate errors only when disabled (e.g. table missing pre-migration).
-    # Report weak secret material HERE, at startup, rather than leaving it to the
-    # first token mint (GHSA-hc47-q72v-4vcm). The derivation checks too and is the
-    # real chokepoint, but it is lazy and cached, so on a quiet deployment the
-    # warning might not appear for hours -- and under `require_strong_secrets` an
-    # operator wants the pod to fail immediately and visibly, not once a run
-    # happens to start.
-    from terrapod.auth.token_signing import report_key_strength
+    # Initialize app-layer encryption at rest (#553) BEFORE the CA and the token
+    # signing key — both store material in EncryptedText columns, so the service
+    # must be ready first. Fail CLOSED when encryption is enabled (a wrong/missing
+    # key must crash); tolerate errors only when disabled (e.g. table missing
+    # pre-migration).
     from terrapod.config import settings as _settings
     from terrapod.crypto.service import init_encryption
-
-    report_key_strength(
-        (_settings.token_signing_key or "").strip(),
-        strict=bool(_settings.require_strong_secrets),
-    )
 
     try:
         async with get_db_session() as db:
@@ -118,8 +107,53 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     except Exception as e:
         logger.warning("CA initialization skipped (migration may be pending)", error=str(e))
 
+    # Resolve the token signing key (GHSA-hc47-q72v-4vcm). Four stateless token
+    # families depend on it, and it is resolved HERE rather than lazily on the
+    # first mint so that a weak key is reported before a run starts and
+    # `require_strong_secrets` fails the pod immediately and visibly.
+    #
+    # **Deliberately fatal, unlike the CA above.** A pod that cannot sign tokens
+    # can run nothing, so swallowing the error buys an API that serves the UI and
+    # fails every run — and stays broken after the database recovers, because the
+    # getter is synchronous and cannot retry. Crashing lets Kubernetes restart us
+    # and self-heal. A deployment that supplies its own `token_signing_key` never
+    # reaches the database here at all, so it cannot be affected by this.
+    from terrapod.auth.token_signing import init_token_signing_key
+
+    async with get_db_session() as db:
+        await init_token_signing_key(db)
+
+    # Resolve the OIDC issuer signing key (#1901), only when an issuer is
+    # published. Tolerant like the CA above rather than fatal: a deployment that
+    # has not opted in must not be prevented from starting, and one that has can
+    # still serve everything except the two issuer routes, which fail loudly on
+    # their own when nothing is loaded.
+    if _settings.auth.oidc_issuer.enabled:
+        from terrapod.auth.oidc_signing import init_oidc_signing
+
+        try:
+            async with get_db_session() as db:
+                await init_oidc_signing(db)
+            logger.info("OIDC issuer signing key initialized")
+        except Exception as e:
+            logger.warning(
+                "OIDC issuer signing key initialization skipped "
+                "(migration may be pending); the issuer routes will refuse until "
+                "it succeeds",
+                error=str(e),
+            )
+
     # Register and start distributed scheduler (multi-replica safe)
-    from terrapod.services.engine_gating import engine_enabled as _engine_enabled
+    # A local Pulumi update holds the workspace lock while it runs (#1562); this
+    # releases the lock of one whose CLI died and stopped renewing its lease.
+    # Registered unconditionally (#1986): there is no engine switch to ask, and a
+    # deployment that runs no Pulumi has no `pulumi-update:` locks for the sweep
+    # to find, so it costs one idle scheduled task rather than a decision.
+    from terrapod.services.pulumi_update_locks import (
+        RUN_ENDED_TRIGGER,
+        handle_run_ended,
+        sweep_abandoned_updates,
+    )
     from terrapod.services.scheduler import (
         AI_LANE,
         register_periodic_task,
@@ -128,18 +162,22 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         stop_scheduler,
     )
 
-    # A local Pulumi update holds the workspace lock while it runs (#1562); this
-    # releases the lock of one whose CLI died and stopped renewing its lease.
-    # Registered only with the engine on, like every Pulumi surface (#1429).
-    if _engine_enabled("pulumi"):
-        from terrapod.services.pulumi_update_locks import sweep_abandoned_updates
-
-        register_periodic_task(
-            "pulumi_update_sweep",
-            interval_seconds=60,
-            handler=sweep_abandoned_updates,
-            description="Release the workspace lock of an abandoned local Pulumi update",
-        )
+    register_periodic_task(
+        "pulumi_update_sweep",
+        interval_seconds=60,
+        handler=sweep_abandoned_updates,
+        description="Release the workspace lock of an abandoned local Pulumi update",
+    )
+    # The sweep above infers an update's death from a lapsed lease. For an
+    # agent run Terrapod knows the Job is gone, so it ends that run's update
+    # at once rather than a poll interval later (#1882). Registered inside
+    # the same gate: with the engine off nothing enqueues these, and an
+    # unregistered type would only log "no handler".
+    register_trigger_handler(
+        RUN_ENDED_TRIGGER,
+        handler=handle_run_ended,
+        description="End the Pulumi update an agent run left behind when it ended",
+    )
 
     if settings.vcs.enabled:
         from terrapod.services.vcs_poller import handle_immediate_poll, poll_cycle
@@ -567,6 +605,53 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
             description="Propagate rotated DEKs to all replicas (multi-replica safe)",
         )
 
+    # OIDC issuer signing-key refresh (#1901). Without this a rotation reaches
+    # only the replica that served it: `_keys` and `_signing_kid` are module
+    # globals, `get_signing_key()` never touches the database, and
+    # `reload_signing_keys` had exactly one caller -- `rotate_signing_key`
+    # itself. Two things were broken by that, and both are invisible from the
+    # Terrapod side because the failure lands at the cloud's token exchange:
+    #
+    #   * the published JWKS differed by pod behind a load balancer, so a cloud
+    #     fetching it got the new `kid` or not depending on which replica
+    #     answered;
+    #   * `_signing_kid` is a point-in-time choice. At rotation it correctly
+    #     picks the RETIRED key, because the new one does not activate until
+    #     `key_propagation_seconds` has passed -- and nothing recomputed it, so
+    #     the handover the whole design exists for never happened without a
+    #     restart. The runbook told the operator to confirm a handover that
+    #     could not occur.
+    #
+    # **The distributed scheduler is a mutex, so this converges rather than
+    # fanning out.** `try_claim_periodic` is SET NX EX: exactly one replica runs
+    # any given interval, so a single pass refreshes one pod, not all of them.
+    # At 30s against a 600s default propagation window there are ~20 claim slots
+    # before the handover is due, so every replica of a small deployment is
+    # overwhelmingly likely to have reloaded by then -- and the design tolerates
+    # the straggler, because both keys stay published across the propagation and
+    # grace windows, so a pod that has not reloaded signs with a key its own
+    # JWKS still advertises. This is the same primitive, and the same
+    # probabilistic convergence, as `encryption_key_refresh` above; the
+    # scheduler has no per-replica task type, and `asyncio.create_task` for
+    # background work is forbidden.
+    #
+    # Best-effort by construction: `reload_signing_keys` raises before it
+    # assigns, so a transient database error leaves the working cache intact.
+    if settings.auth.oidc_issuer.enabled:
+
+        async def _oidc_signing_refresh() -> None:
+            from terrapod.auth.oidc_signing import reload_signing_keys
+
+            async with get_db_session() as db:
+                await reload_signing_keys(db)
+
+        register_periodic_task(
+            "oidc_signing_refresh",
+            interval_seconds=30,
+            handler=_oidc_signing_refresh,
+            description="Re-read the OIDC signing keys so a rotation reaches every replica",
+        )
+
     # Leadership probe (#960). Registered only under `ha.role=auto` — a static
     # role needs no probing at all, which is the overwhelmingly common case.
     #
@@ -756,7 +841,18 @@ def create_application() -> FastAPI:
     """Create and configure the FastAPI application."""
     app = FastAPI(
         title="Terrapod API",
-        description="Terrapod - Open-source Terraform Enterprise replacement",
+        # The first orientation an agent or a tooling client reading
+        # /api/openapi.json gets, so it says what Terrapod runs rather than only
+        # what it replaces (#1911). An OpenTofu/Terraform orchestrator first, and
+        # a workspace's `engine` says which engine it belongs to — a client that
+        # assumes one engine is the failure this line exists to head off. Ansible
+        # is deliberately not claimed here: it is planned, not shipped.
+        description=(
+            "Terrapod - open-source Terraform Enterprise replacement. Orchestrates "
+            "OpenTofu/Terraform, and Pulumi where it is enabled; a workspace's "
+            "`engine` attribute says which. The /api/tfe/v2 compatibility surface "
+            "serves OpenTofu/Terraform workspaces only — /api/v1 serves every engine."
+        ),
         version="0.1.0",
         lifespan=lifespan,
         docs_url=None,
@@ -1162,6 +1258,9 @@ def create_application() -> FastAPI:
     # The one workspace-management path the CLI doesn't call (DELETE by
     # id) lives in extensions_router, mounted only under /api/terrapod/v1.
     from terrapod.api.routers.tfe_v2 import (
+        dual_router as tfe_v2_dual_router,
+    )
+    from terrapod.api.routers.tfe_v2 import (
         extensions_router as tfe_v2_extensions_router,
     )
     from terrapod.api.routers.tfe_v2 import (
@@ -1170,6 +1269,12 @@ def create_application() -> FastAPI:
 
     include_tfe(tfe_v2_router)
     include_terrapod(tfe_v2_extensions_router)
+    # Locking and state-version reads are not Terraform concepts, so they answer
+    # on both surfaces (#1911). The handlers scope themselves on the request's
+    # prefix — see the `dual_router` comment in routers/tfe_v2.py. Purely
+    # additive: no route moves, and the TFE mount behaves exactly as before.
+    include_tfe(tfe_v2_dual_router)
+    include_terrapod(tfe_v2_dual_router)
 
     # State management routes — Terrapod-specific (delete, rollback, upload).
     from terrapod.api.routers.state_management import router as state_management_router
@@ -1283,11 +1388,18 @@ def create_application() -> FastAPI:
     include_terrapod(cost_estimation_router)
 
     # Variable endpoints
+    from terrapod.api.routers.variables import dual_router as variables_dual_router
     from terrapod.api.routers.variables import native_router as variables_native_router
     from terrapod.api.routers.variables import router as variables_router
 
     include_tfe(variables_router)
     include_terrapod(variables_native_router)
+    # The only router mounted on BOTH surfaces, and deliberately: its routes are
+    # the ones whose representation differs between them (#1898). See the
+    # `dual_router` comment in routers/variables.py. Purely additive — no route
+    # moves, and every existing caller is on the prefix it always was.
+    include_tfe(variables_dual_router)
+    include_terrapod(variables_dual_router)
 
     # Vault diagnostics (#1663): admin instance status + reference checks.
     # Mounted unconditionally so the route surface never depends on config;
@@ -1325,7 +1437,14 @@ def create_application() -> FastAPI:
         router as runs_router,
     )
 
+    # Mounted on BOTH surfaces (#1572), like the variables router (#1898).
+    # `tfci` and the `cloud` block drive these routes, so they cannot move off
+    # the compatibility surface — but Terrapod's own UI has to reach them for a
+    # workspace of ANY engine, and on the compatibility surface a non-Terraform
+    # workspace correctly does not exist. One handler, two answers, decided by
+    # `load_workspace_scoped` from the request's own prefix.
     include_tfe(runs_router)
+    include_terrapod(runs_router)
     include_terrapod(runs_extensions_router)
 
     # Run artifact endpoints (runner token auth) — Terrapod runner protocol.
@@ -1344,6 +1463,7 @@ def create_application() -> FastAPI:
     )
 
     include_tfe(config_versions_router)
+    include_terrapod(config_versions_router)
     include_terrapod(config_version_extensions_router)
 
     # VCS connection endpoints — Terrapod-native. Canonical paths at
@@ -1434,6 +1554,18 @@ def create_application() -> FastAPI:
 
     include_terrapod(remote_state_consumers_router)
 
+    # Ansible inventory: the hosts a workspace declares through its own
+    # Terraform (#1968) and the inventory object those hosts resolve into
+    # (#1967). The resolved read writes nothing -- dynamic inventory was
+    # declined (#1970), so every source is static and resolving is a query.
+    # Native only -- no CLI consumes it. Nothing is created for a workspace that never
+    # declares a host, so a terraform/tofu-only deployment carries no rows and
+    # sees no surface (#1986 withdrew the engine on/off switch, so this is keyed
+    # on data rather than on a flag).
+    from terrapod.api.routers.inventory import router as inventory_router
+
+    include_terrapod(inventory_router)
+
     # OPA policy-as-code enforcement — Terrapod-native management of
     # policy sets + policies, plus per-run policy evaluations and the
     # admin override action (#343).
@@ -1452,24 +1584,43 @@ def create_application() -> FastAPI:
     # The Pulumi service surface (#1522) — `pulumi login` and a stack's state,
     # secrets and update lifecycle.
     #
-    # Gated on the engine itself, not a capability flag: unlike the caches in
-    # engine_gating's table this surface has no separate `enabled` of its own —
-    # it exists exactly when the Pulumi engine does. And it is NOT MOUNTED when
-    # gated off rather than mounted-and-404ing: a surface that refuses every
-    # request is still in the schema, still carries its dependencies, and still
-    # reads to an auditor as something this deployment does (#1429).
-    from terrapod.services.engine_gating import engine_enabled
+    # Mounted unconditionally (#1986). It has no `enabled` flag of its own and
+    # there is no longer an engine switch above it: the surface exists because
+    # Terrapod can run Pulumi, and a deployment that does not simply never calls
+    # it. Nothing here is reachable without a Pulumi workspace to name.
+    from terrapod.api.routers.pulumi_service import router as pulumi_router
+    from terrapod.api.routers.run_artifacts import (
+        pulumi_router as pulumi_run_artifacts_router,
+    )
 
-    if engine_enabled("pulumi"):
-        from terrapod.api.routers.pulumi_service import router as pulumi_router
-        from terrapod.api.routers.run_artifacts import (
-            pulumi_router as pulumi_run_artifacts_router,
-        )
+    include_terrapod(pulumi_router)
+    # The stack-handover artifact routes, mounted beside the surface above and
+    # on the same reasoning. An agent run no longer uses them: since #1881 it drives
+    # the service surface directly and its state is checkpointed there, so
+    # nothing fetches or uploads a deployment through these. They are kept
+    # because retiring an API surface is its own decision, not a side effect
+    # of changing where the runner puts its state.
+    include_terrapod(pulumi_run_artifacts_router)
 
-        include_terrapod(pulumi_router)
-        # How an agent-mode Pulumi run hands its stack over (#1576) — gated with
-        # the engine, like the surface above, which such a run never uses.
-        include_terrapod(pulumi_run_artifacts_router)
+    # Per-workspace cloud identity (#1901). The mint and the key admin ride the
+    # native surface; the two issuer GETs are mounted at the ROOT, beside
+    # `/.well-known/terraform.json`, because a cloud fetches them at a fixed
+    # well-known path and cannot be told to look under an API prefix.
+    #
+    # Mounted only when an issuer is published, and that is the opt-in: a
+    # deployment that has not enabled it serves no discovery document and no
+    # JWKS at all, which says "there is no trust root here" far more clearly
+    # than a 404 on a path that exists.
+    from terrapod.api.routers.cloud_identity import router as cloud_identity_router
+
+    include_terrapod(cloud_identity_router)
+
+    from terrapod.config import settings as _issuer_settings
+
+    if _issuer_settings.auth.oidc_issuer.enabled:
+        from terrapod.api.routers.oidc_issuer import router as oidc_issuer_router
+
+        app.include_router(oidc_issuer_router)
 
     # Audit log query endpoint — Terrapod-specific.
     from terrapod.api.routers.audit import router as audit_router

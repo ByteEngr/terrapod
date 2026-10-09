@@ -98,9 +98,21 @@ class TerraformStrategy:
     #: resource the plan touches (#1766).
     evaluates_ai_policy = True
 
+    #: The cost engine reads `terraform show -json`, which is this engine's own
+    #: plan format, so pricing is native here (#871).
+    estimates_cost = True
+    critiques_architecture = True
+
     #: The rules are Terraform attribute paths and this is the plan they were
     #: written against (#482).
     honours_drift_ignore_rules = True
+
+    #: `graph` is a static walk of the configuration — measured against OpenTofu
+    #: 1.12.6 it needs no network, no credentials and no state, and succeeds even
+    #: where `plan` refuses for a missing required variable. It also prunes
+    #: provider configurations nothing references, so an unused alias correctly
+    #: yields no token (#2006).
+    discovers_provider_configurations = True
 
     def container_env(
         self, options: TerraformRunOptions, runner_config: RunnerConfig

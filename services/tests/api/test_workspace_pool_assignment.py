@@ -16,6 +16,19 @@ _BASE = "http://test"
 _AUTH = {"Authorization": "Bearer dummy"}
 
 
+def _no_inert_vars():
+    """The engine-mismatch resolver's result (#1565): no workspace on this page
+    holds a variable its engine never reads.
+
+    The detail and list routes resolve this once per request, so a test that
+    scripts `db.execute` in order has to account for it. Empty is the answer for
+    every fixture here — none of them sets up a mismatched variable.
+    """
+    result = MagicMock()
+    result.scalars.return_value.all.return_value = []
+    return result
+
+
 def _user(email="test@example.com", roles=None):
     return AuthenticatedUser(
         email=email,
@@ -38,6 +51,7 @@ def _mock_workspace(ws_id=None, pool_id=None, extra_pool_ids=None):
     ws.auto_apply = False
     ws.execution_backend = "tofu"
     ws.engine_version = "1.11"
+    ws.ansible_version = "2.21.5"
     ws.terragrunt_enabled = False
     ws.terragrunt_version = "1.0"
     ws.working_directory = ""
@@ -79,6 +93,7 @@ def _mock_workspace(ws_id=None, pool_id=None, extra_pool_ids=None):
     ws.drift_status = ""
     ws.state_diverged = False
     ws.vcs_workflow = "merge_then_apply"
+    ws.allow_fork_pr_plans = False
     ws.auto_merge = False
     ws.auto_merge_strategy = "merge"
     ws.lifecycle_state = "active"
@@ -533,7 +548,7 @@ class TestWorkspacePoolSet:
         # The GET also looks up the workspace's latest run.
         no_run = MagicMock()
         no_run.scalar_one_or_none.return_value = None
-        mock_db.execute.side_effect = [ws_result, no_run]
+        mock_db.execute.side_effect = [ws_result, no_run, _no_inert_vars()]
 
         async with AsyncClient(transport=ASGITransport(app=app), base_url=_BASE) as client:
             res = await client.get(f"/api/v2/workspaces/ws-{ws.id}", headers=_AUTH)
@@ -566,7 +581,7 @@ class TestWorkspacePoolSet:
         ws_result.scalar_one_or_none.return_value = ws
         no_run = MagicMock()
         no_run.scalar_one_or_none.return_value = None
-        mock_db.execute.side_effect = [ws_result, no_run]
+        mock_db.execute.side_effect = [ws_result, no_run, _no_inert_vars()]
 
         with patch(
             "terrapod.api.routers.tfe_v2._agent_pool_service.live_pool_ids",
@@ -601,7 +616,7 @@ class TestWorkspacePoolSet:
         no_run.scalar_one_or_none.return_value = None
 
         # One pool still live → no alarm.
-        mock_db.execute.side_effect = [ws_result, no_run]
+        mock_db.execute.side_effect = [ws_result, no_run, _no_inert_vars()]
         with patch(
             "terrapod.api.routers.tfe_v2._agent_pool_service.live_pool_ids",
             new_callable=AsyncMock,
@@ -614,7 +629,7 @@ class TestWorkspacePoolSet:
         assert "no_live_agent_pool" not in codes
 
         # Both dark → alarm.
-        mock_db.execute.side_effect = [ws_result, no_run]
+        mock_db.execute.side_effect = [ws_result, no_run, _no_inert_vars()]
         with patch(
             "terrapod.api.routers.tfe_v2._agent_pool_service.live_pool_ids",
             new_callable=AsyncMock,

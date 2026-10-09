@@ -27,6 +27,7 @@
     "account": "Akkount",
     "apiTokens": "API Tokenz",
     "sessions": "Seshuns",
+    "slackLinks": "Slak linkz",
     "logOut": "Log owt",
     "menu": "Menu",
     "openMenu": "Opun menu",
@@ -70,7 +71,6 @@
       "agentPool": "Agent Pool",
       "none": "Noes",
       "autoApply": "Auto Apploy",
-      "autoApplyModeHint": "never: alwayz waits for a hooman. always: applyz every gud plan. create / create/update: onlee applyz planz wif just dose akshuns — NEVAR a destroy or a replace. srsly.",
       "enabled": "Enabuld",
       "workingDirectory": "Werkin Direktoree",
       "workingDirectoryPlaceholder": "e.g. environments/dev",
@@ -372,6 +372,22 @@
         "load": "Failed ta lode seshunz",
         "revoke": "Failed ta revoke seshunz ({status})",
         "revokeGeneric": "Failed ta revoke seshunz"
+      }
+    },
+    "slackLinks": {
+      "title": "Slak linkz",
+      "description": "Slak akkountz wot can be U. A linkd Slak akkount can sez yes an sez no to runz wif UR permishunz, so yeet any U dont recognise. srsly.",
+      "empty": "No Slak akkountz r linkd 2 U.",
+      "revoke": "Yeet",
+      "confirmRevoke": "Yeet teh link 4 Slak yoozer {user}? Dat akkount can not be U from Slak no moar.",
+      "columns": {
+        "slackUser": "Slak yoozer",
+        "team": "Slak teem",
+        "linkedAt": "Linkd"
+      },
+      "errors": {
+        "load": "Culd not loadz UR Slak linkz.",
+        "revoke": "Culd not yeet dat Slak link."
       }
     }
   },
@@ -761,7 +777,9 @@
       "setAssignmentStatus": "Failz ta set assignment ({status})",
       "deleteAssignment": "Failz ta delete assignment",
       "conflictingLabelKeys": "{keys} haz moar dan wun valyoo. A labul rool holdz wun valyoo per key, so teh last wud kwietly replase teh erlier wunz. Matchin several valyooz for wun key iz supportd by teh API but cant be set heer yet."
-    }
+    },
+    "pinnedToSubject": "Pinnded",
+    "pinnedToSubjectTitle": "Pinnded to teh IdP subjekt {subject}"
   },
   "adminVcs": {
     "title": "VCS Connekshuns",
@@ -774,6 +792,23 @@
       "delete": "Delete"
     },
     "confirmDelete": "Delete dis VCS connekshun? Wurkspacez usin it wil looz VCS integrashun. Dis cannot be undun.",
+    "access": {
+      "heading": "Hoo can uze dis connekshun",
+      "intro": "Deez three settingz decyde wich workspacez can be pointd at dis connekshun. Teh credenshul itself stayz writ-only.",
+      "ownerEmail": "Ownr emayl",
+      "ownerEmailHint": "Teh ownr can alwayz uze dis connekshun. Leev it blank to leev teh connekshun ownrless.",
+      "labels": "Akcess labelz",
+      "labelsHint": "A rolez wot haz rulez dat match deez labelz can point a workspace at dis connekshun.",
+      "allowedRepositories": "Allowd repozitoriez",
+      "allowedRepositoriesHint": "Glob patternz matchd agenst teh repozitory a workspace askz to uze.",
+      "addPattern": "Add a pattrn",
+      "anyRepositoryWarning": "No patternz iz listd, so dis connekshun can be pointd at ANY repozitory. srsly.",
+      "restricted": "{count, plural, one {# pattern iz listd} other {# patternz iz listd}}, so a repozitory matchin nun of dem getz refuzd.",
+      "ownedBy": "Ownd by {email}",
+      "unowned": "No ownr iz setted",
+      "anyRepositorySummary": "Any repozitory iz allowd",
+      "repositoryCount": "Restriktd to {count, plural, one {# repozitory} other {# repozitoriez}}"
+    },
     "form": {
       "name": "Naym",
       "namePattern": "Lettrs, numburz, hyphenz, an underscorez only. Muzt start wif a lettr or numbr.",
@@ -922,7 +957,6 @@
       "varKey": "Key",
       "varValue": "Valyoo",
       "varCategory": "Categoreh",
-      "categoryTerraform": "Terraform",
       "categoryEnv": "Enviromint",
       "sensitive": "Sensitiv",
       "sensAbbr": "Sens.",
@@ -988,7 +1022,9 @@
       "valueSource": "Valyoo Sors",
       "valueSourceStatic": "Typ a valyoo",
       "valueSourceVault": "Reed frum OpenBao/Vault",
-      "vaultHint": "Terrapod reedz da sekrit frum OpenBao (or HashiCorp Vault, u pick) at run tiem. Nuffin iz kept heer."
+      "vaultHint": "Terrapod reedz da sekrit frum OpenBao (or HashiCorp Vault, u pick) at run tiem. Nuffin iz kept heer.",
+      "categoryNative": "Naytiv",
+      "structured": "Strukchurd"
     }
   },
   "adminAutodiscovery": {
@@ -1076,7 +1112,10 @@
       "terragruntVersion": "Terragrunt vershun",
       "noExpiry": "No expiry. srsly.",
       "addDriftIgnoreRule": "Add rule",
-      "debugModeHint": "Hold faild runnr podz open on da werkspaces dis rule makez. Off by defalt — a held pod keepz dat werkspace credenshulz."
+      "debugModeHint": "Hold faild runnr podz open on da werkspaces dis rule makez. Off by defalt — a held pod keepz dat werkspace credenshulz.",
+      "allowForkPrPlansHint": "Applyz ta evry werkspace dis rule makez. Off by defalt: a pull rekwest from a fork getz no speculativ plan, coz it wud run itz authrs code wif da werkspace credenshulz.",
+      "oidcAudiences": "Run identitee audiencez (inheritd by createded werkspaces)",
+      "oidcAudiencesHint": "Audienz overridez templaytd onto evry werkspace dis rool makez, keyd on da providr configurashun a tokin iz fer — aws, or aws.west fer an aliasd configurashun. Leev it empty an doze werkspacez take da deployment''z own configurashun."
     },
     "table": {
       "name": "Naym",
@@ -1270,7 +1309,8 @@
       "cancel": "Cancul",
       "working": "Workin...",
       "previewDryRun": "Preview (dry run)",
-      "applyChanges": "Apply chaenges"
+      "applyChanges": "Apply chaenges",
+      "setOidcAudiences": "Set OIDC run identitee audiencez (replacez teh map on every matchd workspace)"
     },
     "diff": {
       "colWorkspace": "Werkspace",
@@ -1919,12 +1959,24 @@
       "always": "alwaiz",
       "create": "makez",
       "createUpdate": "makez/fixez"
+    },
+    "oidcAudiences": {
+      "addProvider": "Add providr configurashun",
+      "audiences": "Audiencez",
+      "badgeInherited": "Deployment defawlt",
+      "badgeOwned": "Werkspace",
+      "issuerDisabled": "Dis deployment publishez no OpenID Connect issuer, so nuffin configurd heer can do anyfing.",
+      "override": "Overrid",
+      "overrideAria": "Overrid da {provider} audiencez fer dis werkspace",
+      "providerDuplicate": "Dat providr configurashun awreddy haz an entree.",
+      "providerInvalid": "A providr naim haz no spacez an at most wun dot — aws, or aws.west.",
+      "providerPlaceholder": "aws, or aws.west",
+      "removeProviderAria": "Remoov da {provider} providr configurashun"
     }
   },
   "planSummary": {
     "aiGenerated": "AI generated",
     "heading": {
-      "planSummary": "Plan summry",
       "failureAnalysis": "Failyoor analysis"
     },
     "errors": {
@@ -1933,13 +1985,11 @@
     "regenerate": {
       "label": "Regeneratez",
       "queueing": "Queuein…",
-      "tooltip": "Re-run teh AI summry against teh same plan inputs",
       "ariaLabel": "Regenerate AI summry",
       "confirm": "Regenerate teh AI analysis? Dis runs teh model agin.",
       "error": "Could not regenerate: <mono>{detail}</mono>"
     },
     "pending": {
-      "summarisingPlan": "Summarizin plan…",
       "analysingFailure": "Analysin failyoor…"
     },
     "skipped": {
@@ -1963,7 +2013,6 @@
     "badges": {
       "noChanges": "No changez",
       "noChangesLower": "no changez",
-      "noChangesTitle": "Plan reported no resource changez",
       "toAdd": "{count, plural, one {# ta add} other {# ta add}}",
       "toChange": "{count, plural, one {# ta change} other {# ta change}}",
       "toDestroy": "{count, plural, one {# ta destroy} other {# ta destroy}}",
@@ -1973,7 +2022,6 @@
     "chat": {
       "heading": "Follow-up",
       "sharedThreadNote": "One shared thred, visibul ta anywun wif workspace reed.",
-      "placeholder": "Ask a follow-up questshun bout dis plan… (⌘/Ctrl + Enter ta send)",
       "send": "Send",
       "thinking": "Thinkin…",
       "you": "U",
@@ -1997,7 +2045,6 @@
     "workspaceFallback": "workspace",
     "backTo": "Bak ta {name}",
     "errorHeading": "Errur",
-    "discardedHeading": "Discardid — re-plan requird",
     "common": {
       "yes": "Yus",
       "no": "Noes"
@@ -2051,14 +2098,13 @@
     },
     "badge": {
       "destroy": "destroy",
-      "planOnly": "plan only"
+      "savedPlan": "sayvd plan",
+      "savedPlanHint": "Aplly defurred: dis run duz not holdz teh workspace til teh sayvd plan gets apllyd. kthxbai"
     },
     "actions": {
       "retryShort": "Retry",
       "retryFull": "Retry Run",
       "retrying": "Retryin…",
-      "confirmShort": "Apply",
-      "confirmFull": "Confirm & Apply",
       "confirming": "Confirmin…",
       "discard": "Discard",
       "discarding": "Discardin…",
@@ -2068,8 +2114,6 @@
       "queuing": "Queuein…"
     },
     "confirm": {
-      "apply": "Apply dis run? Dis applys teh plan an changez infrastrukchur.",
-      "discard": "Discard dis plan?",
       "cancel": "Cancel dis run?",
       "retry": "Retry dis run?"
     },
@@ -2092,20 +2136,19 @@
       "impactFull": "Impakt graf",
       "cost": "Cost",
       "costFull": "Cost estimate",
-      "planLabel": "Plan<log>Log</log>",
-      "applyLabel": "Apply<log>Log</log>",
-      "planFull": "Plan log",
-      "applyFull": "Apply log",
       "details": "Detailz",
       "security": "Sekurity",
       "securityFull": "Sekurity scan"
     },
     "banner": {
       "destroy": "Dis iz a <strong>destroy</strong> run — all managd resourcez wil be destroyd when applyd.",
-      "planOnlyCli": "Dis iz a <strong>plan-only</strong> run initiatd from teh CLI on a VCS-connectd workspace. Apply iz not availabul fer CLI-uploadd code — only VCS-managd code can be applyd.",
       "moduleOverridesPrefix": "Dis run usez <strong>module overridez</strong>",
       "moduleOverridesFromPr": "from PR #{number}",
       "moduleOverridesSuffix": "wil be fetchd from teh PR branch insted ov teh publishd registry vershun."
+    },
+    "bindPlan": {
+      "bound": "Lokd 2 dis previu: teh updayt applyz exakly teh plan shown heer, an anyfin dat changd sinse failz teh updayt insted ov gettin applyd.",
+      "unbound": "Not lokd 2 dis previu: teh updayt werkz out itz own changez wen it runz, liek a plain pulumi up duz, so wut it applyz mite differ from wut is shown heer."
     },
     "cards": {
       "changes": "Chaenges",
@@ -2117,7 +2160,6 @@
     },
     "changes": {
       "noChanges": "No changez",
-      "planning": "Plannin…",
       "toAdd": "ta add",
       "toChange": "ta change",
       "toDestroy": "ta destroy",
@@ -2154,7 +2196,6 @@
       "executionBackend": "Execushun Backend",
       "source": "Sorse",
       "autoApply": "Auto Apploy",
-      "planOnly": "Plan Only",
       "triggeredBy": "Triggerd By",
       "created": "Maekd",
       "commit": "Commit",
@@ -2170,11 +2211,7 @@
     "timeline": {
       "heading": "Timeline",
       "queued": "Kweued",
-      "planningStarted": "Plannin startd",
-      "planComplete": "Plan compleet",
       "confirmed": "Confurmd",
-      "applyingStarted": "Applyin startd",
-      "applied": "Applyd",
       "errored": "Errurd",
       "canceled": "Canceld",
       "discarded": "Discardd"
@@ -2198,12 +2235,8 @@
       "followOffTitle": "Follow teh live tail",
       "end": "End",
       "endTitle": "Jump ta teh end ov teh log",
-      "planEmpty": "No plan output availabul yet.",
-      "applyEmpty": "No apply output availabul yet.",
       "index": {
         "label": "Jumpz to",
-        "title": "Jumpz to a rezorce chanj, or teh plan summry",
-        "summary": "Plan Summry",
         "action": {
           "create": "makez",
           "update": "updatez",
@@ -2215,13 +2248,11 @@
           "error": "oh noes",
           "warning": "warnin"
         }
-      },
-      "applySkippedNoChanges": "No apply happend: teh plan haz no changez, so nuthin to apply."
+      }
     },
     "policyPanel": {
       "heading": "Policy Checkz",
       "passedCount": "{passed}/{total} passd",
-      "blockedMessage": "Dis run iz <strong>blockd by a mandatory policy set</strong>. It wil not apply til teh failyoor iz resolvd or an admin overridez it.",
       "overriding": "Overridin...",
       "overrideContinue": "Override & Continyoo",
       "overrideFailed": "Override failed",
@@ -2261,7 +2292,6 @@
       "unpricedHint": "Nothing in the pricing data matched these — an unmapped type, a resource with no direct cost, or a provider not yet covered.",
       "indicative": "Estimates are indicative; actual cost depends on usage, region, commitments, and discounts.",
       "asOfState": "as of state v{serial}",
-      "noState": "No cost yet — appears after teh furst apply.",
       "usageBand": "{dimension}: {typical} {unit} usual (rangez {low}–{high})",
       "usageBandCost": "{dimension}: {costTypical}/mo usual — {costLow}–{costHigh} across {low}–{high} {unit}"
     },
@@ -2348,7 +2378,6 @@
       "passed": "No polisy kriteria matchd. yay.",
       "overriding": "Overridin...",
       "overrideContinue": "Override & Continyoo",
-      "overrideConfirm": "Overryd teh AI polisy gate an let dis run apply anywayz despite da verdikt?",
       "overrideFailed": "Override failed",
       "overrideFailedStatus": "Override failed ({status})",
       "overriddenBy": "overridd by {by}"
@@ -2407,9 +2436,6 @@
       "translatedNote": "Translaytd from teh orijinal on vew."
     },
     "drift": {
-      "remediate": "Plan + do it",
-      "remediateTitle": "Queue a plan + do-it runz so teh infrastruktur matchiz teh config agin",
-      "remediateConfirm": "Queue a plan + do-it runz for dis wurkspase?",
       "remediateMessage": "Queued from a driftz chek",
       "remediateFailed": "Culd not queue teh fixin runz"
     }
@@ -2469,6 +2495,7 @@
       "architecture": "Architeksher",
       "insights": "Insightz",
       "automation": "Awtomashun",
+      "inventory": "Inventree",
       "access": "Akses"
     },
     "lifecycle": {
@@ -2501,6 +2528,9 @@
       "version": "Vershun",
       "versionPlaceholder": "e.g. 1.11 or 1.11.5",
       "versionTitle": "Vershun in X.Y or X.Y.Z format (e.g. 1.11 or 1.11.5)",
+      "ansibleVersion": "Ansibul Vershun",
+      "ansibleVersionPlaceholder": "e.g. 2.21.5",
+      "ansibleVersionTitle": "Teh ansible-core vershun for dis werkspace. Leev it empty an it followz teh deployment defawlt. srsly",
       "terragruntEnabledAgent": "Enabuld (agent mode)",
       "terragruntEnabledVersion": "Enabuld (v{version})",
       "terragruntVersionPlaceholder": "e.g. 1.0",
@@ -2541,12 +2571,16 @@
       "engineTerraform": "Terraform",
       "nameTitlePulumi": "Two partz separatd by '::' — projekt::stak. Letterz, numberz, hyfenz an underskorez only; each part gotta start wif a letter or number. KTHX",
       "bindPlan": "Lok teh updayt 2 teh approvd preview",
-      "bindPlanHelp": "Wen on, teh updayt applyz exakly teh plan teh preview savd, so anyfin dat changd sinse teh preview failz teh updayt insted ov gettin applyd. Dis sitz on Pulumi updayt planz, wich r stil experimentul. Wen off, teh updayt werkz out itz own changez, liek a plain pulumi up duz. <docs>How Pulumi runz werk</docs>"
+      "bindPlanHelp": "Wen on, teh updayt applyz exakly teh plan teh preview savd, so anyfin dat changd sinse teh preview failz teh updayt insted ov gettin applyd. Dis sitz on Pulumi updayt planz, wich r stil experimentul. Wen off, teh updayt werkz out itz own changez, liek a plain pulumi up duz. <docs>How Pulumi runz werk</docs>",
+      "oidcAudiences": "Run Identitee Audiencez",
+      "oidcAudiencesAdd": "Add audienz",
+      "oidcAudiencesHint": "Terrapod mintz a short-livd OpenID Connect tokin fer evry providr configurashun a run yuzez an ritez it ta a file da run can reed. Key an entree on da providr liek ur configurashun namez it — aws, or aws.west fer an aliasd configurashun — an list da audiencez dat targit akceptz. Evry entree overridez da deployment''z own configurashun fer dat providr; remoov it an dat providr fallz bak ta da deployment''z audiencez. An audienz iz an opayk string da federashun targit choze, so itz stord exackly as typd.",
+      "oidcAudiencesLoading": "Checkin da deployment''z configurd audiencez …",
+      "oidcAudiencesNone": "Noes (runz yuze da agent pool''z own identitee)",
+      "oidcAudiencesPlaceholder": "e.g. sts.amazonaws.com"
     },
     "vcsWorkflowWarning": {
       "title": "Authorizashun delegayted ta ur VCS repozitory.",
-      "rbac": "Anywun hoo can merge teh PR can apply. Branch protecshun rulez (requird reviewz, statuz checkz, code ownr approvul) becum teh gate. Terrapod role/labul RBAC do<em>not</em> apply ta comment-driven acshunz in dis mode.",
-      "recommended": "<strong>Recommendd:</strong> requir linear histry (rebase/squash befor merge) so teh commit u apply iz teh commit dat landz.",
       "credit": "Credit: dis workflow iz modelld on <atlantis>Atlantis</atlantis>. Atlantis remainz teh rite tool fer teemz hoo only wants PR-comment-driven appliez an noes platform UI."
     },
     "vcsPolling": {
@@ -2562,7 +2596,6 @@
     },
     "lock": {
       "title": "Lock Statuz",
-      "lockedDesc": "Dis workspace iz lockd. Noes planz or appliez can run.",
       "unlockedDesc": "Dis workspace iz unlockd an redy fer runz.",
       "lock": "Lock",
       "unlock": "Unlock",
@@ -2584,7 +2617,6 @@
       "dismissTitle": "Cleer teh reportd drift state. Teh nekst scheduld check will repopulayt it frum reality.",
       "lastChecked": "Last Checkd",
       "checkNow": "Check Now",
-      "checkNowTitle": "Queue a plan-only run ta check fer drift",
       "checkNowTitleDisabled": "Enabul drift deteckshun furst"
     },
     "intervals": {
@@ -2598,13 +2630,10 @@
       "7days": "7 dayz"
     },
     "planExpiry": {
-      "title": "Plan Ekspiry",
-      "description": "Auto-discard an unconfirmd plan wunce it iz oldr dan dis, so a stale plan can't be applyd against a moovd world. Off by defawlt; teh plan muzt den be re-run. (Appliez ta apply-capabul runz only.)",
       "expireAfter": "Ekspir aftr"
     },
     "aiSummary": {
       "title": "AI Plan Summry",
-      "description": "Automatik LLM-generayted change summry, risk assessment, an failyoor analysiz on evry plan-phase outcum fer dis workspace.",
       "mode": "Mode",
       "modeDefault": "Follo deployment defawlt",
       "modeEnabled": "Alwayz summarize",
@@ -2619,7 +2648,6 @@
     },
     "slack": {
       "title": "Slack notificashunz",
-      "description": "Opt dis workspace into Slack run notificashunz — approvul requestz, appliez, errorz, an drift. Leev teh channul empty an dis workspace stayz silent (dere iz noes deployment-wide fan-out). Requirez teh Slack app ta be enabuld by an administraytor.",
       "channel": "Channul",
       "channelPlaceholder": "#deploys or a channul ID (e.g. C0123ABCD)",
       "notSet": "Not set — silent.",
@@ -2694,20 +2722,18 @@
       "vaultFileEncoding": "Enkodin",
       "vaultFileEncodingNone": "Liek it waz stord in OpenBao/Vault",
       "vaultFileEncodingBase64": "Base64-dekode",
-      "vaultFileEncodingHint": "Dekodez da feeld b4 ritin it. Hafta be textz; binaree fielz not supportd."
+      "vaultFileEncodingHint": "Dekodez da feeld b4 ritin it. Hafta be textz; binaree fielz not supportd.",
+      "categoryNative": "Naytiv",
+      "structured": "Strukchurd",
+      "categoryTerraform": "Terraform",
+      "categoryPulumiConfig": "Pulumiz confg"
     },
     "runs": {
       "options": "Opshunz",
       "hideOptions": "Hide Opshunz",
       "queueDestroy": "Destroyz",
-      "queueDestroyTitle": "Queue a destroy plan",
       "destroyAllConfirm": "Destroy all resorcez?",
       "confirmDestroy": "Confirm Destroy",
-      "queuePlan": "Plan",
-      "queueRun": "Plan + do it",
-      "queuePlanConfirm": "Queue a speculativ plan fer dis workspace?",
-      "queueApplyConfirm": "Queue a plan + apply run? Dis can change infrastruckchure.",
-      "planOptions": "Plan Opshunz",
       "targetResources": "Targit resorcez",
       "replaceResources": "Replace resorcez",
       "commaSeparated": "(comma-separaytd)",
@@ -2718,7 +2744,6 @@
       "branch": "Branch",
       "tag": "Tag",
       "defaultBranch": "Defawlt ({branch})",
-      "nonDefaultRefNote": "Non-defawlt ref selectd — run will be plan-only",
       "empty": "Noes runz yet fer dis workspace.",
       "runId": "Run ID",
       "status": "Status",
@@ -2729,13 +2754,11 @@
       "created": "Maekd",
       "needsConfirm": "needz confirm",
       "typeDestroy": "destroy",
-      "typePlanOnly": "plan only",
-      "typePlanApply": "plan + apply",
       "sourceModuleTest": "module test",
       "sourceModulePublish": "module publish",
-      "queueApplyTitle": "Queue a plan + do-it runz",
-      "queueApplyRefBlocked": "No do-it while u picked a branch, tag or commit — dose runz iz alwayz plan only, srsly",
-      "awaitingDecision": "waitin fer decizun"
+      "awaitingDecision": "waitin fer decizun",
+      "typeSavedPlan": "sayvd plan",
+      "typeSavedPlanHint": "Aplly defurred: dis run duz not holdz teh workspace til teh sayvd plan gets apllyd. kthxbai"
     },
     "state": {
       "deleteConfirm": "Delete state vershun #{serial}? Dis cannot be undun.",
@@ -2752,12 +2775,18 @@
       "runner": "runnur",
       "latest": "latest"
     },
+    "stateOutputs": {
+      "title": "Outputz",
+      "fromSerial": "Serial #{serial}",
+      "empty": "Dis state declarez noes outputz.",
+      "sensitive": "Sensitiv",
+      "loadFailed": "Failz ta load teh outputz fer dis workspace."
+    },
     "configurations": {
       "description": "Uploadd sorce archivez fer dis workspace, newest furst. Pick too rowz ta compare.",
       "selectedCount": "{count}/2 selectd",
       "compare": "Compare",
       "comparing": "Comparin…",
-      "empty": "Noes configurashun vershunz yet. Dey appeer heer az soon az a `terraform plan` uploadz or a VCS push triggurz a run.",
       "id": "ID",
       "source": "Sorse",
       "status": "Status",
@@ -2819,7 +2848,6 @@
     },
     "runTriggers": {
       "title": "Run Triggurz",
-      "description": "Wen a sorce workspace completez an apply, downstreem workspacez get a noo run queued automatikly. Up ta 20 sorce workspacez per destinashun.",
       "inboundHeading": "Sorce workspacez dat triggur runz heer",
       "inboundEmpty": "Noes sorce workspacez triggur runz on dis workspace.",
       "pickerPlaceholder": "Serch workspacez ta add az a sorce…",
@@ -2827,6 +2855,173 @@
       "outboundEmpty": "Dis workspace do not triggur runz on any othur workspace.",
       "destinationNote": "(destinashun; remoov frum dere)",
       "removeConfirm": "Remoov dis run triggur?"
+    },
+    "inventory": {
+      "scope": {
+        "heading": "Inventree",
+        "body": "Teh hostz an groupz dis werkspace holdz, an wut ansibul turnz em into. Evry row u can edit rite heer; runnin a playbuk at em is not redy yet."
+      },
+      "nav": {
+        "label": "Inventree bitz",
+        "hosts": "Hostz",
+        "groups": "Groupz",
+        "vars": "Variablez",
+        "resolved": "Werked owt",
+        "settings": "Settingz"
+      },
+      "actions": {
+        "save": "Sayv",
+        "saving": "Sayvin…",
+        "cancel": "Cancul",
+        "edit": "Edit",
+        "delete": "Yeet",
+        "remove": "Taek owt",
+        "add": "Add",
+        "adding": "Addin…",
+        "rename": "Renaem"
+      },
+      "hosts": {
+        "heading": "Hostz",
+        "body": "Wun row per host. Opun a host 2 edit its variablez an teh groupz it belongz 2.",
+        "empty": "No hostz yet.",
+        "colName": "Host",
+        "colGroups": "Groupz",
+        "colVars": "Variablez",
+        "newLabel": "Nu host naem",
+        "newPlaceholder": "web-1",
+        "add": "Add host",
+        "confirmDelete": "Yeet teh host {name}? Its variablez an its group belongingz go wif it.",
+        "renameLabel": "Host naem"
+      },
+      "groups": {
+        "heading": "Groupz",
+        "body": "Wun row per group. Opun a group 2 edit its variablez, its membur hostz an teh groupz tuckd insyde it.",
+        "empty": "No groupz yet.",
+        "colName": "Group",
+        "colMembers": "Hostz",
+        "colChildren": "Bebe groupz",
+        "colVars": "Variablez",
+        "newLabel": "Nu group naem",
+        "newPlaceholder": "web",
+        "add": "Add group",
+        "confirmDelete": "Yeet teh group {name}? Its variablez an its belongingz go wif it; teh hostz demselvz stayz.",
+        "renameLabel": "Group naem"
+      },
+      "vars": {
+        "actions": "Stuf u can do",
+        "key": "Key",
+        "keyPlaceholder": "ansible_user",
+        "value": "Valyoo",
+        "structured": "Shaypd",
+        "sensitive": "Sneeky",
+        "structuredHelp": "A list, numbur or objekt is a shaypd valyoo: tik Shaypd an rite its litrul sorce in teh valyoo. A sneeky valyoo nevr getz red bak — teh box showz u a mask insted.",
+        "structuredBadge": "shaypd",
+        "sensitiveKeep": "Leev dis empy 2 keep teh valyoo wot is sayvd.",
+        "empty": "No variablez heer.",
+        "add": "Add variabul",
+        "confirmDelete": "Yeet teh variabul {key}?"
+      },
+      "hostDetail": {
+        "heading": "Host {name}",
+        "body": "Evrythin dis wun host carryz.",
+        "back": "Bak 2 teh hostz",
+        "gone": "Dat host is not heer no moar.",
+        "vars": "Host variablez",
+        "varsBody": "Variablez wot apply 2 dis host alone. Dey beetz a group variabul wif teh saem naem.",
+        "memberships": "Groupz",
+        "membershipsBody": "Teh groupz dis host belongz 2. A belongin is jus a linky, so takin wun owt heer leevz boaf teh host an teh group rite wer dey wuz.",
+        "membershipsEmpty": "Dis host is in no group, so ansibul shovz it in ungrouped.",
+        "addGroup": "Add 2 group",
+        "addGroupLabel": "Pik a group",
+        "removeGroupAria": "Taek dis host owt uv {name}",
+        "confirmRemoveGroup": "Taek dis host owt uv {name}?"
+      },
+      "groupDetail": {
+        "heading": "Group {name}",
+        "body": "Evrythin dis wun group carryz.",
+        "back": "Bak 2 teh groupz",
+        "gone": "Dat group is not heer no moar.",
+        "vars": "Group variablez",
+        "varsBody": "Variablez wot apply 2 evry host in dis group, strait up or froo teh tuckd-in wunz.",
+        "members": "Membur hostz",
+        "membersBody": "Teh hostz in dis group strait up. A host u only reech froo a tuckd-in group is not listid heer.",
+        "membersEmpty": "No hostz in dis group strait up.",
+        "addHost": "Add host",
+        "addHostLabel": "Pik a host",
+        "removeHostAria": "Taek {name} owt uv dis group",
+        "confirmRemoveHost": "Taek {name} owt uv dis group?",
+        "children": "Bebe groupz",
+        "childrenBody": "Groupz tuckd insyde dis wun. Deir hostz is memburz uv dis group 2, an dis groupz variablez reechz em.",
+        "childrenEmpty": "No groupz tuckd insyde dis wun.",
+        "addChild": "Add bebe group",
+        "addChildLabel": "Pik a group 2 tuk in",
+        "removeChildAria": "Taek {name} owt uv dis groupz bebes",
+        "confirmRemoveChild": "Stop tuckin {name} insyde dis group?",
+        "parents": "Mama groupz",
+        "parentsBody": "Teh groupz dis wun is tuckd insyde. A group can haz lotz uv mamas.",
+        "parentsEmpty": "Dis group is tuckd insyde nuffin.",
+        "addParent": "Add mama group",
+        "addParentLabel": "Pik a mama group",
+        "removeParentAria": "Taek dis group owt uv {name}",
+        "confirmRemoveParent": "Stop tuckin dis group insyde {name}?"
+      },
+      "globalVars": {
+        "heading": "Inventree variablez",
+        "body": "Variablez wot apply 2 evry host — ansibulz group_vars/all. A group or host variabul wif teh saem naem beetz wun u set heer."
+      },
+      "resolved": {
+        "heading": "Werked-owt hostz",
+        "body": "Wut ansibul maekz uv teh rowz: evry host wif teh variablez it endz up holdin, aftr teh mush-togevr an teh pekkin ordr.",
+        "hosts": "Hostz",
+        "groups": "Groupz",
+        "liveNote": "Dis is liv. Evry sorce heer sitz stil, so teh peek werkz owt teh rowz 2 ansr itself — ther is nuffin 2 refresh.",
+        "noHosts": "Nuffin werked owt 2 a host.",
+        "noVars": "no variablez",
+        "groupsHeading": "Hoo belongz wer",
+        "directOnly": "Only teh strait-up belongingz, jus liek ansibul sez em: a group wooz hostz all cum froo a tuckd-in group listz nun uv its own. Teh tuckin is down ther.",
+        "noGroups": "No groupz werked owt.",
+        "noDirectMembers": "no strait-up hostz",
+        "nestingHeading": "Wot is tuckd in wot",
+        "nestingBody": "Wich groupz sitz insyde wich. A limit on a mama reechz evry host undr it.",
+        "noNesting": "No groupz is tuckd in.",
+        "limitHeading": "Wut wud a limit hit?",
+        "limitBody": "Blow up an ansible --limit patturn aginst dis inventree an see xaktly wich hostz it pikz b4 enythin runz. Ansibul doz teh blowin up, so a group, a not-dis-wun an a ~regex all behayvz liek dey will wen it reely runz.",
+        "limitLabel": "Limit patturn",
+        "limitPlaceholder": "web:!web-2",
+        "limitApply": "Do teh limit",
+        "limitClear": "Wipe it",
+        "limitApplied": "Limitd 2 {limit}. Evrythin down ther is wut dat patturn hitz."
+      },
+      "settings": {
+        "heading": "Settingz",
+        "body": "Wevr teh rowz held heer countz, an teh repo wot an inventree also getz red frum.",
+        "absent": "No settingz, wich is teh normul: teh hostz an groupz held heer is teh hole inventree.",
+        "includePlatform": "Yooz teh hostz an groupz held heer",
+        "includePlatformHelp": "On by defawlt. Turn it off 2 werk it owt frum teh repo alone, leevin deez rowz wer dey is but owt uv teh ansr.",
+        "included": "yis",
+        "excluded": "nope",
+        "vcsConnection": "VCS hookup",
+        "vcsNone": "Nuffin",
+        "field": {
+          "repo-url": "Repo",
+          "branch": "Branch",
+          "working-directory": "Foldr"
+        },
+        "branchHelp": "Leev it empy 2 folow teh repoz defawlt branch.",
+        "ignorePaths": "Ignord pafs",
+        "ignorePathsHelp": "Wun glob per line. Enythin wot matchz getz left owt uv teh inventree red frum teh repo.",
+        "unset": "nuffin set",
+        "create": "Add settingz",
+        "clear": "Wipe settingz",
+        "confirmClear": "Wipe deez settingz? Teh repo hookup goez wif em; teh hostz an groupz held heer stayz."
+      },
+      "errors": {
+        "load": "Culdnt get teh inventree",
+        "save": "Culdnt sayv",
+        "delete": "Culdnt yeet it",
+        "resolved": "Culdnt werk owt teh inventree",
+        "settings": "Culdnt sayv teh inventree settingz"
+      }
     },
     "sharing": {
       "title": "Remote State Sharin",
@@ -2896,8 +3091,6 @@
       "addVariableStatus": "Failz ta add variable ({status})",
       "deleteVariable": "Failz ta delete variable",
       "updateVariable": "Failz ta updayt variable",
-      "queuePlan": "Failz ta kweue teh plan",
-      "queuePlanStatus": "Failz ta kweue teh plan ({status})",
       "queueDestroy": "Failz ta kweue teh destroy",
       "queueDestroyStatus": "Failz ta kweue teh destroy ({status})",
       "createNotification": "Failz ta creat teh notificashun",
@@ -2914,7 +3107,8 @@
       "uploadState": "Failz ta uplod teh state",
       "uploadStateFile": "Failz ta uplod teh state file",
       "updateSecurityScan": "Faild 2 updayt sekurity scannin",
-      "updateDebugMode": "Failz ta updat teh debug mode"
+      "updateDebugMode": "Failz ta updat teh debug mode",
+      "updateForkPlans": "Failz ta updat da fork pull rekwest planz"
     },
     "subtabs": {
       "state": "Stayt",
@@ -2967,6 +3161,14 @@
       "bannerTitle": "Debug mode iz ON fer dis werkspace",
       "bannerBody": "A faild runz pod getz held open fer snoopin insted ov exitin, an it keepz dis werkspace credenshulz an dekrypted variablez wile its held. Turn debug mode off wen u iz dun troubleshootin.",
       "confirmEnable": "Turn on debug mode? A faild runz pod will b held open wif dis werkspace credenshulz an dekrypted variablez til da windo runz out or u delet da pod."
+    },
+    "allowForkPrPlans": {
+      "title": "Planz on Fork Pull Rekwestz",
+      "description": "Wethr a pull rekwest opend from a fork getz a speculativ plan. Off by defalt, coz dat plan runz da fork authrs code wif dis werkspace credenshulz.",
+      "label": "Plan Fork Pull Rekwestz",
+      "hint": "A run getz dis werkspace environmint variablez, sensitiv valuez, any Vault-resolvd secretz an da jobz cloud identitee. Sumwun openin a pull rekwest from a fork haz no rite access an can not merge, so a speculativ plan iz da only way der code reechez doze credenshulz. Turn dis on fer a werkspace dat holdz nuffin wurth takin — a publik module repozitory acceptin communitee contribushunz, sez I. Pull rekwestz from branchez in da repozitory itself iz unaffectd an alwayz plan.",
+      "activeBadge": "Awn",
+      "confirmEnable": "Plan pull rekwestz opend from forkz? Der authorz code wil run wif dis werkspace credenshulz an dekrypted variablez, wifout anywun approovin it furst."
     }
   },
   "graphs": {
@@ -3189,11 +3391,14 @@
     "unknown": "unknown",
     "confirm": {
       "prompt": "Link dis Slack account ta <em>ur</em> Terrapod identity? Evry futur Slack acshun (approov/discard) will run az dis Terrapod usur wif der permishuns.",
+      "slackName": "Slak akkount",
       "slackUser": "Slack usur",
       "slackTeam": "Slack team",
       "terrapodAccount": "Terrapod account",
       "warning": "Only continyoo if u jus startd dis link from Slack urself. If u didnt, close dis tab an dont link — dis bindz teh Slack account abuv ta <em>ur</em> Terrapod identity.",
-      "button": "Confirm & link"
+      "button": "Confirm & link",
+      "namesUnavailable": "Terrapod cud not findz dis Slak akkount's naem. Chek teh IDz up abuv, an only keeps goin if U startd dis linky from Slak urself. srsly.",
+      "nameIsSelfChosen": "Teh handul iz only won in dis Slak playse; teh naem unner it iz pikd by dat persun demselvz, so judge by teh handul. kthx."
     },
     "success": {
       "message": "Ur Slack account iz now linkd ta Terrapod.",
@@ -3416,7 +3621,77 @@
       },
       "status": {
         "planning": "Plannin",
-        "applying": "Applyin"
+        "applying": "Applyin",
+        "planned": "Plannd",
+        "applied": "Applyd"
+      },
+      "words": {
+        "actionConfirmFull": "Confirm & Apply",
+        "actionConfirmShort": "Apply",
+        "activityApplied": "Apply compleet",
+        "activityConfirmed": "Startin apply",
+        "activityDiscarded": "Plan discardid",
+        "activityPlannedComplete": "Plan compleet",
+        "activityPlannedConfirmable": "Waitin fer u ta confirm & apply",
+        "activityPlannedSpeculative": "Speculativ plan compleet",
+        "aiPolicyOverrideConfirm": "Overryd teh AI polisy gate an let dis run apply anywayz despite da verdikt?",
+        "aiSummaryDescription": "Automatik LLM-generayted change summry, risk assessment, an failyoor analysiz on evry plan-phase outcum fer dis workspace.",
+        "aiSummaryTitle": "AI Plan Summry",
+        "badgePlanOnly": "plan only",
+        "bannerPlanOnlyCli": "Dis iz a <strong>plan-only</strong> run initiatd from teh CLI on a VCS-connectd workspace. Apply iz not availabul fer CLI-uploadd code — only VCS-managd code can be applyd.",
+        "changesPlanning": "Plannin…",
+        "configurationsEmpty": "Noes configurashun vershunz yet. Dey appeer heer az soon az a `terraform plan` uploadz or a VCS push triggurz a run.",
+        "confirmApply": "Apply dis run? Dis applys teh plan an changez infrastrukchur.",
+        "confirmDiscard": "Discard dis plan?",
+        "costNoState": "No cost yet — appears after teh furst apply.",
+        "detailsPlanOnly": "Plan Only",
+        "discardedHeading": "Discardid — re-plan requird",
+        "driftCheckNowTitle": "Queue a plan-only run ta check fer drift",
+        "driftRemediate": "Plan + do it",
+        "driftRemediateConfirm": "Queue a plan + do-it runz for dis wurkspase?",
+        "driftRemediateTitle": "Queue a plan + do-it runz so teh infrastruktur matchiz teh config agin",
+        "errorsQueuePlan": "Failz ta kweue teh plan",
+        "errorsQueuePlanStatus": "Failz ta kweue teh plan ({status})",
+        "fieldsAutoMerge": "Auto-merge aftr apply",
+        "formAutoApplyModeHint": "never: alwayz waits for a hooman. always: applyz every gud plan. create / create/update: onlee applyz planz wif just dose akshuns — NEVAR a destroy or a replace. srsly.",
+        "lockLockedDesc": "Dis workspace iz lockd. Noes planz or appliez can run.",
+        "logApplyEmpty": "No apply output availabul yet.",
+        "logApplySkipped": "No apply happend: teh plan haz no changez, so nuthin to apply.",
+        "logIndexSummary": "Plan Summry",
+        "logIndexTitle": "Jumpz to a rezorce chanj, or teh plan summry",
+        "logPlanEmpty": "No plan output availabul yet.",
+        "nonDefaultRefNote": "Non-defawlt ref selectd — run will be plan-only",
+        "planExpiryDescription": "Auto-discard an unconfirmd plan wunce it iz oldr dan dis, so a stale plan can't be applyd against a moovd world. Off by defawlt; teh plan muzt den be re-run. (Appliez ta apply-capabul runz only.)",
+        "planExpiryTitle": "Plan Ekspiry",
+        "planOptions": "Plan Opshunz",
+        "planSummaryChatPlaceholder": "Ask a follow-up questshun bout dis plan… (⌘/Ctrl + Enter ta send)",
+        "planSummaryHeading": "Plan summry",
+        "planSummaryNoChangesTitle": "Plan reported no resource changez",
+        "planSummaryRegenerateTooltip": "Re-run teh AI summry against teh same plan inputs",
+        "planSummarySummarising": "Summarizin plan…",
+        "policyBlockedMessage": "Dis run iz <strong>blockd by a mandatory policy set</strong>. It wil not apply til teh failyoor iz resolvd or an admin overridez it.",
+        "queueApplyConfirm": "Queue a plan + apply run? Dis can change infrastruckchure.",
+        "queueApplyRefBlocked": "No do-it while u picked a branch, tag or commit — dose runz iz alwayz plan only, srsly",
+        "queueApplyTitle": "Queue a plan + do-it runz",
+        "queueDestroyTitle": "Queue a destroy plan",
+        "queuePlan": "Plan",
+        "queuePlanConfirm": "Queue a speculativ plan fer dis workspace?",
+        "queueRun": "Plan + do it",
+        "replacePlaceholder": "e.g. aws_instance.web",
+        "runTriggersDescription": "Wen a sorce workspace completez an apply, downstreem workspacez get a noo run queued automatikly. Up ta 20 sorce workspacez per destinashun.",
+        "tabApplyFull": "Apply log",
+        "tabApplyLabel": "Apply<log>Log</log>",
+        "tabPlanFull": "Plan log",
+        "tabPlanLabel": "Plan<log>Log</log>",
+        "targetPlaceholder": "e.g. aws_instance.web, aws_s3_bucket.data",
+        "timelineApplied": "Applyd",
+        "timelineApplyingStarted": "Applyin startd",
+        "timelinePlanComplete": "Plan compleet",
+        "timelinePlanningStarted": "Plannin startd",
+        "typePlanApply": "plan + apply",
+        "vcsWorkflowWarningRbac": "Anywun hoo can merge teh PR can apply. Branch protecshun rulez (requird reviewz, statuz checkz, code ownr approvul) becum teh gate. Terrapod role/labul RBAC do<em>not</em> apply ta comment-driven acshunz in dis mode.",
+        "vcsWorkflowWarningRecommended": "<strong>Recommendd:</strong> requir linear histry (rebase/squash befor merge) so teh commit u apply iz teh commit dat landz.",
+        "slackDescription": "Opt dis workspace into Slack run notificashunz — approvul requestz, appliez, errorz, an drift. Leev teh channul empty an dis workspace stayz silent (dere iz noes deployment-wide fan-out). Requirez teh Slack app ta be enabuld by an administraytor."
       }
     },
     "pulumi": {
@@ -3425,14 +3700,84 @@
         "applying": "Runnin pulumi up"
       },
       "runStatus": {
-        "planning": "Previewnin",
-        "planned": "Previewnd",
-        "applying": "Upin",
-        "applied": "Upd"
+        "planning": "Previuin",
+        "planned": "Previud",
+        "applying": "Updaytin",
+        "applied": "Updaytd"
       },
       "status": {
-        "planning": "Previewnin",
-        "applying": "Upin"
+        "planning": "Previuin",
+        "applying": "Updaytin",
+        "planned": "Previud",
+        "applied": "Updaytd"
+      },
+      "words": {
+        "actionConfirmFull": "Confirm & Updayt",
+        "actionConfirmShort": "Updayt",
+        "activityApplied": "Updayt compleet",
+        "activityConfirmed": "Startin updayt",
+        "activityDiscarded": "Previu discardid",
+        "activityPlannedComplete": "Previu compleet",
+        "activityPlannedConfirmable": "Waitin fer u ta confirm & updayt",
+        "activityPlannedSpeculative": "Speculativ previu compleet",
+        "aiPolicyOverrideConfirm": "Overryd teh AI polisy gate an let dis run updayt anywayz despite da verdikt?",
+        "aiSummaryDescription": "Automatik LLM-generayted change summry, risk assessment, an failyoor analysiz on evry previu-phase outcum fer dis workspace.",
+        "aiSummaryTitle": "AI Previu Summry",
+        "badgePlanOnly": "previu only",
+        "bannerPlanOnlyCli": "Dis iz a <strong>previu-only</strong> run initiatd from teh CLI on a VCS-connectd workspace. Updayt iz not availabul fer CLI-uploadd code — only VCS-managd code can be updaytd.",
+        "changesPlanning": "Previuin…",
+        "configurationsEmpty": "Noes configurashun vershunz yet. Dey appeer heer az soon az a VCS push triggurz a run.",
+        "confirmApply": "Updayt dis run? Dis updayts teh previu an changez infrastrukchur.",
+        "confirmDiscard": "Discard dis previu?",
+        "costNoState": "No cost yet — appears after teh furst updayt.",
+        "detailsPlanOnly": "Previu Only",
+        "discardedHeading": "Discardid — re-previu requird",
+        "driftCheckNowTitle": "Queue a previu-only run ta check fer drift",
+        "driftRemediate": "Previu + do it",
+        "driftRemediateConfirm": "Queue a previu + do-it runz for dis wurkspase?",
+        "driftRemediateTitle": "Queue a previu + do-it runz so teh infrastruktur matchiz teh config agin",
+        "errorsQueuePlan": "Failz ta kweue teh previu",
+        "errorsQueuePlanStatus": "Failz ta kweue teh previu ({status})",
+        "fieldsAutoMerge": "Auto-merge aftr updayt",
+        "formAutoApplyModeHint": "never: alwayz waits for a hooman. always: updaytz every gud previu. create / create/update: onlee updaytz previuz wif just dose akshuns — NEVAR a destroy or a replace. srsly.",
+        "lockLockedDesc": "Dis workspace iz lockd. Noes previuz or updaytz can run.",
+        "logApplyEmpty": "No updayt output availabul yet.",
+        "logApplySkipped": "No updayt happend: teh previu haz no changez, so nuthin to updayt.",
+        "logIndexSummary": "Previu Summry",
+        "logIndexTitle": "Jumpz to a rezorce chanj, or teh previu summry",
+        "logPlanEmpty": "No previu output availabul yet.",
+        "nonDefaultRefNote": "Non-defawlt ref selectd — run will be previu-only",
+        "planExpiryDescription": "Auto-discard an unconfirmd previu wunce it iz oldr dan dis, so a stale previu can't be carryd out against a moovd world. Off by defawlt; teh previu muzt den be re-run. (Appliez ta updayt-capabul runz only.)",
+        "planExpiryTitle": "Previu Ekspiry",
+        "planOptions": "Previu Opshunz",
+        "planSummaryChatPlaceholder": "Ask a follow-up questshun bout dis previu… (⌘/Ctrl + Enter ta send)",
+        "planSummaryHeading": "Previu summry",
+        "planSummaryNoChangesTitle": "Previu reported no resource changez",
+        "planSummaryRegenerateTooltip": "Re-run teh AI summry against teh same previu inputs",
+        "planSummarySummarising": "Summarizin previu…",
+        "policyBlockedMessage": "Dis run iz <strong>blockd by a mandatory policy set</strong>. It wil not updayt til teh failyoor iz resolvd or an admin overridez it.",
+        "queueApplyConfirm": "Queue a previu + updayt run? Dis can change infrastruckchure.",
+        "queueApplyRefBlocked": "No do-it while u picked a branch, tag or commit — dose runz iz alwayz previu only, srsly",
+        "queueApplyTitle": "Queue a previu + do-it runz",
+        "queueDestroyTitle": "Queue a destroy previu",
+        "queuePlan": "Previu",
+        "queuePlanConfirm": "Queue a speculativ previu fer dis workspace?",
+        "queueRun": "Previu + do it",
+        "replacePlaceholder": "e.g. urn:pulumi:dev::shop::aws:ec2/instance:Instance::web",
+        "runTriggersDescription": "Wen a sorce workspace completez an updayt, downstreem workspacez get a noo run queued automatikly. Up ta 20 sorce workspacez per destinashun.",
+        "tabApplyFull": "Updayt log",
+        "tabApplyLabel": "Updayt<log>Log</log>",
+        "tabPlanFull": "Previu log",
+        "tabPlanLabel": "Previu<log>Log</log>",
+        "targetPlaceholder": "e.g. urn:pulumi:dev::shop::aws:s3/bucket:Bucket::assets",
+        "timelineApplied": "Updaytd",
+        "timelineApplyingStarted": "Updaytin startd",
+        "timelinePlanComplete": "Previu compleet",
+        "timelinePlanningStarted": "Previuin startd",
+        "typePlanApply": "previu + updayt",
+        "vcsWorkflowWarningRbac": "Anywun hoo can merge teh PR can updayt. Branch protecshun rulez (requird reviewz, statuz checkz, code ownr approvul) becum teh gate. Terrapod role/labul RBAC do<em>not</em> apply ta comment-driven acshunz in dis mode.",
+        "vcsWorkflowWarningRecommended": "<strong>Recommendd:</strong> requir linear histry (rebase/squash befor merge) so teh commit u updayt iz teh commit dat landz.",
+        "slackDescription": "Opt dis workspace into Slack run notificashunz — approvul requestz, updaytz, errorz, an drift. Leev teh channul empty an dis workspace stayz silent (dere iz noes deployment-wide fan-out). Requirez teh Slack app ta be enabuld by an administraytor."
       }
     }
   },

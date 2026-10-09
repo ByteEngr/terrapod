@@ -97,15 +97,20 @@ state, a run you review then apply, one set of permissions, policies and
 history — as far as each engine allows, and where one cannot be, Terrapod says
 so rather than implying parity.
 
-**Only interested in Terraform and OpenTofu?** Then say so, and none of the rest is
-deployed. The container registry and the PyPI and npm proxies are there to serve
-Ansible and Pulumi work; two Helm switches —
-`api.config.engines.ansible.enabled` and `api.config.engines.pulumi.enabled` —
-turn each off completely. Their routes are never registered, their background
-tasks never scheduled, and nothing appears in the UI or the API schema. Terraform
-and OpenTofu are unaffected either way: the provider mirror, the engine binary
-cache and the module registry are what Terrapod is, and are never gated. Turning
-one off is not destructive — anything already stored stays put and comes back if
+**Only interested in Terraform and OpenTofu?** Then there is nothing to switch
+off and nothing to decide. Terrapod offers every engine it can run, and a
+deployment that only writes HCL never names another one — an engine's CLI is
+fetched only when a run of that engine happens, so nothing extra is deployed
+either way. The provider mirror, the engine binary cache and the module registry
+are what Terrapod is.
+
+The supporting surfaces for Ansible and Pulumi work — the container registry and
+the PyPI, npm, Galaxy, Pulumi-plugin, Go and NuGet proxies — each keep their own
+Helm switch (`api.config.registry.oci.enabled`,
+`api.config.registry.package_cache.enabled` and one flag per ecosystem), for
+operators who want a smaller surface. Off means the routes are never registered,
+the background tasks never scheduled, and nothing in the UI or the API schema.
+Never destructive: anything already stored stays put and comes back untouched if
 you turn it on again.
 
 The one hard requirement is Kubernetes, and that's a low bar: Terrapod is a single Helm release, a one-node [k3s](https://k3s.io/) VM is plenty to start, and `make eval` spins up a throwaway [k3d](https://k3d.io/)/kind cluster in one command.
@@ -141,11 +146,12 @@ Everything below is implemented and shipped today.
 | Workspaces | Isolate state, variables, and runs per workspace |
 | Remote state | Versioned state with locking and rollback; encrypted at rest by your object store, with optional app-layer BYOK envelope encryption |
 | CLI-driven runs | `terraform` / `tofu` plan / apply via the `cloud` backend (both verified) |
-| Terraform / OpenTofu provider | **Manage Terrapod itself as code** — [`terraform-provider-terrapod`](docs/terraform-provider.md) ships **26 resources + 11 data sources** (`terrapod_workspace`, `terrapod_variable`, `terrapod_role`, `terrapod_vcs_connection`, `terrapod_agent_pool`, `terrapod_run_task`, `terrapod_catalog_item`, `terrapod_execution_hook`, …), served per-instance from `<host>/default/terrapod` and GPG-signed |
+| Terraform / OpenTofu provider | **Manage Terrapod itself as code** — [`terraform-provider-terrapod`](docs/terraform-provider.md) ships **36 resources + 13 data sources** (`terrapod_workspace`, `terrapod_variable`, `terrapod_role`, `terrapod_vcs_connection`, `terrapod_agent_pool`, `terrapod_run_task`, `terrapod_catalog_item`, `terrapod_execution_hook`, `terrapod_inventory_host`, …), served per-instance from `<host>/default/terrapod` and GPG-signed |
 | AI agent integration (MCP) | **Drive Terrapod from an AI agent** (Claude, Cursor, …) via an official [MCP server](docs/mcp.md), `terrapod-mcp` — a local stdio binary authed with your `tofu login` token. Read-rich Observe tools (workspaces, runs, **structured plan JSON**, drift) + gated Act tools (plan/apply through the normal RBAC'd lifecycle). One server per instance = strict prod/dev isolation |
 | Agent execution | Server-side plan / apply on ephemeral K8s Jobs (ARC pattern) |
 | Agent pools | Named runner-listener groups; join-token → certificate exchange for auth |
 | TFE V2 CLI surface | The `cloud`-backend subset of the TFE V2 API (JSON:API) consumed by `terraform`/`tofu` + `terraform login` — not the full TFE V2 API |
+| Ansible inventory | A workspace's [inventory of ansible hosts](docs/ansible-inventory.md), modelled as the structures ansible's inventory has — hosts, groups, memberships, group nesting and variables on a host, a group or the inventory — each addressable and writable from the API, the provider, MCP and the UI. Declared rows merge with an optional repository directory, and **ansible itself** does the merge, the group DAG and the `--limit` expansion. Resolved live on every read, with `?limit=` to answer what a configure would target. Configure (playbook execution) is not here yet |
 | Run triggers | Cross-workspace dependency chains — a source apply triggers downstream runs |
 | Conditional auto-apply | Auto-apply only when the plan is within a declared safety standard — adds only, or adds and in-place updates. Anything that destroys or replaces a resource stops for a human |
 | Workspace undelete | Deleting a workspace leaves its state behind a delete marker, so an admin can salvage it into a new workspace within the retention window. A salvage operation, not an undo — the recovered workspace has a new id and comes back inert |
@@ -155,13 +161,14 @@ Everything below is implemented and shipped today.
 
 | Feature | Description |
 |---|---|
-| Label-based RBAC | Roles with granular `resource:verb` capabilities (e.g. `run:plan` without `run:apply`); read/plan/write/admin levels remain as authoring shorthand |
+| Label-based RBAC | Roles with granular `resource:verb` capabilities (e.g. `run:plan` without `run:apply`); read/plan/write/admin levels remain as authoring shorthand. Workspaces, agent pools, registry modules and providers, catalog items and **VCS connections** all carry `labels` and an owner, so a connection can be delegated to a team rather than being usable by anyone who can name it |
 | AI policy gate | The plan summary's own verdict as a post-plan gate: operator-written natural-language deny criteria plus a risk threshold, advisory or mandatory, with admin override. Rides the summary's existing model call, so gating costs no extra tokens. Off by default |
 | Policy-as-code (OPA) | Rego enforcement on plan JSON — the open-source equivalent of Sentinel. Advisory or mandatory sets, label-scoped to workspaces, evaluated on the runner, with admin override. Optional shared evaluation lets a set's policies share helper rules and data files |
 | IaC security scanning | Checkov/Trivy misconfiguration scanning of the plan JSON with maintained rule catalogues — per-workspace `off`/`advisory`/`enforced`, severity threshold, skip rules; enforced holds the run at the gate on a failed finding, with admin override |
 | SSO (OIDC / SAML) | Pluggable identity providers (Auth0, Okta, Azure AD, any standards-compliant IdP) |
 | Audit logging | Immutable event log with configurable retention |
 | Cloud credentials | Zero static keys — dynamic credentials via K8s workload identity (AWS EKS Pod Identity or IRSA, GCP WIF, Azure WI); passwordless DB and Redis IAM auth |
+| Per-workspace cloud identity | Terrapod as an OIDC issuer for its own runs: a short-lived JWT per provider configuration, claiming the workspace and phase, which your cloud federates to — so the credential boundary is the workspace, not the agent pool, and cloud audit logs name the workspace. Put write permissions behind the `apply` phase and a pull-request plan cannot assume them. Fall-through: a workspace whose resolved audience map is empty keeps using the pool's ServiceAccount. Off by default, and enabling it means two issuer paths must be publicly reachable |
 | Supply-chain verification | Cached binaries + provider archives verified against the publisher's GPG-signed SHA256SUMS (pinned keys); the runner re-verifies the executable before running it |
 | Signed releases | Every release image + the Helm chart is keyless-signed with cosign, with per-image SBOM (SPDX) + SLSA build-provenance attestations — verifiable with `cosign verify` / `gh attestation verify` |
 
@@ -182,12 +189,12 @@ Everything below is implemented and shipped today.
 
 | Feature | Description |
 |---|---|
-| VCS integration | GitHub App + GitLab token; inbound webhooks supported (GitHub HMAC + GitLab token) for instant triggers, with outbound polling as the resilient default — so webhooks are optional, never required |
+| VCS integration | GitHub App + GitLab token; inbound webhooks supported (GitHub HMAC + GitLab token) for instant triggers, with outbound polling as the resilient default — so webhooks are optional, never required. A pull request from a [fork](docs/vcs-integration.md#pull-requests-from-forks) plans only if the workspace sets `allow-fork-pr-plans`, which **defaults false** (`GHSA-gp5w-76rw-c452`), because such a plan runs its author's code with that workspace's credentials; pull requests raised within the repository always plan |
 | Workspace autodiscovery | Atlantis-style monorepo autodiscovery — pattern-matched rules auto-create workspaces on PRs to new directories, for Terraform/OpenTofu or Pulumi (one engine per rule; a Pulumi rule discovers each stack in a directory as its own workspace) |
 | Module autodiscovery | Rules that find the modules — the root and any submodules — in a repository, or across an org, group or repository-name pattern; preview them, register all or a picked subset, and automatically register directories and repositories that appear later ([docs](docs/registry.md#module-autodiscovery)) |
 | Registry submodules | Publish a module from a subdirectory of its repository — `subdirectory` on a VCS-sourced registry module, re-rooted so consumers need no `//subdir` suffix; one repository can hold many modules ([docs](docs/registry.md#submodules-a-module-in-a-subdirectory)) |
 | Terragrunt | Per-workspace Terragrunt for agent-mode runs (a flag + pinned version, pull-through binary cache, local-backend reconciliation so Terrapod still owns state); CLI-driven runs need no extra config |
-| Variables & secrets | Per-workspace env and Terraform variables; sensitive values protected by database encryption-at-rest; variable sets, assignable by rule (labels/globs) as well as one by one; values can be [read from OpenBao (or HashiCorp Vault)](docs/vault.md) at run time, including dynamic secrets |
+| Variables & secrets | Per-workspace env, Terraform and [Pulumi stack-config](docs/pulumi.md#stack-configuration) variables; sensitive values protected by database encryption-at-rest; variable sets, assignable by rule (labels/globs) as well as one by one; values can be [read from OpenBao (or HashiCorp Vault)](docs/vault.md) at run time, including dynamic secrets |
 | Private module source auth | First-class auth for private `git::https://` / `git::ssh://` module sources — a scoped `git_http_auth` / `git_ssh_auth` variable (static token or minted from a VCS connection), with ssh↔https protocol rewriting; credentials are log-safe and delivered only via the per-run Secret ([module-auth.md](docs/module-auth.md)) |
 | Runner debug mode | Per-workspace opt-in that keeps a failed runner pod alive so you can `kubectl exec` into it and reproduce a credential, DNS or mount failure with the run's real environment. Auto-expires; off by default |
 | Drift detection | Scheduled plan-only runs to detect out-of-band changes, with a per-workspace ignore allowlist |

@@ -70,6 +70,14 @@ class PulumiRunOptions:
     env_vars: list[dict[str, Any]] = field(default_factory=list)
     #: Save the preview's plan and bind the update to it (#1553). Off by default.
     bind_plan: bool = False
+    #: Whether this run is cost-estimated, and the region a resource is priced
+    #: in when its own attributes do not say (#1569). Carried for the same
+    #: reason Terraform carries them: the runner defaults cost estimation ON, so
+    #: an engine that does not relay the API's instruction leaves an operator who
+    #: turned `cost_estimation.enabled` off still paying for a pricesheet
+    #: download on every run — a setting that silently did nothing.
+    cost_estimation: bool = True
+    cost_default_region: str = "us-east-1"
 
 
 class PulumiStrategy:
@@ -123,6 +131,19 @@ class PulumiStrategy:
     #: fail-open is closed first.
     honours_drift_ignore_rules = False
 
+    #: A Pulumi program is arbitrary code and its provider instances are built at
+    #: runtime, so there is nothing to walk before the program runs — and the
+    #: thing that would run it, `preview`, is what needs the credentials (#2006).
+    #: `pulumi stack graph` is not the answer: it graphs the resources in an
+    #: existing stack's STATE, so it is empty on a first run and never names the
+    #: aliased provider instances a program constructs.
+    #:
+    #: So a Pulumi run mints every identity its workspace resolves. That is a
+    #: widening, and an accepted one: the cloud-side trust policy is the gate, as
+    #: it already is for Terraform, and discovery was always a filter rather than
+    #: the source of truth.
+    discovers_provider_configurations = False
+
     #: The AI policy gate, not yet, and for a sharper reason than the scan
     #: above (#1766). A preview DOES upload a plan artifact — but it is the
     #: digest, capped at `pulumi_preview.MAX_STEPS`, and `steps_truncated` says
@@ -133,6 +154,23 @@ class PulumiStrategy:
     #: read it; until it can, a Pulumi run is reported as not evaluated rather
     #: than judged on a partial plan.
     evaluates_ai_policy = False
+
+    #: Cost estimation, yes (#1569). The preview's engine event log is
+    #: translated into the plan shape the cost engine reads, with each Pulumi
+    #: resource token mapped to the Terraform type the pricesheet knows it by
+    #: (`services/cost/pulumi.py`). Partial by construction and honestly so: a
+    #: token the table does not name is reported UNPRICED with its own token
+    #: shown, never guessed at, because a mapping is not derivable —
+    #: `aws:ec2/instance:Instance` is `aws_instance` but `aws:rds/instance:
+    #: Instance` is `aws_db_instance`, and a wrongly-priced resource is worse
+    #: than an unpriced one because nothing about it looks wrong.
+    estimates_cost = True
+
+    #: The critic reads a Terraform state v4 document and grounds in a cost
+    #: estimate built from one. A Pulumi deployment put through that compaction
+    #: yields an empty graph rather than an error (#1568's hazard, in the critic
+    #: this time), so the critique would be confident prose about nothing.
+    critiques_architecture = False
 
     #: Which phase each internal run status belongs to. The platform's status
     #: names never change — a run is `planning` whatever engine it belongs to —
@@ -189,6 +227,15 @@ class PulumiStrategy:
             env.append({"name": "TP_PARALLELISM", "value": str(options.parallelism)})
         if options.bind_plan:
             env.append({"name": "TP_PULUMI_BIND_PLAN", "value": "true"})
+        # Cost estimation (#1569), emitted exactly as Terraform emits it: the
+        # runner defaults to enabled, so only say so when the API instructs OFF,
+        # and always ship the fallback region — a Pulumi AWS resource carries no
+        # `region` of its own (the provider holds it, and the provider is not in
+        # the event log), so the fallback is what most of them are priced in.
+        if not options.cost_estimation:
+            env.append({"name": "TP_COST_ESTIMATION", "value": "false"})
+        elif options.cost_default_region:
+            env.append({"name": "TP_COST_DEFAULT_REGION", "value": options.cost_default_region})
         return env
 
     def options_from_attrs(self, attrs: dict, phase: str) -> PulumiRunOptions:
@@ -225,6 +272,8 @@ class PulumiStrategy:
             parallelism=attrs.get("parallelism", 0),
             timeout_minutes=attrs.get("timeout-minutes", 0),
             bind_plan=bool(attrs.get("pulumi-bind-plan", False)),
+            cost_estimation=attrs.get("cost-estimation", True),
+            cost_default_region=attrs.get("cost-default-region", "us-east-1"),
         )
 
     def build_job_spec(self, **kwargs: Any) -> dict:
@@ -271,13 +320,17 @@ class PulumiStrategy:
     ) -> TerminalOutcome:
         """What a finished Job means for Pulumi.
 
-        The same answer as Terraform's, because the Job has the same shape. An
-        agent-mode Pulumi run keeps its stack in a file backend inside the Job and
-        hands the deployment back through the run's artifacts before it exits
-        (#1576) — as a Terraform apply uploads its state — so by the time a Job
-        succeeds its state is already stored, and completion is a state
-        transition and nothing more. Pulumi never writes checkpoints to Terrapod
-        from an agent run; that surface serves local mode.
+        The same answer as Terraform's, because the Job has the same shape.
+
+        An agent-mode Pulumi run drives Terrapod's own Pulumi service surface
+        (#1881): the CLI checkpoints to it as the update proceeds, and the
+        `complete` call that ends the update is what turns the last checkpoint
+        into the workspace's one new state version (#1564). So by the time a Job
+        succeeds its state is already stored — completion here is a run-state
+        transition and nothing more — but it is stored by the update completing,
+        not by anything this method does or by an upload on the way out. Someone
+        auditing where a Pulumi stack's state is published should be looking at
+        `pulumi_checkpoint_service.promote_checkpoint` and its caller, not here.
 
         A failed or deleted Job errors the run, as for Terraform. Pulumi has no
         equivalent of Ansible's `ignore_errors`, so a non-zero exit means the
@@ -290,8 +343,8 @@ class PulumiStrategy:
                 return TerminalOutcome(action="complete_plan", phase=phase)
             if run_status == "applying":
                 return TerminalOutcome(action="complete_apply", phase=phase)
-            # Neither planning nor applying: the checkpoint already drove the
-            # transition. The completion helpers are idempotent, but there is
+            # Neither planning nor applying: the runner's own POST already drove
+            # the transition. The completion helpers are idempotent, but there is
             # nothing left to complete, so say so rather than calling one anyway.
             return TerminalOutcome(action="none", phase=phase)
 

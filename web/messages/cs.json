@@ -27,6 +27,7 @@
     "account": "Účet",
     "apiTokens": "API tokeny",
     "sessions": "Relace",
+    "slackLinks": "Propojení Slack",
     "logOut": "Odhlásit se",
     "menu": "Nabídka",
     "openMenu": "Otevřít nabídku",
@@ -70,7 +71,6 @@
       "agentPool": "Fond agentů",
       "none": "Žádný",
       "autoApply": "Automatické použití",
-      "autoApplyModeHint": "never: vždy počkat na člověka. always: aplikovat každý úspěšný plán. create / create/update: aplikovat jen plány omezené na tyto akce — nikdy ne mazání ani nahrazení.",
       "enabled": "Povoleno",
       "workingDirectory": "Pracovní adresář",
       "workingDirectoryPlaceholder": "např. environments/dev",
@@ -372,6 +372,22 @@
         "load": "Nepodařilo se načíst relace",
         "revoke": "Nepodařilo se odvolat relace ({status})",
         "revokeGeneric": "Nepodařilo se odvolat relace"
+      }
+    },
+    "slackLinks": {
+      "title": "Propojení Slack",
+      "description": "Účty Slack, které mohou jednat za vás. Propojený účet Slack může potvrzovat a zahazovat běhy s vašimi oprávněními, takže odvolejte vše, co nepoznáváte.",
+      "empty": "S vámi není propojen žádný účet Slack.",
+      "revoke": "Odvolat",
+      "confirmRevoke": "Odvolat propojení uživatele Slack {user}? Tento účet už za vás ze Slacku jednat nebude.",
+      "columns": {
+        "slackUser": "Uživatel Slack",
+        "team": "Tým Slack",
+        "linkedAt": "Propojeno"
+      },
+      "errors": {
+        "load": "Vaše propojení Slack se nepodařilo načíst.",
+        "revoke": "Toto propojení Slack se nepodařilo odvolat."
       }
     }
   },
@@ -761,7 +777,9 @@
       "setAssignmentStatus": "Nepodařilo se nastavit přiřazení ({status})",
       "deleteAssignment": "Nepodařilo se smazat přiřazení",
       "conflictingLabelKeys": "{keys} má více než jednu hodnotu. Pravidlo štítku drží jednu hodnotu na klíč, takže poslední by tiše nahradila předchozí. Více hodnot pro jeden klíč API podporuje, ale zde je zatím nastavit nelze."
-    }
+    },
+    "pinnedToSubject": "Připnuto",
+    "pinnedToSubjectTitle": "Připnuto k subjektu IdP {subject}"
   },
   "adminVcs": {
     "title": "VCS připojení",
@@ -774,6 +792,23 @@
       "delete": "Smazat"
     },
     "confirmDelete": "Smazat toto VCS připojení? Pracovní prostory, které jej používají, ztratí integraci VCS. Toto nelze vrátit zpět.",
+    "access": {
+      "heading": "Kdo může používat toto připojení",
+      "intro": "Tato tři nastavení určují, které pracovní prostory mohou odkazovat na toto připojení. Samotné přihlašovací údaje zůstávají pouze pro zápis.",
+      "ownerEmail": "E-mail vlastníka",
+      "ownerEmailHint": "Vlastník může toto připojení používat vždy. Ponechte prázdné, aby připojení zůstalo bez vlastníka.",
+      "labels": "Štítky přístupu",
+      "labelsHint": "Role, jejíž pravidla odpovídají těmto štítkům, může nasměrovat pracovní prostor na toto připojení.",
+      "allowedRepositories": "Povolená repozitáře",
+      "allowedRepositoriesHint": "Vzory glob porovnávané s repozitářem, o který pracovní prostor žádá.",
+      "addPattern": "Přidat vzor",
+      "anyRepositoryWarning": "Není uveden žádný vzor, takže toto připojení může odkazovat na jakýkoli repozitář.",
+      "restricted": "{count, plural, one {Je uveden # vzor} few {Jsou uvedeny # vzory} many {Je uvedeno # vzoru} other {Je uvedeno # vzorů}}, takže repozitář, který neodpovídá žádnému z nich, je odmítnut.",
+      "ownedBy": "Vlastníkem je {email}",
+      "unowned": "Není nastaven žádný vlastník",
+      "anyRepositorySummary": "Je povolen jakýkoli repozitář",
+      "repositoryCount": "Omezeno na {count, plural, one {# repozitář} few {# repozitáře} many {# repozitáře} other {# repozitářů}}"
+    },
     "form": {
       "name": "Název",
       "namePattern": "Pouze písmena, číslice, pomlčky a podtržítka. Musí začínat písmenem nebo číslicí.",
@@ -922,7 +957,6 @@
       "varKey": "Klíč",
       "varValue": "Hodnota",
       "varCategory": "Kategorie",
-      "categoryTerraform": "Terraform",
       "categoryEnv": "Prostředí",
       "sensitive": "Citlivé",
       "sensAbbr": "Citl.",
@@ -988,7 +1022,9 @@
       "valueSource": "Zdroj hodnoty",
       "valueSourceStatic": "Zadat hodnotu",
       "valueSourceVault": "Načíst z OpenBao/Vault",
-      "vaultHint": "Terrapod načte tajemství z OpenBao (nebo HashiCorp Vault) při běhu. Zde se nic neukládá."
+      "vaultHint": "Terrapod načte tajemství z OpenBao (nebo HashiCorp Vault) při běhu. Zde se nic neukládá.",
+      "categoryNative": "Nativní",
+      "structured": "Strukturovaná"
     }
   },
   "adminAutodiscovery": {
@@ -1076,7 +1112,10 @@
       "terragruntVersion": "Verze Terragrunt",
       "noExpiry": "Bez vypršení",
       "addDriftIgnoreRule": "Přidat pravidlo",
-      "debugModeHint": "Ponechat pody neúspěšných runnerů otevřené v pracovních prostorech, které toto pravidlo vytvoří. Ve výchozím stavu vypnuto — ponechaný pod si drží přihlašovací údaje daného pracovního prostoru."
+      "debugModeHint": "Ponechat pody neúspěšných runnerů otevřené v pracovních prostorech, které toto pravidlo vytvoří. Ve výchozím stavu vypnuto — ponechaný pod si drží přihlašovací údaje daného pracovního prostoru.",
+      "allowForkPrPlansHint": "Platí pro každý pracovní prostor, který toto pravidlo vytvoří. Ve výchozím stavu vypnuto: pull request z forku nedostane spekulativní plán, protože by spustil kód svého autora s přihlašovacími údaji pracovního prostoru.",
+      "oidcAudiences": "Audience identity běhu (zděděné vytvořenými pracovními prostory)",
+      "oidcAudiencesHint": "Přepisy audience vložené do každého pracovního prostoru, který toto pravidlo vytvoří, zaklíčované na konfiguraci provideru, pro kterou token platí — aws, nebo aws.west pro konfiguraci s aliasem. Nechte prázdné a tyto pracovní prostory použijí vlastní konfiguraci nasazení."
     },
     "table": {
       "name": "Název",
@@ -1270,7 +1309,8 @@
       "cancel": "Zrušit",
       "working": "Pracuji...",
       "previewDryRun": "Náhled (zkušební běh)",
-      "applyChanges": "Aplikovat změny"
+      "applyChanges": "Aplikovat změny",
+      "setOidcAudiences": "Nastavit OIDC audience identity běhu (nahradí mapu na každém odpovídajícím pracovním prostoru)"
     },
     "diff": {
       "colWorkspace": "Pracovní prostor",
@@ -1919,12 +1959,24 @@
       "always": "vždy",
       "create": "vytvoření",
       "createUpdate": "vytvoření/změna"
+    },
+    "oidcAudiences": {
+      "addProvider": "Přidat konfiguraci provideru",
+      "audiences": "Audience",
+      "badgeInherited": "Výchozí nastavení nasazení",
+      "badgeOwned": "Pracovní prostor",
+      "issuerDisabled": "Toto nasazení nepublikuje žádného vydavatele OpenID Connect, takže nic, co se zde nastaví, nemůže nabýt účinnosti.",
+      "override": "Přepsat",
+      "overrideAria": "Přepsat audience pro {provider} v tomto pracovním prostoru",
+      "providerDuplicate": "Tato konfigurace provideru už má záznam.",
+      "providerInvalid": "Název provideru neobsahuje mezery a nejvýše jednu tečku — aws, nebo aws.west.",
+      "providerPlaceholder": "aws, nebo aws.west",
+      "removeProviderAria": "Odebrat konfiguraci provideru {provider}"
     }
   },
   "planSummary": {
     "aiGenerated": "Vygenerováno AI",
     "heading": {
-      "planSummary": "Shrnutí plánu",
       "failureAnalysis": "Analýza selhání"
     },
     "errors": {
@@ -1933,13 +1985,11 @@
     "regenerate": {
       "label": "Vygenerovat znovu",
       "queueing": "Zařazování do fronty…",
-      "tooltip": "Znovu spustit AI shrnutí proti stejným vstupům plánu",
       "ariaLabel": "Vygenerovat AI shrnutí znovu",
       "confirm": "Vygenerovat AI analýzu znovu? Toto znovu spustí model.",
       "error": "Nepodařilo se vygenerovat znovu: <mono>{detail}</mono>"
     },
     "pending": {
-      "summarisingPlan": "Shrnování plánu…",
       "analysingFailure": "Analyzování selhání…"
     },
     "skipped": {
@@ -1963,7 +2013,6 @@
     "badges": {
       "noChanges": "Žádné změny",
       "noChangesLower": "žádné změny",
-      "noChangesTitle": "Plán nehlásil žádné změny prostředků",
       "toAdd": "{count, plural, one {# k přidání} few {# k přidání} many {# k přidání} other {# k přidání}}",
       "toChange": "{count, plural, one {# ke změně} few {# ke změně} many {# ke změně} other {# ke změně}}",
       "toDestroy": "{count, plural, one {# ke zničení} few {# ke zničení} many {# ke zničení} other {# ke zničení}}",
@@ -1973,7 +2022,6 @@
     "chat": {
       "heading": "Návazné dotazy",
       "sharedThreadNote": "Jedno sdílené vlákno, viditelné pro každého s právem čtení pracovního prostoru.",
-      "placeholder": "Položte návazný dotaz k tomuto plánu… (⌘/Ctrl + Enter pro odeslání)",
       "send": "Odeslat",
       "thinking": "Přemýšlím…",
       "you": "Vy",
@@ -1997,7 +2045,6 @@
     "workspaceFallback": "pracovní prostor",
     "backTo": "Zpět na {name}",
     "errorHeading": "Chyba",
-    "discardedHeading": "Zahozeno — vyžadováno opětovné naplánování",
     "common": {
       "yes": "Ano",
       "no": "Ne"
@@ -2051,14 +2098,13 @@
     },
     "badge": {
       "destroy": "zničit",
-      "planOnly": "pouze plán"
+      "savedPlan": "uložený plán",
+      "savedPlanHint": "Aplikace odložena: tento běh neblokuje pracovní prostor, dokud není uložený plán aplikován."
     },
     "actions": {
       "retryShort": "Zkusit znovu",
       "retryFull": "Zkusit běh znovu",
       "retrying": "Opakování…",
-      "confirmShort": "Aplikovat",
-      "confirmFull": "Potvrdit a aplikovat",
       "confirming": "Potvrzování…",
       "discard": "Zahodit",
       "discarding": "Zahazování…",
@@ -2068,8 +2114,6 @@
       "queuing": "Zařazuje se…"
     },
     "confirm": {
-      "apply": "Aplikovat tento běh? Toto aplikuje plán a změní infrastrukturu.",
-      "discard": "Zahodit tento plán?",
       "cancel": "Zrušit tento běh?",
       "retry": "Zkusit tento běh znovu?"
     },
@@ -2092,20 +2136,19 @@
       "impactFull": "Graf dopadu",
       "cost": "Náklady",
       "costFull": "Odhad nákladů",
-      "planLabel": "Plán<log>Log</log>",
-      "applyLabel": "Apply<log>Log</log>",
-      "planFull": "Log plánu",
-      "applyFull": "Log apply",
       "details": "Podrobnosti",
       "security": "Zabezpečení",
       "securityFull": "Bezpečnostní kontrola"
     },
     "banner": {
       "destroy": "Toto je <strong>destroy</strong> běh — všechny spravované prostředky budou při aplikaci zničeny.",
-      "planOnlyCli": "Toto je <strong>plan-only</strong> běh spuštěný z CLI na pracovním prostoru připojeném k VCS. Apply není pro kód nahraný z CLI dostupný — aplikovat lze pouze kód spravovaný VCS.",
       "moduleOverridesPrefix": "Tento běh používá <strong>přepisy modulů</strong>",
       "moduleOverridesFromPr": "z PR #{number}",
       "moduleOverridesSuffix": "budou staženy z větve PR namísto publikované verze z registry."
+    },
+    "bindPlan": {
+      "bound": "Uzamčeno na tento náhled: aktualizace použije přesně plán zobrazený zde a cokoli, co se od té doby změnilo, aktualizaci zastaví, místo aby se to použilo.",
+      "unbound": "Neuzamčeno na tento náhled: aktualizace si při spuštění změny určí sama, stejně jako prosté pulumi up, takže může použít jiné změny, než jsou zobrazeny zde."
     },
     "cards": {
       "changes": "Změny",
@@ -2117,7 +2160,6 @@
     },
     "changes": {
       "noChanges": "Žádné změny",
-      "planning": "Plánování…",
       "toAdd": "k přidání",
       "toChange": "ke změně",
       "toDestroy": "ke zničení",
@@ -2154,7 +2196,6 @@
       "executionBackend": "Prováděcí backend",
       "source": "Zdroj",
       "autoApply": "Automatické použití",
-      "planOnly": "Pouze plán",
       "triggeredBy": "Spuštěno kým",
       "created": "Vytvořeno",
       "commit": "Commit",
@@ -2170,11 +2211,7 @@
     "timeline": {
       "heading": "Časová osa",
       "queued": "Ve frontě",
-      "planningStarted": "Plánování zahájeno",
-      "planComplete": "Plán dokončen",
       "confirmed": "Potvrzeno",
-      "applyingStarted": "Aplikování zahájeno",
-      "applied": "Aplikováno",
       "errored": "Chyba",
       "canceled": "Zrušeno",
       "discarded": "Zahozeno"
@@ -2198,12 +2235,8 @@
       "followOffTitle": "Sledovat živý výstup",
       "end": "Konec",
       "endTitle": "Přejít na konec logu",
-      "planEmpty": "Zatím není k dispozici žádný výstup plánu.",
-      "applyEmpty": "Zatím není k dispozici žádný výstup apply.",
       "index": {
         "label": "Přejít na",
-        "title": "Přejít na změnu zdroje nebo na souhrn plánu",
-        "summary": "Souhrn plánu",
         "action": {
           "create": "vytvořit",
           "update": "aktualizovat",
@@ -2215,13 +2248,11 @@
           "error": "chyba",
           "warning": "varování"
         }
-      },
-      "applySkippedNoChanges": "Žádná aplikace neproběhla: plán neobsahoval žádné změny, takže nebylo co aplikovat."
+      }
     },
     "policyPanel": {
       "heading": "Kontroly zásad",
       "passedCount": "{passed}/{total} prošlo",
-      "blockedMessage": "Tento běh je <strong>blokován povinnou sadou zásad</strong>. Nebude aplikován, dokud nebude selhání vyřešeno nebo dokud jej administrátor nepřepíše.",
       "overriding": "Přepisování...",
       "overrideContinue": "Přepsat a pokračovat",
       "overrideFailed": "Přepsání selhalo",
@@ -2261,7 +2292,6 @@
       "unpricedHint": "Nic v cenových datech těmto neodpovídalo — nenamapovaný typ, zdroj bez přímých nákladů nebo dosud nepodporovaný poskytovatel.",
       "indicative": "Odhady jsou orientační; skutečné náklady závisí na využití, regionu, závazcích a slevách.",
       "asOfState": "dle stavu v{serial}",
-      "noState": "Zatím žádné náklady — zobrazí se po prvním použití.",
       "usageBand": "{dimension}: typicky {typical} {unit} (rozsah {low}–{high})",
       "usageBandCost": "{dimension}: {costTypical}/měs typicky — {costLow}–{costHigh} při {low}–{high} {unit}"
     },
@@ -2348,7 +2378,6 @@
       "passed": "Žádná kritéria zásad neodpovídají.",
       "overriding": "Přepisování...",
       "overrideContinue": "Přepsat a pokračovat",
-      "overrideConfirm": "Přepsat bránu zásad AI a povolit použití tohoto běhu navzdory verdiktu?",
       "overrideFailed": "Přepsání selhalo",
       "overrideFailedStatus": "Přepsání selhalo ({status})",
       "overriddenBy": "přepsal {by}"
@@ -2407,9 +2436,6 @@
       "translatedNote": "Přeloženo z originálu při zobrazení."
     },
     "drift": {
-      "remediate": "Plan + apply",
-      "remediateTitle": "Zařadit běh plan + apply, aby se infrastruktura opět shodovala s konfigurací",
-      "remediateConfirm": "Zařadit běh plan + apply pro tento pracovní prostor?",
       "remediateMessage": "Zařazeno z kontroly odchylek",
       "remediateFailed": "Nápravný běh se nepodařilo zařadit"
     }
@@ -2469,6 +2495,7 @@
       "architecture": "Architektura",
       "insights": "Přehledy",
       "automation": "Automatizace",
+      "inventory": "Inventář",
       "access": "Přístup"
     },
     "lifecycle": {
@@ -2501,6 +2528,9 @@
       "version": "Verze",
       "versionPlaceholder": "např. 1.11 nebo 1.11.5",
       "versionTitle": "Verze ve formátu X.Y nebo X.Y.Z (např. 1.11 nebo 1.11.5)",
+      "ansibleVersion": "Verze Ansible",
+      "ansibleVersionPlaceholder": "např. 2.21.5",
+      "ansibleVersionTitle": "Verze ansible-core pro tento pracovní prostor. Nechte prázdné, aby se použilo výchozí nastavení nasazení.",
       "terragruntEnabledAgent": "Povoleno (režim agenta)",
       "terragruntEnabledVersion": "Povoleno (v{version})",
       "terragruntVersionPlaceholder": "např. 1.0",
@@ -2541,12 +2571,16 @@
       "engineTerraform": "Terraform",
       "nameTitlePulumi": "Dvě části oddělené '::' — project::stack. Pouze písmena, číslice, pomlčky a podtržítka; každá část musí začínat písmenem nebo číslicí.",
       "bindPlan": "Uzamknout aktualizaci na schválený náhled",
-      "bindPlanHelp": "Když je zapnuto, aktualizace použije přesně plán uložený náhledem, takže cokoli, co se od náhledu změnilo, aktualizaci zastaví, místo aby se to použilo. Opírá se to o plány aktualizací Pulumi, které jsou stále experimentální. Když je vypnuto, aktualizace si změny určí sama, stejně jako prosté pulumi up. <docs>Jak fungují běhy Pulumi</docs>"
+      "bindPlanHelp": "Když je zapnuto, aktualizace použije přesně plán uložený náhledem, takže cokoli, co se od náhledu změnilo, aktualizaci zastaví, místo aby se to použilo. Opírá se to o plány aktualizací Pulumi, které jsou stále experimentální. Když je vypnuto, aktualizace si změny určí sama, stejně jako prosté pulumi up. <docs>Jak fungují běhy Pulumi</docs>",
+      "oidcAudiences": "Audience identity běhu",
+      "oidcAudiencesAdd": "Přidat audience",
+      "oidcAudiencesHint": "Terrapod vydává krátkodobý token OpenID Connect pro každou konfiguraci provideru, kterou běh používá, a zapisuje ho do souboru, který si běh může přečíst. Záznam zaklíčujte na provider tak, jak ho pojmenovává vaše konfigurace — aws, nebo aws.west pro konfiguraci s aliasem — a vypište audience, které ten cíl přijímá. Každý záznam přepisuje vlastní konfiguraci nasazení pro daný provider; odeberte ho a ten provider se vrátí k audience nasazení. Audience je neprůhledný řetězec, který si vybral cíl federace, takže se ukládá přesně tak, jak ji napíšete.",
+      "oidcAudiencesLoading": "Kontrolují se audience nakonfigurované v nasazení …",
+      "oidcAudiencesNone": "Žádné (běhy používají vlastní identitu fondu agentů)",
+      "oidcAudiencesPlaceholder": "např. sts.amazonaws.com"
     },
     "vcsWorkflowWarning": {
       "title": "Autorizace delegována na váš VCS repozitář.",
-      "rbac": "Kdokoli, kdo může sloučit PR, může aplikovat. Bránou se stávají pravidla ochrany větve (povinné kontroly, status checks, schválení vlastníkem kódu). Terrapod role/label RBAC se<em>ne</em>vztahuje na akce řízené komentáři v tomto režimu.",
-      "recommended": "<strong>Doporučeno:</strong> vyžadujte lineární historii (rebase/squash před sloučením), aby commit, který aplikujete, byl commitem, který přistane.",
       "credit": "Poděkování: toto workflow je modelováno podle <atlantis>Atlantis</atlantis>. Atlantis zůstává tím správným nástrojem pro týmy, které chtějí pouze aplikace řízené komentáři v PR a žádné platformové UI."
     },
     "vcsPolling": {
@@ -2562,7 +2596,6 @@
     },
     "lock": {
       "title": "Stav uzamčení",
-      "lockedDesc": "Tento pracovní prostor je uzamčen. Nemohou probíhat žádné plány ani aplikace.",
       "unlockedDesc": "Tento pracovní prostor je odemčen a připraven na běhy.",
       "lock": "Uzamknout",
       "unlock": "Odemknout",
@@ -2584,7 +2617,6 @@
       "dismissTitle": "Vymazat nahlášený stav odchýlení. Další naplánovaná kontrola jej znovu naplní podle reality.",
       "lastChecked": "Naposledy zkontrolováno",
       "checkNow": "Zkontrolovat nyní",
-      "checkNowTitle": "Zařadit plan-only běh ke kontrole odchýlení",
       "checkNowTitleDisabled": "Nejprve povolte detekci odchýlení"
     },
     "intervals": {
@@ -2598,13 +2630,10 @@
       "7days": "7 dní"
     },
     "planExpiry": {
-      "title": "Vypršení plánu",
-      "description": "Automaticky zahodit nepotvrzený plán, jakmile je starší než toto, aby nebylo možné aplikovat zastaralý plán proti změněnému světu. Ve výchozím nastavení vypnuto; plán pak musí být znovu spuštěn. (Platí pouze pro běhy schopné apply.)",
       "expireAfter": "Vypršet po"
     },
     "aiSummary": {
       "title": "AI shrnutí plánu",
-      "description": "Automatické, LLM generované shrnutí změn, posouzení rizik a analýza selhání u každého výsledku fáze plánu pro tento pracovní prostor.",
       "mode": "Režim",
       "modeDefault": "Řídit se výchozím nastavením nasazení",
       "modeEnabled": "Vždy shrnout",
@@ -2619,7 +2648,6 @@
     },
     "slack": {
       "title": "Slack oznámení",
-      "description": "Přihlaste tento pracovní prostor k Slack oznámením o bězích — žádosti o schválení, aplikace, chyby a odchýlení. Ponechte kanál prázdný a tento pracovní prostor zůstane tichý (neexistuje žádné rozeslání pro celé nasazení). Vyžaduje, aby Slack aplikace byla povolena administrátorem.",
       "channel": "Kanál",
       "channelPlaceholder": "#deploys nebo ID kanálu (např. C0123ABCD)",
       "notSet": "Nenastaveno — tiché.",
@@ -2694,20 +2722,18 @@
       "vaultFileEncoding": "Kódování",
       "vaultFileEncodingNone": "Jak je uloženo v OpenBao/Vault",
       "vaultFileEncodingBase64": "Dekódovat Base64",
-      "vaultFileEncodingHint": "Dekóduje pole před zápisem. Výsledek musí být text; binární soubory nejsou podporovány."
+      "vaultFileEncodingHint": "Dekóduje pole před zápisem. Výsledek musí být text; binární soubory nejsou podporovány.",
+      "categoryNative": "Nativní",
+      "structured": "Strukturovaná",
+      "categoryTerraform": "Terraform",
+      "categoryPulumiConfig": "Konfigurace Pulumi"
     },
     "runs": {
       "options": "Možnosti",
       "hideOptions": "Skrýt možnosti",
       "queueDestroy": "Zničit",
-      "queueDestroyTitle": "Zařadit destroy plán do fronty",
       "destroyAllConfirm": "Zničit všechny prostředky?",
       "confirmDestroy": "Potvrdit zničení",
-      "queuePlan": "Plan",
-      "queueRun": "Plan + apply",
-      "queuePlanConfirm": "Zařadit spekulativní plán pro tento pracovní prostor?",
-      "queueApplyConfirm": "Zařadit běh plan + apply? Toto může změnit infrastrukturu.",
-      "planOptions": "Možnosti plánu",
       "targetResources": "Cílové prostředky",
       "replaceResources": "Nahradit prostředky",
       "commaSeparated": "(oddělené čárkou)",
@@ -2718,7 +2744,6 @@
       "branch": "Větev",
       "tag": "Tag",
       "defaultBranch": "Výchozí ({branch})",
-      "nonDefaultRefNote": "Vybrán nevýchozí ref — běh bude pouze plan-only",
       "empty": "Zatím žádné běhy pro tento pracovní prostor.",
       "runId": "ID běhu",
       "status": "Stav",
@@ -2729,13 +2754,11 @@
       "created": "Vytvořeno",
       "needsConfirm": "vyžaduje potvrzení",
       "typeDestroy": "zničit",
-      "typePlanOnly": "pouze plán",
-      "typePlanApply": "plan + apply",
       "sourceModuleTest": "test modulu",
       "sourceModulePublish": "publikace modulu",
-      "queueApplyTitle": "Zařadit běh plan + apply",
-      "queueApplyRefBlocked": "Apply není dostupné, pokud je vybrána větev, značka nebo commit — takové běhy jsou vždy pouze plan",
-      "awaitingDecision": "čeká na rozhodnutí"
+      "awaitingDecision": "čeká na rozhodnutí",
+      "typeSavedPlan": "uložený plán",
+      "typeSavedPlanHint": "Aplikace odložena: tento běh neblokuje pracovní prostor, dokud není uložený plán aplikován."
     },
     "state": {
       "deleteConfirm": "Smazat verzi stavu #{serial}? Toto nelze vrátit zpět.",
@@ -2752,12 +2775,18 @@
       "runner": "runner",
       "latest": "nejnovější"
     },
+    "stateOutputs": {
+      "title": "Výstupy",
+      "fromSerial": "Serial #{serial}",
+      "empty": "Tento stav nedeklaruje žádné výstupy.",
+      "sensitive": "Citlivé",
+      "loadFailed": "Nepodařilo se načíst výstupy tohoto pracovního prostoru."
+    },
     "configurations": {
       "description": "Nahrané zdrojové archivy pro tento pracovní prostor, nejnovější první. Pro porovnání vyberte dva řádky.",
       "selectedCount": "{count}/2 vybráno",
       "compare": "Porovnat",
       "comparing": "Porovnávání…",
-      "empty": "Zatím žádné verze konfigurace. Objeví se zde, jakmile `terraform plan` provede nahrání nebo VCS push spustí běh.",
       "id": "ID",
       "source": "Zdroj",
       "status": "Stav",
@@ -2819,7 +2848,6 @@
     },
     "runTriggers": {
       "title": "Run triggery",
-      "description": "Když zdrojový pracovní prostor dokončí apply, navazujícím pracovním prostorům se automaticky zařadí nový běh do fronty. Až 20 zdrojových pracovních prostorů na cíl.",
       "inboundHeading": "Zdrojové pracovní prostory, které zde spouštějí běhy",
       "inboundEmpty": "Žádné zdrojové pracovní prostory nespouštějí běhy na tomto pracovním prostoru.",
       "pickerPlaceholder": "Vyhledat pracovní prostory k přidání jako zdroj…",
@@ -2827,6 +2855,173 @@
       "outboundEmpty": "Tento pracovní prostor nespouští běhy na žádném jiném pracovním prostoru.",
       "destinationNote": "(cíl; odeberte odtamtud)",
       "removeConfirm": "Odebrat tento run trigger?"
+    },
+    "inventory": {
+      "scope": {
+        "heading": "Inventář",
+        "body": "Hostitelé a skupiny, které tento pracovní prostor obsahuje, a to, na co je ansible vyhodnotí. Každý řádek lze zde upravit; spuštění playbooku proti nim ještě není dostupné."
+      },
+      "nav": {
+        "label": "Sekce inventáře",
+        "hosts": "Hostitelé",
+        "groups": "Skupiny",
+        "vars": "Proměnné",
+        "resolved": "Vyhodnoceno",
+        "settings": "Nastavení"
+      },
+      "actions": {
+        "save": "Uložit",
+        "saving": "Ukládání…",
+        "cancel": "Zrušit",
+        "edit": "Upravit",
+        "delete": "Smazat",
+        "remove": "Odebrat",
+        "add": "Přidat",
+        "adding": "Přidávání…",
+        "rename": "Přejmenovat"
+      },
+      "hosts": {
+        "heading": "Hostitelé",
+        "body": "Jeden řádek na hostitele. Otevřete hostitele a upravte jeho proměnné a skupiny, do kterých patří.",
+        "empty": "Zatím žádní hostitelé.",
+        "colName": "Hostitel",
+        "colGroups": "Skupiny",
+        "colVars": "Proměnné",
+        "newLabel": "Název nového hostitele",
+        "newPlaceholder": "web-1",
+        "add": "Přidat hostitele",
+        "confirmDelete": "Smazat hostitele {name}? Jeho proměnné a jeho členství ve skupinách zmizí s ním.",
+        "renameLabel": "Název hostitele"
+      },
+      "groups": {
+        "heading": "Skupiny",
+        "body": "Jeden řádek na skupinu. Otevřete skupinu a upravte její proměnné, hostitele, kteří do ní patří, a skupiny v ní vnořené.",
+        "empty": "Zatím žádné skupiny.",
+        "colName": "Skupina",
+        "colMembers": "Hostitelé",
+        "colChildren": "Podřízené skupiny",
+        "colVars": "Proměnné",
+        "newLabel": "Název nové skupiny",
+        "newPlaceholder": "web",
+        "add": "Přidat skupinu",
+        "confirmDelete": "Smazat skupinu {name}? Její proměnné a její členství zmizí s ní; samotní hostitelé zůstanou.",
+        "renameLabel": "Název skupiny"
+      },
+      "vars": {
+        "actions": "Akce",
+        "key": "Klíč",
+        "keyPlaceholder": "ansible_user",
+        "value": "Hodnota",
+        "structured": "Strukturovaná",
+        "sensitive": "Citlivá",
+        "structuredHelp": "Seznam, číslo nebo objekt je strukturovaná hodnota: zaškrtněte „Strukturovaná“ a napište do hodnoty její literální zdroj. Citlivá hodnota se nikdy nečte zpět — pole místo ní zobrazí masku.",
+        "structuredBadge": "strukturovaná",
+        "sensitiveKeep": "Nechte prázdné, chcete-li zachovat uloženou hodnotu.",
+        "empty": "Zde nejsou žádné proměnné.",
+        "add": "Přidat proměnnou",
+        "confirmDelete": "Smazat proměnnou {key}?"
+      },
+      "hostDetail": {
+        "heading": "Hostitel {name}",
+        "body": "Vše, co tento jeden hostitel nese.",
+        "back": "Zpět na hostitele",
+        "gone": "Tento hostitel již neexistuje.",
+        "vars": "Proměnné hostitele",
+        "varsBody": "Proměnné, které platí pouze pro tohoto hostitele. Vítězí nad skupinovou proměnnou stejného názvu.",
+        "memberships": "Skupiny",
+        "membershipsBody": "Skupiny, do kterých tento hostitel patří. Členství je vazba, takže jeho odebrání zde ponechá na místě hostitele i skupinu.",
+        "membershipsEmpty": "Tento hostitel není v žádné skupině, takže jej ansible zařadí do ungrouped.",
+        "addGroup": "Přidat do skupiny",
+        "addGroupLabel": "Vyberte skupinu",
+        "removeGroupAria": "Odebrat tohoto hostitele ze skupiny {name}",
+        "confirmRemoveGroup": "Vyjmout tohoto hostitele ze skupiny {name}?"
+      },
+      "groupDetail": {
+        "heading": "Skupina {name}",
+        "body": "Vše, co tato jedna skupina nese.",
+        "back": "Zpět na skupiny",
+        "gone": "Tato skupina již neexistuje.",
+        "vars": "Proměnné skupiny",
+        "varsBody": "Proměnné, které platí pro každého hostitele v této skupině — přímo nebo přes vnoření.",
+        "members": "Členští hostitelé",
+        "membersBody": "Hostitelé, kteří patří do této skupiny přímo. Hostitel dosažitelný pouze přes vnořenou skupinu zde uveden není.",
+        "membersEmpty": "Do této skupiny nepatří přímo žádný hostitel.",
+        "addHost": "Přidat hostitele",
+        "addHostLabel": "Vyberte hostitele",
+        "removeHostAria": "Odebrat {name} z této skupiny",
+        "confirmRemoveHost": "Vyjmout {name} z této skupiny?",
+        "children": "Podřízené skupiny",
+        "childrenBody": "Skupiny vnořené v této. Jejich hostitelé jsou členy i této skupiny a proměnné této skupiny k nim dosáhnou.",
+        "childrenEmpty": "V této skupině není vnořena žádná skupina.",
+        "addChild": "Přidat podřízenou skupinu",
+        "addChildLabel": "Vyberte skupinu k vnoření",
+        "removeChildAria": "Odebrat {name} z podřízených skupin této skupiny",
+        "confirmRemoveChild": "Přestat vnořovat {name} do této skupiny?",
+        "parents": "Nadřazené skupiny",
+        "parentsBody": "Skupiny, do kterých je tato vnořena. Skupina může mít několik nadřazených.",
+        "parentsEmpty": "Tato skupina není vnořena do ničeho.",
+        "addParent": "Přidat nadřazenou skupinu",
+        "addParentLabel": "Vyberte nadřazenou skupinu",
+        "removeParentAria": "Odebrat tuto skupinu ze skupiny {name}",
+        "confirmRemoveParent": "Přestat vnořovat tuto skupinu do skupiny {name}?"
+      },
+      "globalVars": {
+        "heading": "Proměnné inventáře",
+        "body": "Proměnné, které platí pro každého hostitele — group_vars/all v ansible. Proměnná skupiny nebo hostitele stejného názvu vítězí nad tou nastavenou zde."
+      },
+      "resolved": {
+        "heading": "Vyhodnocení hostitelé",
+        "body": "Co z těchto řádků ansible udělá: každý hostitel s proměnnými, které nakonec drží, po sloučení a uplatnění přednosti.",
+        "hosts": "Hostitelé",
+        "groups": "Skupiny",
+        "liveNote": "Toto je aktuální. Každý zdroj zde je statický, takže čtení si řádky vyhodnotí samo, aby odpovědělo — není co obnovovat.",
+        "noHosts": "Žádný řádek se nevyhodnotil na hostitele.",
+        "noVars": "žádné proměnné",
+        "groupsHeading": "Členství ve skupinách",
+        "directOnly": "Pouze přímé členství, přesně jak jej hlásí ansible: skupina, jejíž hostitelé všichni přicházejí přes vnořenou skupinu, neuvádí žádného vlastního. Vnoření je níže.",
+        "noGroups": "Nevyhodnotila se žádná skupina.",
+        "noDirectMembers": "žádní přímí hostitelé",
+        "nestingHeading": "Vnoření skupin",
+        "nestingBody": "Které skupiny leží v kterých. --limit na nadřazené skupině zasáhne každého hostitele pod ní.",
+        "noNesting": "Žádná skupina není vnořena.",
+        "limitHeading": "Na co by mířil --limit?",
+        "limitBody": "Rozbalte vzor ansible --limit proti tomuto inventáři a uvidíte přesně, které hostitele vybere, než se cokoli spustí. Rozbalení provádí sám ansible, takže skupina, vyloučení i ~regex se chovají přesně tak, jak se budou chovat při běhu.",
+        "limitLabel": "Vzor --limit",
+        "limitPlaceholder": "web:!web-2",
+        "limitApply": "Použít limit",
+        "limitClear": "Vymazat",
+        "limitApplied": "Omezeno na {limit}. Vše níže je to, na co tento vzor míří."
+      },
+      "settings": {
+        "heading": "Nastavení",
+        "body": "Zda se řádky držené zde počítají a z jakého repozitáře se inventář také čte.",
+        "absent": "Žádné nastavení, což je výchozí stav: hostitelé a skupiny držené zde tvoří celý inventář.",
+        "includePlatform": "Používat hostitele a skupiny držené zde",
+        "includePlatformHelp": "Výchozí stav je zapnuto. Vypněte, chcete-li vyhodnocovat pouze z repozitáře — tyto řádky zůstanou na místě, ale mimo odpověď.",
+        "included": "ano",
+        "excluded": "ne",
+        "vcsConnection": "VCS připojení",
+        "vcsNone": "Žádné",
+        "field": {
+          "repo-url": "Repozitář",
+          "branch": "Větev",
+          "working-directory": "Adresář"
+        },
+        "branchHelp": "Nechte prázdné, chcete-li sledovat výchozí větev repozitáře.",
+        "ignorePaths": "Ignorované cesty",
+        "ignorePathsHelp": "Jeden glob na řádek. Vše, co odpovídá, je z inventáře čteného z repozitáře vynecháno.",
+        "unset": "nenastaveno",
+        "create": "Přidat nastavení",
+        "clear": "Vymazat nastavení",
+        "confirmClear": "Vymazat toto nastavení? Vazba na repozitář zmizí s ním; hostitelé a skupiny držené zde zůstanou."
+      },
+      "errors": {
+        "load": "Nepodařilo se načíst inventář",
+        "save": "Nepodařilo se uložit",
+        "delete": "Nepodařilo se smazat",
+        "resolved": "Nepodařilo se vyhodnotit inventář",
+        "settings": "Nepodařilo se uložit nastavení inventáře"
+      }
     },
     "sharing": {
       "title": "Sdílení remote state",
@@ -2896,8 +3091,6 @@
       "addVariableStatus": "Nepodařilo se přidat proměnnou ({status})",
       "deleteVariable": "Nepodařilo se smazat proměnnou",
       "updateVariable": "Nepodařilo se aktualizovat proměnnou",
-      "queuePlan": "Nepodařilo se zařadit plán",
-      "queuePlanStatus": "Nepodařilo se zařadit plán ({status})",
       "queueDestroy": "Nepodařilo se zařadit zničení",
       "queueDestroyStatus": "Nepodařilo se zařadit zničení ({status})",
       "createNotification": "Nepodařilo se vytvořit oznámení",
@@ -2914,7 +3107,8 @@
       "uploadState": "Nepodařilo se nahrát stav",
       "uploadStateFile": "Nepodařilo se nahrát soubor stavu",
       "updateSecurityScan": "Nepodařilo se aktualizovat bezpečnostní kontrolu",
-      "updateDebugMode": "Režim ladění se nepodařilo aktualizovat"
+      "updateDebugMode": "Režim ladění se nepodařilo aktualizovat",
+      "updateForkPlans": "Plány pro pull requesty z forků se nepodařilo aktualizovat"
     },
     "subtabs": {
       "state": "Stav",
@@ -2967,6 +3161,14 @@
       "bannerTitle": "Pro tento pracovní prostor je zapnutý režim ladění",
       "bannerBody": "Pod neúspěšného běhu se místo ukončení ponechá otevřený k prohlídce a po celou tu dobu si ponechává přihlašovací údaje a dešifrované proměnné tohoto pracovního prostoru. Až dokončíte hledání příčiny, režim ladění vypněte.",
       "confirmEnable": "Zapnout režim ladění? Pod neúspěšného běhu zůstane otevřený i s přihlašovacími údaji a dešifrovanými proměnnými tohoto pracovního prostoru, dokud okno nevyprší nebo dokud pod nesmažete."
+    },
+    "allowForkPrPlans": {
+      "title": "Plány u pull requestů z forků",
+      "description": "Zda pull request otevřený z forku dostane spekulativní plán. Ve výchozím stavu vypnuto, protože takový plán spustí kód autora forku s přihlašovacími údaji tohoto pracovního prostoru.",
+      "label": "Plánovat pull requesty z forků",
+      "hint": "Běh dostane proměnné prostředí tohoto pracovního prostoru, citlivé hodnoty, všechna tajemství získaná přes Vault a cloudovou identitu úlohy. Kdo otevře pull request z forku, nemá právo zápisu a nemůže slučovat, takže spekulativní plán je jediná cesta, kterou se jeho kód k těmto přihlašovacím údajům dostane. Zapněte to pro pracovní prostor, v němž není nic, co by stálo za odnesení — třeba pro veřejný repozitář modulů přijímající příspěvky komunity. Pull requesty z větví samotného repozitáře to neovlivní a plán dostanou vždy.",
+      "activeBadge": "Zapnuto",
+      "confirmEnable": "Plánovat pull requesty otevřené z forků? Kód jejich autorů poběží s přihlašovacími údaji a dešifrovanými proměnnými tohoto pracovního prostoru, aniž by to někdo předem schválil."
     }
   },
   "graphs": {
@@ -3189,11 +3391,14 @@
     "unknown": "neznámé",
     "confirm": {
       "prompt": "Propojit tento Slack účet s <em>vaší</em> Terrapod identitou? Každá budoucí Slack akce (schválit/zahodit) poběží jako tento Terrapod uživatel s jeho oprávněními.",
+      "slackName": "Účet Slack",
       "slackUser": "Slack uživatel",
       "slackTeam": "Slack tým",
       "terrapodAccount": "Terrapod účet",
       "warning": "Pokračujte pouze v případě, že jste toto propojení právě sami zahájili ze Slacku. Pokud ne, zavřete tuto kartu a nepropojujte — toto sváže výše uvedený Slack účet s <em>vaší</em> Terrapod identitou.",
-      "button": "Potvrdit a propojit"
+      "button": "Potvrdit a propojit",
+      "namesUnavailable": "Terrapod nedokázal zjistit jméno tohoto účtu Slack. Zkontrolujte identifikátory výše a pokračujte pouze tehdy, pokud jste toto propojení ze Slacku začali vy sami.",
+      "nameIsSelfChosen": "Přezdívka je v pracovním prostoru Slack jedinečná; zobrazované jméno pod ní si volí její vlastník, posuzujte tedy podle přezdívky."
     },
     "success": {
       "message": "Váš Slack účet je nyní propojen s Terrapod.",
@@ -3416,7 +3621,77 @@
       },
       "status": {
         "planning": "Plánování",
-        "applying": "Aplikování"
+        "applying": "Aplikování",
+        "planned": "Naplánováno",
+        "applied": "Aplikováno"
+      },
+      "words": {
+        "actionConfirmFull": "Potvrdit a aplikovat",
+        "actionConfirmShort": "Aplikovat",
+        "activityApplied": "Aplikace dokončena",
+        "activityConfirmed": "Zahájení aplikace",
+        "activityDiscarded": "Plán zahozen",
+        "activityPlannedComplete": "Plán dokončen",
+        "activityPlannedConfirmable": "Čeká na vaše potvrzení a aplikaci",
+        "activityPlannedSpeculative": "Spekulativní plán dokončen",
+        "aiPolicyOverrideConfirm": "Přepsat bránu zásad AI a povolit použití tohoto běhu navzdory verdiktu?",
+        "aiSummaryDescription": "Automatické, LLM generované shrnutí změn, posouzení rizik a analýza selhání u každého výsledku fáze plánu pro tento pracovní prostor.",
+        "aiSummaryTitle": "AI shrnutí plánu",
+        "badgePlanOnly": "pouze plán",
+        "bannerPlanOnlyCli": "Toto je <strong>plan-only</strong> běh spuštěný z CLI na pracovním prostoru připojeném k VCS. Apply není pro kód nahraný z CLI dostupný — aplikovat lze pouze kód spravovaný VCS.",
+        "changesPlanning": "Plánování…",
+        "configurationsEmpty": "Zatím žádné verze konfigurace. Objeví se zde, jakmile `terraform plan` provede nahrání nebo VCS push spustí běh.",
+        "confirmApply": "Aplikovat tento běh? Toto aplikuje plán a změní infrastrukturu.",
+        "confirmDiscard": "Zahodit tento plán?",
+        "costNoState": "Zatím žádné náklady — zobrazí se po prvním použití.",
+        "detailsPlanOnly": "Pouze plán",
+        "discardedHeading": "Zahozeno — vyžadováno opětovné naplánování",
+        "driftCheckNowTitle": "Zařadit plan-only běh ke kontrole odchýlení",
+        "driftRemediate": "Plan + apply",
+        "driftRemediateConfirm": "Zařadit běh plan + apply pro tento pracovní prostor?",
+        "driftRemediateTitle": "Zařadit běh plan + apply, aby se infrastruktura opět shodovala s konfigurací",
+        "errorsQueuePlan": "Nepodařilo se zařadit plán",
+        "errorsQueuePlanStatus": "Nepodařilo se zařadit plán ({status})",
+        "fieldsAutoMerge": "Automatické sloučení po apply",
+        "formAutoApplyModeHint": "never: vždy počkat na člověka. always: aplikovat každý úspěšný plán. create / create/update: aplikovat jen plány omezené na tyto akce — nikdy ne mazání ani nahrazení.",
+        "lockLockedDesc": "Tento pracovní prostor je uzamčen. Nemohou probíhat žádné plány ani aplikace.",
+        "logApplyEmpty": "Zatím není k dispozici žádný výstup apply.",
+        "logApplySkipped": "Žádná aplikace neproběhla: plán neobsahoval žádné změny, takže nebylo co aplikovat.",
+        "logIndexSummary": "Souhrn plánu",
+        "logIndexTitle": "Přejít na změnu zdroje nebo na souhrn plánu",
+        "logPlanEmpty": "Zatím není k dispozici žádný výstup plánu.",
+        "nonDefaultRefNote": "Vybrán nevýchozí ref — běh bude pouze plan-only",
+        "planExpiryDescription": "Automaticky zahodit nepotvrzený plán, jakmile je starší než toto, aby nebylo možné aplikovat zastaralý plán proti změněnému světu. Ve výchozím nastavení vypnuto; plán pak musí být znovu spuštěn. (Platí pouze pro běhy schopné apply.)",
+        "planExpiryTitle": "Vypršení plánu",
+        "planOptions": "Možnosti plánu",
+        "planSummaryChatPlaceholder": "Položte návazný dotaz k tomuto plánu… (⌘/Ctrl + Enter pro odeslání)",
+        "planSummaryHeading": "Shrnutí plánu",
+        "planSummaryNoChangesTitle": "Plán nehlásil žádné změny prostředků",
+        "planSummaryRegenerateTooltip": "Znovu spustit AI shrnutí proti stejným vstupům plánu",
+        "planSummarySummarising": "Shrnování plánu…",
+        "policyBlockedMessage": "Tento běh je <strong>blokován povinnou sadou zásad</strong>. Nebude aplikován, dokud nebude selhání vyřešeno nebo dokud jej administrátor nepřepíše.",
+        "queueApplyConfirm": "Zařadit běh plan + apply? Toto může změnit infrastrukturu.",
+        "queueApplyRefBlocked": "Apply není dostupné, pokud je vybrána větev, značka nebo commit — takové běhy jsou vždy pouze plan",
+        "queueApplyTitle": "Zařadit běh plan + apply",
+        "queueDestroyTitle": "Zařadit destroy plán do fronty",
+        "queuePlan": "Plan",
+        "queuePlanConfirm": "Zařadit spekulativní plán pro tento pracovní prostor?",
+        "queueRun": "Plan + apply",
+        "replacePlaceholder": "e.g. aws_instance.web",
+        "runTriggersDescription": "Když zdrojový pracovní prostor dokončí apply, navazujícím pracovním prostorům se automaticky zařadí nový běh do fronty. Až 20 zdrojových pracovních prostorů na cíl.",
+        "tabApplyFull": "Log apply",
+        "tabApplyLabel": "Apply<log>Log</log>",
+        "tabPlanFull": "Log plánu",
+        "tabPlanLabel": "Plán<log>Log</log>",
+        "targetPlaceholder": "e.g. aws_instance.web, aws_s3_bucket.data",
+        "timelineApplied": "Aplikováno",
+        "timelineApplyingStarted": "Aplikování zahájeno",
+        "timelinePlanComplete": "Plán dokončen",
+        "timelinePlanningStarted": "Plánování zahájeno",
+        "typePlanApply": "plan + apply",
+        "vcsWorkflowWarningRbac": "Kdokoli, kdo může sloučit PR, může aplikovat. Bránou se stávají pravidla ochrany větve (povinné kontroly, status checks, schválení vlastníkem kódu). Terrapod role/label RBAC se<em>ne</em>vztahuje na akce řízené komentáři v tomto režimu.",
+        "vcsWorkflowWarningRecommended": "<strong>Doporučeno:</strong> vyžadujte lineární historii (rebase/squash před sloučením), aby commit, který aplikujete, byl commitem, který přistane.",
+        "slackDescription": "Přihlaste tento pracovní prostor k Slack oznámením o bězích — žádosti o schválení, aplikace, chyby a odchýlení. Ponechte kanál prázdný a tento pracovní prostor zůstane tichý (neexistuje žádné rozeslání pro celé nasazení). Vyžaduje, aby Slack aplikace byla povolena administrátorem."
       }
     },
     "pulumi": {
@@ -3425,14 +3700,84 @@
         "applying": "Spouští se pulumi up"
       },
       "runStatus": {
-        "planning": "Plánování",
-        "planned": "Naplánováno",
-        "applying": "Aplikování",
-        "applied": "Aplikováno"
+        "planning": "Vytváření náhledu",
+        "planned": "Náhled vytvořen",
+        "applying": "Aktualizace",
+        "applied": "Aktualizováno"
       },
       "status": {
-        "planning": "Plánování",
-        "applying": "Aplikování"
+        "planning": "Vytváření náhledu",
+        "applying": "Aktualizace",
+        "planned": "Náhled vytvořen",
+        "applied": "Aktualizováno"
+      },
+      "words": {
+        "actionConfirmFull": "Potvrdit a aktualizovat",
+        "actionConfirmShort": "Aktualizovat",
+        "activityApplied": "Aktualizace dokončena",
+        "activityConfirmed": "Zahájení aktualizace",
+        "activityDiscarded": "Náhled zahozen",
+        "activityPlannedComplete": "Náhled dokončen",
+        "activityPlannedConfirmable": "Čeká na vaše potvrzení a aktualizaci",
+        "activityPlannedSpeculative": "Spekulativní náhled dokončen",
+        "aiPolicyOverrideConfirm": "Přepsat bránu zásad AI a povolit tomuto běhu aktualizaci navzdory verdiktu?",
+        "aiSummaryDescription": "Automatické, LLM generované shrnutí změn, posouzení rizik a analýza selhání u každého výsledku fáze náhledu pro tento pracovní prostor.",
+        "aiSummaryTitle": "AI shrnutí náhledu",
+        "badgePlanOnly": "pouze náhled",
+        "bannerPlanOnlyCli": "Toto je <strong>preview-only</strong> běh spuštěný z CLI na pracovním prostoru připojeném k VCS. Update není pro kód nahraný z CLI dostupný — aktualizovat lze pouze kód spravovaný VCS.",
+        "changesPlanning": "Vytváření náhledu…",
+        "configurationsEmpty": "Zatím žádné verze konfigurace. Objeví se zde, jakmile VCS push spustí běh.",
+        "confirmApply": "Aktualizovat tímto během? Toto provede náhled a změní infrastrukturu.",
+        "confirmDiscard": "Zahodit tento náhled?",
+        "costNoState": "Zatím žádné náklady — zobrazí se po první aktualizaci.",
+        "detailsPlanOnly": "Pouze náhled",
+        "discardedHeading": "Zahozeno — vyžadováno opětovné vytvoření náhledu",
+        "driftCheckNowTitle": "Zařadit preview-only běh ke kontrole odchýlení",
+        "driftRemediate": "Preview + update",
+        "driftRemediateConfirm": "Zařadit běh preview + update pro tento pracovní prostor?",
+        "driftRemediateTitle": "Zařadit běh preview + update, aby se infrastruktura opět shodovala s konfigurací",
+        "errorsQueuePlan": "Nepodařilo se zařadit náhled",
+        "errorsQueuePlanStatus": "Nepodařilo se zařadit náhled ({status})",
+        "fieldsAutoMerge": "Automatické sloučení po update",
+        "formAutoApplyModeHint": "never: vždy počkat na člověka. always: aktualizovat po každém úspěšném náhledu. create / create/update: aktualizovat jen podle náhledů omezených na tyto akce — nikdy ne mazání ani nahrazení.",
+        "lockLockedDesc": "Tento pracovní prostor je uzamčen. Nemohou probíhat žádné náhledy ani aktualizace.",
+        "logApplyEmpty": "Zatím není k dispozici žádný výstup update.",
+        "logApplySkipped": "Žádná aktualizace neproběhla: náhled neobsahoval žádné změny, takže nebylo co aktualizovat.",
+        "logIndexSummary": "Souhrn náhledu",
+        "logIndexTitle": "Přejít na změnu zdroje nebo na souhrn náhledu",
+        "logPlanEmpty": "Zatím není k dispozici žádný výstup náhledu.",
+        "nonDefaultRefNote": "Vybrán nevýchozí ref — běh bude pouze preview-only",
+        "planExpiryDescription": "Automaticky zahodit nepotvrzený náhled, jakmile je starší než toto, aby nebylo možné provést zastaralý náhled proti změněnému světu. Ve výchozím nastavení vypnuto; náhled pak musí být znovu spuštěn. (Platí pouze pro běhy schopné update.)",
+        "planExpiryTitle": "Vypršení náhledu",
+        "planOptions": "Možnosti náhledu",
+        "planSummaryChatPlaceholder": "Položte návazný dotaz k tomuto náhledu… (⌘/Ctrl + Enter pro odeslání)",
+        "planSummaryHeading": "Shrnutí náhledu",
+        "planSummaryNoChangesTitle": "Náhled nehlásil žádné změny prostředků",
+        "planSummaryRegenerateTooltip": "Znovu spustit AI shrnutí proti stejným vstupům náhledu",
+        "planSummarySummarising": "Shrnování náhledu…",
+        "policyBlockedMessage": "Tento běh je <strong>blokován povinnou sadou zásad</strong>. Neprovede aktualizaci, dokud nebude selhání vyřešeno nebo dokud jej administrátor nepřepíše.",
+        "queueApplyConfirm": "Zařadit běh preview + update? Toto může změnit infrastrukturu.",
+        "queueApplyRefBlocked": "Update není dostupné, pokud je vybrána větev, značka nebo commit — takové běhy jsou vždy pouze preview",
+        "queueApplyTitle": "Zařadit běh preview + update",
+        "queueDestroyTitle": "Zařadit destroy náhled do fronty",
+        "queuePlan": "Preview",
+        "queuePlanConfirm": "Zařadit spekulativní náhled pro tento pracovní prostor?",
+        "queueRun": "Preview + update",
+        "replacePlaceholder": "e.g. urn:pulumi:dev::shop::aws:ec2/instance:Instance::web",
+        "runTriggersDescription": "Když zdrojový pracovní prostor dokončí update, navazujícím pracovním prostorům se automaticky zařadí nový běh do fronty. Až 20 zdrojových pracovních prostorů na cíl.",
+        "tabApplyFull": "Log update",
+        "tabApplyLabel": "Update<log>Log</log>",
+        "tabPlanFull": "Log náhledu",
+        "tabPlanLabel": "Náhled<log>Log</log>",
+        "targetPlaceholder": "e.g. urn:pulumi:dev::shop::aws:s3/bucket:Bucket::assets",
+        "timelineApplied": "Aktualizováno",
+        "timelineApplyingStarted": "Aktualizace zahájena",
+        "timelinePlanComplete": "Náhled dokončen",
+        "timelinePlanningStarted": "Náhled zahájen",
+        "typePlanApply": "preview + update",
+        "vcsWorkflowWarningRbac": "Kdokoli, kdo může sloučit PR, může aktualizovat. Bránou se stávají pravidla ochrany větve (povinné kontroly, status checks, schválení vlastníkem kódu). Terrapod role/label RBAC se<em>ne</em>vztahuje na akce řízené komentáři v tomto režimu.",
+        "vcsWorkflowWarningRecommended": "<strong>Doporučeno:</strong> vyžadujte lineární historii (rebase/squash před sloučením), aby commit, ze kterého aktualizujete, byl commitem, který přistane.",
+        "slackDescription": "Přihlaste tento pracovní prostor k Slack oznámením o bězích — žádosti o schválení, aktualizace, chyby a odchýlení. Ponechte kanál prázdný a tento pracovní prostor zůstane tichý (neexistuje žádné rozeslání pro celé nasazení). Vyžaduje, aby Slack aplikace byla povolena administrátorem."
       }
     }
   },

@@ -51,7 +51,7 @@ logger = get_logger(__name__)
 
 @router.get("/.well-known/terraform.json")
 async def terraform_service_discovery() -> JSONResponse:
-    """Terraform/OpenTofu service discovery endpoint.
+    """OpenTofu/Terraform service discovery endpoint.
 
     Returns the service discovery document that tells the CLI where to find
     the authorization, token, and API endpoints.
@@ -281,6 +281,8 @@ async def oauth_token(
         db=db,
         bound_to=auth_code.email,
         created_by=auth_code.email,
+        identity_provider=auth_code.provider_name,
+        identity_subject=auth_code.subject,
         kind="interactive",
         description=f"terraform login ({auth_code.provider_name})",
         lifespan_hours=settings.auth.login_token_ttl_hours or None,

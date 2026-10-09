@@ -16,11 +16,12 @@
 //	"name"                              → name                (string, required, supports rename)
 //	"execution-mode"                    → execution_mode      (string, optional, default "local")
 //	"auto-apply"                        → auto_apply          (bool,   optional, default false)
-//	"execution-backend"                 → execution_backend   (string, optional, default "terraform")
+//	"execution-backend"                 → execution_backend   (string, optional; defaults to "terraform" on the Terraform engine, server-assigned on Pulumi)
 //	"engine"                            → engine              (string, read-only)
 //	"pulumi-bind-plan"                  → pulumi_bind_plan    (bool,   optional+computed)
 //	"engine-version"                    → engine_version      (string, optional; `terraform_version` is its deprecated alias)
 //	"terraform-version"                 → terraform_version   (string, optional, deprecated)
+//	"ansible-version"                   → ansible_version     (string, optional; empty inherits the deployment default)
 //	"working-directory"                 → working_directory   (string, optional)
 //	"parallelism"                       → parallelism
 //	"resource-cpu"                      → resource_cpu        (string, optional, default "1")
@@ -32,6 +33,7 @@
 //	"agent-pool-ids"                    → agent_pool_ids      (list, optional+computed)
 //	"var-files"                         → var_files           (list,   optional)
 //	"trigger-prefixes"                  → trigger_prefixes    (list,   optional)
+//	"oidc-audiences"                    → oidc_audiences      (map of lists, optional+computed)
 //	"drift-detection-enabled"           → drift_detection_enabled (bool, optional)
 //	"drift-detection-interval-seconds"  → drift_detection_interval_seconds (int, optional)
 //
@@ -57,6 +59,16 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
+// audienceElemType is the element type of oidc_audiences (#1901): a LIST of
+// audiences per provider configuration, never a bare string.
+//
+// One audience is the common case and is still a one-element list. A list of
+// several is a deliberate "these are interchangeable for this target"
+// statement, and some federation targets refuse a multi-valued `aud` outright —
+// so the shape must not collapse to a scalar on the one-entry case, or the
+// multi-entry one stops being expressible.
+var audienceElemType = types.ListType{ElemType: types.StringType}
+
 // workspaceModel maps the Terraform schema to Go types.
 type workspaceModel struct {
 	ID types.String `tfsdk:"id"`
@@ -73,6 +85,7 @@ type workspaceModel struct {
 	TerraformVersion              types.String `tfsdk:"terraform_version"`
 	TerragruntEnabled             types.Bool   `tfsdk:"terragrunt_enabled"`
 	TerragruntVersion             types.String `tfsdk:"terragrunt_version"`
+	AnsibleVersion                types.String `tfsdk:"ansible_version"`
 	WorkingDirectory              types.String `tfsdk:"working_directory"`
 	ResourceCPU                   types.String `tfsdk:"resource_cpu"`
 	Parallelism                   types.Int64  `tfsdk:"parallelism"`
@@ -96,8 +109,10 @@ type workspaceModel struct {
 	SecurityScanEngine            types.String `tfsdk:"security_scan_engine"`
 	SecurityScanSeverityThreshold types.String `tfsdk:"security_scan_severity_threshold"`
 	SecurityScanSkipRules         types.List   `tfsdk:"security_scan_skip_rules"`
+	OIDCAudiences                 types.Map    `tfsdk:"oidc_audiences"`
 	PlanExpirySeconds             types.Int64  `tfsdk:"plan_expiry_seconds"`
 	DebugMode                     types.Bool   `tfsdk:"debug_mode"`
+	AllowForkPRPlans              types.Bool   `tfsdk:"allow_fork_pr_plans"`
 	AISummaryMode                 types.String `tfsdk:"ai_summary_mode"`
 	AIPolicyMode                  types.String `tfsdk:"ai_policy_mode"`
 	AISummaryContext              types.String `tfsdk:"ai_summary_context"`

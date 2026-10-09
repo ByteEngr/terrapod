@@ -164,6 +164,44 @@ were settable through create and update and never returned, so a caller could sc
 a policy set and then be unable to read back the scoping it had just applied. That
 is an addition, not a break.
 
+### A pull request gets one Terrapod comment, not one per workspace per push
+
+**Affects:** every VCS-connected deployment. Nothing to change before
+upgrading; this is a behaviour change to read about rather than act on.
+
+A pull request used to accumulate two kinds of Terrapod comment with opposite
+update semantics. The status table was edited in place for ever. The
+per-workspace comment — the one carrying the AI plan summary, the gate verdicts
+and the run link — had the commit SHA in its hidden identity marker, so a push
+could never match the previous comment and always posted another. The
+per-workspace comments therefore multiplied as *workspaces x pushes*: four
+workspaces and four pushes measured seventeen Terrapod comments on one pull
+request.
+
+There is one comment now, and everything is in it. Each affected workspace is a
+row of the table, and that row's AI summary and gate verdicts share the
+workspace's own collapsed block beneath it, with the risk level and the first
+failing gate in the summary line so the whole pull request triages without
+expanding anything. A push edits that comment.
+
+**Module pull requests change most.** Their comment was keyed on the workspace
+id, so a module with ten linked workspaces put ten comments on one pull
+request, each reposted on every push for the same reason. Every consuming
+workspace is a row of one comment now.
+
+**What happens to comments already posted.** They carry the old marker and will
+never be matched again, so an open pull request keeps whatever per-workspace
+comments it has collected and they stop updating. No cleanup is attempted:
+Terrapod posts its one comment and edits that from then on. The stale ones are
+harmless and finite — delete them by hand if they bother you, or let the pull
+request merge. New pull requests after the upgrade only ever see one comment.
+
+**Per-push visibility is unchanged**, which is what the per-commit identity was
+introduced for. The commit status is still posted per commit, and a `terrapod
+...` command is still acknowledged with a reaction on receipt and a reply when
+it is dropped — so "did Terrapod see my push" and "did Terrapod see my command"
+are both still answered next to the thing you did, without a comment per push.
+
 ### What does not break
 
 - **The HTTP API accepts both shapes.** A scalar value is read as a one-element
@@ -348,6 +386,453 @@ The 3.13 floor was never a preference — it was one dependency. `litellm` decla
 gone as of 1.99.0, so the floor moved with it, and 3.14 brings
 [PEP 649](https://peps.python.org/pep-0649/) deferred annotation evaluation to a
 codebase that leans heavily on typed models.
+
+### A variable is identified by its category and key together
+
+A variable used to be identified by its **key alone**, enforced by a unique
+constraint on `(workspace_id, key)` and again when variables were resolved for a
+run. Category was an attribute hanging off the variable rather than part of its
+name. Identity is now `(category, key)`.
+
+**Nothing you have breaks, and you need change nothing to upgrade.** The database
+constraint is widened, not narrowed, so every existing variable already satisfies
+it; no values move and nothing is deleted. What changes is what becomes possible,
+and one behaviour you may have been relying on without knowing.
+
+**You can now hold the same key in two categories.** Previously a workspace could
+have only one variable named `region` whatever its category, so an input variable
+and an environment variable could not share a name — an ordinary thing to want,
+and refused. You had to delete one first, on a live workspace, with no way to
+stage the change. Both can now exist.
+
+**A variable set variable is no longer silently dropped by a workspace variable
+of the same key in a different category.** This is the part worth checking. When
+a variable set supplied `env:region` and the workspace also had `terraform:region`,
+the workspace one replaced the set's entry entirely — the environment variable was
+*absent from the run*, not merely lower precedence. After the upgrade both are
+delivered. If a run of yours depended on that disappearance, it will now see an
+environment variable it did not see before.
+
+To find out whether this affects you, look for a key that exists in more than one
+category across a workspace and the variable sets reaching it. Precedence itself
+is unchanged — priority sets beat workspace variables beat non-priority sets — it
+simply now applies within a category rather than across all of them.
+
+**If you roll back, variables that only the new identity could hold are
+deleted.** A 1.x schema cannot represent two categories sharing a key, so the
+downgrade removes the surplus rather than refusing — a rollback you cannot rely
+on is worse than one that costs something. The rule is that the **oldest row per
+key survives**: a collision can only exist because the second variable was added
+after upgrading, so what remains is exactly what you had before. Each removal is
+printed by the migration. If you have staged an engine migration this way and
+then roll back, you will need to add those variables again.
+
+**If you use `go-terrapod` directly**, `GetVariableByKey` takes a category:
+
+```go
+// before
+v, err := client.GetVariableByKey(ctx, workspaceID, "region")
+// after
+v, err := client.GetVariableByKey(ctx, workspaceID, "terraform", "region")
+```
+
+A key-only lookup could not stay: under the new identity it would have to choose
+between two real variables, and it chose by list order. The provider, the
+migration tool and the MCP server are updated; only your own code needs this.
+
+**`terrapod_variable_delete` in the MCP server** now refuses a key that names more
+than one variable, listing the categories, rather than deleting whichever it found
+first. Pass `category` to choose. `terrapod_variable_set` upserts on
+`(category, key)`, which also fixes a quieter bug: setting a key with
+`category=env` on a workspace that already had that key as `terraform` used to
+re-categorise the existing variable instead of creating a new one.
+
+### One variable category for every engine's parameters
+
+**Nothing you have breaks, and you need change nothing to upgrade.** If you set
+`category = "terraform"` — in the provider, through `tfci`, in an `/api/v2`
+request, or in the UI — it keeps working and keeps reading back as `terraform`.
+That is the overwhelming majority of configurations and it is unaffected.
+
+**What changed.** Each engine has exactly one channel for "the parameters the
+platform supplies to this run": Terraform's input variables, Pulumi's stack
+config, Ansible's extra vars. They are the same role and only the delivery
+differs, so they are now one category rather than one per engine. It is stored as
+`native`, and the runner decides the delivery from the workspace's engine.
+
+**The name you see depends on the surface you ask.** The TFE-compatible surface
+(`/api/tfe/v2` and its `/api/v2` alias) returns `terraform` and always will —
+`tofu`, `terraform` and `tfci` hold that as a constant, so changing it would be a
+compatibility break. Terrapod's own `/api/v1` returns `native`. On input,
+`terraform`, `native` and `pulumi_config` are all accepted on either surface.
+This is exactly the arrangement `structured` already has with `hcl`.
+
+**The variable routes are now served on `/api/v1` as well**, which is new and
+purely additive. Nothing moved; `/api/v2` serves them as it always did.
+
+**`pulumi_config` is gone as a stored category.** It existed only in
+pre-release builds of 2.0 and never shipped. The migration folds every such
+variable into `native`, and the name is still accepted on input, so a script or
+`terrapod_variable` resource written against it keeps applying. The provider
+treats `terraform`, `native` and `pulumi_config` as one value and keeps whichever
+you wrote, so none of them drifts — you need change nothing, though `terraform`
+is the clearest thing to settle on.
+
+**If a workspace held both**, the migration keeps the **oldest** row per key and
+deletes the rest, printing each removal — two rows that were `terraform:region`
+and `pulumi_config:region` become one `native:region`. This can only affect a
+deployment that ran a pre-release build.
+
+**Two read-only signals are removed**, and their absence is the point rather than
+a loss: a variable's `applies-to-engine` attribute, and the workspace's
+`variables_not_consumed` health condition. Both reported that a variable sat in a
+category its engine would never read. With one category that state cannot arise.
+Neither was ever in a release. If you match on health-condition codes, drop
+`variables_not_consumed` from the list.
+
+**If you use `go-terrapod` directly**, `Variable.AppliesToEngine` is removed for
+the same reason. Compare categories with the new `SameCategory` rather than `==`:
+`GetVariableByKey` already does, so it finds the same row whichever name you pass,
+but your own comparisons are right only until something reads from the other
+prefix.
+
+### The five SAML assertion checks are strict by default
+
+**Affects:** every deployment using SAML. **A misconfigured provider stops being
+able to log in**, so work through the table below before you upgrade.
+
+Five per-provider SAML checks arrived with the 1.7.7 and 1.8.2 security releases
+(`GHSA-hgx9-xwfp-5qcr`). On those lines all five default to `false`, because a
+patch release must not change what a running deployment does — a destination check
+that starts rejecting assertions mid-week is an outage, not a fix. **From 2.0 all
+five default to `true`.** The implementation is unchanged; only the default moved,
+so a provider that already sets these explicitly is unaffected.
+
+| Setting | What it starts requiring | Check this first | If your IDP cannot do it |
+|---|---|---|---|
+| `validate_destination` | the assertion's `Destination` and `Recipient` name **this** deployment's ACS URL | the ACS URL Terrapod builds is the one you registered with the IDP — the provider's own `acs_url`, else `auth.callback_base_url`, else `external_url`, plus the SAML ACS path | `validate_destination: false` |
+| `validate_in_response_to` | the assertion answers the `AuthnRequest` this login sent, and carries an `InResponseTo` at all | your IDP echoes `InResponseTo` on the `Response` element, and you do not rely on IDP-initiated sign-on | `validate_in_response_to: false` |
+| `reject_replayed_assertions` | each assertion id is used once, remembered in Redis for the rest of its validity window | Redis is reachable from every API replica (it already must be — sessions live there) | `reject_replayed_assertions: false` |
+| `want_assertions_signed` | the signature is on the assertion itself, not only on the enclosing message | your IDP signs the assertion; Azure AD, Okta and Auth0 all do by default | `want_assertions_signed: false` |
+| `reject_deprecated_algorithm` | no SHA-1 signature or digest (`RSA-SHA1`, `DSA-SHA1`, `SHA1`) | your IDP signs with SHA-256 | `reject_deprecated_algorithm: false` |
+
+**The ACS URL is the one to get right**, because `validate_destination` is the
+check with a configuration prerequisite rather than an IDP prerequisite. Set
+`auth.sso.saml[].acs_url` when a proxy rewrites the path between your IDP and
+Terrapod; otherwise `auth.callback_base_url` has to be this deployment's
+externally-reachable URL. A SAML provider with no absolute ACS URL is **refused**
+rather than waved through, and the refusal names the keys to set.
+
+The quickest way to upgrade without surprises is to set all five to `true` on your
+current 1.x release, confirm a login still works, and then upgrade — at which point
+the defaults and your config agree. Relax one at a time if a login fails; each
+failure message names the check that refused it (see
+[`docs/authentication.md`](authentication.md#assertion-validation)).
+
+### A web session ends when the roles behind it change, and has a hard ceiling
+
+**Affects:** anyone signing in to the web UI. **Nothing to configure**, but your
+users will notice being signed out in cases where they previously were not.
+
+A session carried the roles resolved at sign-in and nothing pushed a change to it,
+so a demoted user kept their old roles — `admin` included — for the rest of the
+session (`GHSA-pwrq-j4cv-w7qg`). Two things change.
+
+**A role change now reaches live sessions.** A reduction signs the user out; a
+widening adds the role in place and signs nobody out. The full table is in
+[`docs/authentication.md`](authentication.md#a-sessions-roles-and-when-they-change-under-it);
+the cases that will be new to your users are:
+
+* removing a role assignment, or a PUT that drops one, signs that user out;
+* narrowing a custom role's grant — removing a capability, turning `allow-all`
+  off, editing its scope rules — signs out **everyone holding that role**;
+* deleting a custom role signs out everyone who held it;
+* an admin password reset signs that user out everywhere. Their API tokens are
+  left alone, because a routine rotation that broke someone's automation would be
+  a worse trap than the one being closed; *deactivate* is what revokes everything.
+
+Editing only a role's description, or adding a capability to it, signs nobody out.
+
+**And a session has an absolute ceiling.** `auth.session_absolute_ttl_hours`
+defaults to **24**, measured from sign-in, and the 12-hour sliding window is
+clamped to it — so a session a polling browser keeps warm now ends after a day
+instead of living indefinitely. Raise it if that is too short for you, or set it
+to `0` to restore the old unbounded behaviour (not recommended: it is what bounds
+how long anything resolved at sign-in can outlive a change to it).
+
+```yaml
+api:
+  config:
+    auth:
+      session_absolute_ttl_hours: 24   # or 0 for the pre-2.0 behaviour
+```
+
+Sessions open across the upgrade are capped from their own sign-in time, so some
+of them will end shortly after you upgrade rather than at the 24-hour mark.
+
+### An IdP group can no longer grant `admin` or `audit`
+
+Role resolution took IdP group names verbatim, so a group called `admin` granted
+platform admin (`GHSA-22vg-4g2w-7w34`). It no longer does, from either OIDC or
+SAML, however the group is named or prefixed.
+
+**Check this before upgrading if your admins get their role from a group.** Run
+
+```sql
+SELECT provider_name, email, role_name FROM platform_role_assignments;
+```
+
+and if that returns nothing while your administrators currently sign in through an
+IdP group, they will lose `admin` at the upgrade. Grant it deliberately first,
+either with a platform role assignment or with a `claims_to_roles` rule:
+
+```yaml
+auth:
+  sso:
+    oidc:
+      - name: okta
+        claims_to_roles:
+          - claim: groups
+            value: "platform-engineering"   # the group, named as the IdP names it
+            roles: ["admin"]
+```
+
+A rule is written by whoever administers Terrapod; a group name is written by
+whoever administers the directory. That difference is the whole point, and it is
+why a rule naming the same group is accepted while the bare group is not.
+
+The local admin account is unaffected, so a deployment is not lockable out of
+itself — but recovering that way is worse than spending a minute on the query above.
+
+**`role_prefixes` is also a filter now,** where it used to strip a matching prefix
+and pass everything else through. If you set it, a group without one of those
+prefixes is ignored rather than taken as a role name. That is what the setting
+always read as, and it narrows rather than widens — but if you relied on the
+pass-through, those roles stop arriving.
+
+### Listeners must prove they hold their certificate's private key
+
+**Affects:** any pool still running a listener image older than 2.0.
+
+A listener authenticates with `X-Terrapod-Client-Cert`, the certificate the CA
+issued it at join. A certificate is **public material** and it travels on every
+request, so until 2.0 that header was effectively a bearer token: anyone who
+observed one call could replay it until the certificate expired, and every check
+the API made — CA signature, expiry, name lookup, fingerprint — was satisfied by
+the copy just as well as by the holder.
+
+From 2.0 each request is also signed with the private key the CA returns once at
+join, binding it to one method, one path and a single-use nonce inside a 60-second
+window. Both listener authentication paths enforce it, including the SSE event
+stream.
+
+**A listener image older than 2.0 does not sign, so it gets `401` on every call —
+including `renew`, which is not retried and falls back to the join token.** The
+effect is not a clean failure: the listener re-registers under a fresh name on
+every renewal cycle and churns pool membership. So either upgrade every listener
+in every pool before the API, or set:
+
+```yaml
+api:
+  config:
+    agent_pools:
+      require_listener_proof_of_possession: false
+```
+
+and remove it once the fleet is upgraded. The setting honours an explicit
+`false` — it is rendered with `hasKey`, not `| default`.
+
+**Clock skew matters now.** The signature carries a timestamp and is rejected
+more than 60 seconds either side of the API's clock, so a listener cluster whose
+clock has drifted further than that fails to authenticate. That is a real failure
+mode on long-running VMs and in nested virtualisation.
+
+### An OIDC login needs an email the provider vouches for
+
+The email claim is the principal everywhere in Terrapod: it selects role
+assignments, owns workspaces and names token owners. Before 2.0 the OIDC connector
+took it straight from the merged claims and checked nothing, so a provider that
+lets a user set their own address could hand an attacker a victim's identity.
+
+From 2.0 a login is refused when the claims carry no `sub`, carry no `email`, or
+report `email_verified` as false. **A login whose claims simply omit
+`email_verified` is also refused**, because an address nobody vouches for is one
+the person logging in may have chosen.
+
+That last case is the one that can stop a working deployment logging in: some
+providers verify email without sending the claim. If yours is one of them, set it
+per provider:
+
+```yaml
+api:
+  config:
+    auth:
+      sso:
+        oidc:
+          - name: my-idp
+            issuer_url: https://idp.example.com/
+            client_id: "..."
+            require_email_verified: false
+```
+
+An explicit `email_verified: false` is still refused with that set — the relaxation
+covers a missing claim, not a provider telling us the address is unverified. The
+key honours an explicit `false` (it is rendered with `hasKey`, not `| default`).
+
+### An API token's roles are resolved against the provider it was minted under
+
+Role assignments have always been keyed by provider *and* email. Token role
+resolution only ever matched on email, so a token inherited every role assigned to
+that address under **any** configured provider — up to platform admin. With more
+than one login source, an account at the weakest one was enough.
+
+From 2.0 a token records the provider of the identity it is bound to, and
+resolution joins on it. The same applies to the container registry, the package
+proxies and Slack-initiated actions, which resolved roles the same way.
+
+**Tokens minted before the upgrade have no recorded provider, and resolve to no
+roles at all.** They are not silently given every provider's roles, because
+guessing is what the original defect did. The migration attributes what it can
+prove — a token whose owner has a local account with a password is marked `local` —
+and leaves the rest unattributed. Anything unattributed logs a warning naming the
+token id when it is used, so:
+
+```sql
+SELECT id, bound_to, description FROM api_tokens WHERE identity_provider IS NULL;
+```
+
+Re-mint those, or expect 403s from automation that used them. A `terraform login`
+token is re-minted by logging in again.
+
+**`require_external_sso_for_roles` now applies to tokens too.** It was enforced
+only at login, on the session's roles, so a token minted by a local account carried
+the restricted roles regardless. A local-provider token now has them dropped from
+its resolved set — the token keeps working for everything else rather than being
+refused outright, since automation cannot be prompted to go and log in via SSO.
+
+### A role assignment can be pinned to an IdP subject
+
+Role assignments are keyed by provider and email. Email is the weaker half of an
+identity: a provider that lets a user change their address, or an operator recycling
+one, moves the grant to a different person.
+
+An assignment may now carry a `subject` — the IdP's `sub` claim. Unpinned is the
+default and behaves exactly as before, matching on provider and email; every existing
+assignment is unpinned, so **nothing changes on upgrade**. Pinned, it matches only
+that subject, and a credential that cannot prove its subject matches unpinned
+assignments only.
+
+Pin the grants that matter most, which in practice means `admin` and `audit`:
+
+```hcl
+resource "terrapod_role_assignment" "platform_admin" {
+  provider_name = "okta"
+  email         = "admin@example.com"
+  role_name     = "admin"
+  subject       = "00u1a2b3c4d5e6f7g8h9"  # the IdP's `sub` for this person
+}
+```
+
+`subject` is Optional+Computed, and that matters when an identity has several
+`terrapod_role_assignment` resources: the pin belongs to the identity, not to one
+grant, so an instance that does not name it keeps whatever is already pinned rather
+than clearing it. Set it on one of them, or on all of them to the same value.
+
+The UI shows a pin read-only. A `sub` is an opaque provider-issued string, so it is
+set as code or through the API rather than typed into a form.
+
+### Terrapod owns the token signing key, and a used deployment adopts its old one
+
+**Affects:** every deployment. Most need to do nothing before upgrading.
+
+One key signs runner tokens, run-task callback tokens, download tickets and
+Slack link tokens. It used to come from the Helm chart, and failing that was
+derived from `sha256(database_url)` — which hands token forgery to anyone
+holding database credentials (GHSA-hc47-q72v-4vcm). Terrapod now generates it
+and stores it in the database, read on every startup, the same way it has always
+owned the listener certificate authority.
+
+**What happens on upgrade, with nothing configured.** A deployment that has
+executed runs **adopts** its existing `sha256(database_url)` key rather than
+minting a new one, so tokens already in flight keep verifying — a key change
+mid-apply means an apply that succeeds and then cannot upload its state, which
+leaves the workspace flagged as diverged. The adopted key is still derivable
+from the database URL, so **startup warns until you replace it**. A deployment
+that has never executed a run has nothing in flight and generates a strong key
+immediately.
+
+**What to do before upgrading:** nothing, unless you set
+`api.config.require_strong_secrets`. That switch used to fire whenever no key
+was *configured*; it now fires on an adopted key, which is the state an upgrade
+of a used deployment lands in. So either supply a key at the same time as the
+upgrade, or leave the switch off until you have. An unset `api.tokenSigningKey`
+is the normal, strong case from here on and the switch does not object to it.
+
+**If you already supply `api.tokenSigningKey.existingSecret`, nothing changes.**
+A supplied key still wins, on every startup, and Terrapod does not read its
+stored key at all — so rotating your own Secret still takes effect. Your key is
+deliberately not copied into Terrapod's table: that would make the first value
+you ever supplied win for ever and silently ignore every later change.
+
+**The generated Secret is gone.** The chart no longer renders
+`<release>-token-signing`, because a random value in a rendered manifest is not
+a pure function of its inputs — under `helm template`, which is what Argo CD and
+Flux run, the generating branch minted a fresh key on every render. If you
+deploy through a GitOps controller, the whole class of problem goes with it:
+there is nothing to re-mint and nothing for a pruning controller to delete.
+The existing Secret carries `helm.sh/resource-policy: keep`, so Helm leaves it
+behind rather than deleting it. It is inert once you are on 2.0 — **but delete
+it only after confirming you do not reference it** from
+`api.tokenSigningKey.existingSecret`, because if you do, it is your key and
+still live.
+
+`api.tokenSigningKey.existingSecret` and `existingSecretKey` are unchanged, so
+no values edit is required.
+
+### The engine on/off switch is removed
+
+**Affects:** any deployment whose `values.yaml` sets `api.config.engines`.
+
+`api.config.engines.ansible.enabled` and `api.config.engines.pulumi.enabled` are
+gone, along with the `engines:` block that held them. Because
+`values.schema.json` refuses keys it does not declare, a `values.yaml` that still
+sets them **fails `helm lint` and `helm upgrade`** rather than ignoring them —
+which is the useful direction: it tells you at upgrade time instead of leaving
+dead configuration behind.
+
+```yaml
+# remove this block entirely
+api:
+  config:
+    engines:
+      pulumi:
+        enabled: true
+      ansible:
+        enabled: true
+```
+
+**There is nothing to replace it with, and nothing to decide.** The platform
+offers every engine it can run; a deployment that uses only Terraform or OpenTofu
+simply never names another one. Switching an engine off never deployed less — it
+left routers unmounted and filtered a list — and an engine's CLI is still fetched
+only when a run of that engine happens, so a Terraform-only deployment is
+unaffected either way.
+
+**What this does change,** if you were relying on the switch:
+
+| was | now |
+|---|---|
+| `GET /api/v1/engines` omitted a disabled engine | lists every engine the build contains |
+| creating a workspace with a disabled engine was refused | accepted; the engine must simply be one Terrapod can run |
+| the Pulumi service surface was unmounted | always mounted (nothing there is reachable without a Pulumi workspace to name) |
+
+**Per-capability switches are unaffected and are what to use instead.** If your
+reason for switching an engine off was to stop a *surface* serving, that control
+survives and is unchanged — `api.config.registry.oci.enabled` for the container
+registry, and `api.config.registry.package_cache.enabled` plus its six
+per-ecosystem flags (`pypi`, `npm`, `galaxy`, `pulumi`, `go`, `nuget`) for the
+package proxies. Each of those is read, and switching one off unmounts its
+routes rather than leaving them answering 404.
 
 ## Before you upgrade
 

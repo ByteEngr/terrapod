@@ -27,6 +27,7 @@
     "account": "חשבון",
     "apiTokens": "אסימוני API",
     "sessions": "הפעלות",
+    "slackLinks": "קישורי Slack",
     "logOut": "התנתקות",
     "menu": "תפריט",
     "openMenu": "פתיחת תפריט",
@@ -70,7 +71,6 @@
       "agentPool": "מאגר סוכנים",
       "none": "ללא",
       "autoApply": "החלה אוטומטית",
-      "autoApplyModeHint": "never: תמיד להמתין לאדם. always: להחיל כל תוכנית מוצלחת. create / create/update: להחיל רק תוכניות המוגבלות לפעולות אלה — לעולם לא מחיקה או החלפה.",
       "enabled": "מופעל",
       "workingDirectory": "ספריית עבודה",
       "workingDirectoryPlaceholder": "למשל environments/dev",
@@ -372,6 +372,22 @@
         "load": "טעינת ההפעלות נכשלה",
         "revoke": "ביטול ההפעלות נכשל ({status})",
         "revokeGeneric": "ביטול ההפעלות נכשל"
+      }
+    },
+    "slackLinks": {
+      "title": "קישורי Slack",
+      "description": "חשבונות Slack שיכולים לפעול בשמכם. חשבון Slack מקושר יכול לאשר ולבטל הרצות בהרשאות שלכם, לכן בטלו כל קישור שאינכם מזהים.",
+      "empty": "אין חשבון Slack מקושר אליכם.",
+      "revoke": "ביטול",
+      "confirmRevoke": "לבטל את הקישור של משתמש Slack ‏{user}? החשבון הזה לא יוכל עוד לפעול בשמכם מתוך Slack.",
+      "columns": {
+        "slackUser": "משתמש Slack",
+        "team": "צוות Slack",
+        "linkedAt": "קושר"
+      },
+      "errors": {
+        "load": "לא ניתן לטעון את קישורי ה-Slack שלכם.",
+        "revoke": "לא ניתן לבטל את קישור ה-Slack הזה."
       }
     }
   },
@@ -761,7 +777,9 @@
       "setAssignmentStatus": "הגדרת ההקצאה נכשלה ({status})",
       "deleteAssignment": "מחיקת ההקצאה נכשלה",
       "conflictingLabelKeys": "ל-{keys} ניתן יותר מערך אחד. כלל תווית מחזיק ערך אחד לכל מפתח, ולכן האחרון יחליף בשקט את הקודמים. ריבוי ערכים למפתח אחד נתמך ב-API אך עדיין לא ניתן להגדרה כאן."
-    }
+    },
+    "pinnedToSubject": "מוצמד",
+    "pinnedToSubjectTitle": "מוצמד לנושא IdP ‏{subject}"
   },
   "adminVcs": {
     "title": "חיבורי VCS",
@@ -774,6 +792,23 @@
       "delete": "מחיקה"
     },
     "confirmDelete": "למחוק את חיבור ה-VCS הזה? סביבות עבודה המשתמשות בו יאבדו את שילוב ה-VCS. לא ניתן לבטל זאת.",
+    "access": {
+      "heading": "מי יכול להשתמש בחיבור הזה",
+      "intro": "שלוש ההגדרות האלה קובעות אילו סביבות עבודה יכולות להצביע על החיבור הזה. פרטי ההזדהות עצמם נשארים לכתיבה בלבד.",
+      "ownerEmail": "דוא\"ל של הבעלים",
+      "ownerEmailHint": "הבעלים יכול תמיד להשתמש בחיבור הזה. השאירו ריק כדי להשאיר את החיבור ללא בעלים.",
+      "labels": "תוויות גישה",
+      "labelsHint": "תפקיד שהכללים שלו תואמים לתוויות האלה יכול להצביע עם סביבת עבודה על החיבור הזה.",
+      "allowedRepositories": "מאגרים מורשים",
+      "allowedRepositoriesHint": "תבניות glob שמושוות למאגר שסביבת עבודה מבקשת להשתמש בו.",
+      "addPattern": "הוספת תבנית",
+      "anyRepositoryWarning": "לא רשומות תבניות, ולכן החיבור הזה יכול להצביע על כל מאגר.",
+      "restricted": "{count, plural, one {רשומה תבנית אחת} two {רשומות # תבניות} many {רשומות # תבניות} other {רשומות # תבניות}}, ולכן מאגר שאינו תואם לאף אחת מהן נדחה.",
+      "ownedBy": "בבעלות {email}",
+      "unowned": "לא הוגדרו בעלים",
+      "anyRepositorySummary": "כל מאגר מורשה",
+      "repositoryCount": "מוגבל ל{count, plural, one {מאגר אחד} two {# מאגרים} many {# מאגרים} other {# מאגרים}}"
+    },
     "form": {
       "name": "שם",
       "namePattern": "אותיות, ספרות, מקפים וקווים תחתונים בלבד. חייב להתחיל באות או ספרה.",
@@ -922,7 +957,6 @@
       "varKey": "מפתח",
       "varValue": "ערך",
       "varCategory": "קטגוריה",
-      "categoryTerraform": "Terraform",
       "categoryEnv": "סביבה",
       "sensitive": "רגיש",
       "sensAbbr": "רגיש",
@@ -988,7 +1022,9 @@
       "valueSource": "מקור הערך",
       "valueSourceStatic": "הזן ערך",
       "valueSourceVault": "קרא מ-OpenBao/Vault",
-      "vaultHint": "Terrapod קורא את הסוד מ-OpenBao (או HashiCorp Vault) בזמן ההרצה. דבר אינו נשמר כאן."
+      "vaultHint": "Terrapod קורא את הסוד מ-OpenBao (או HashiCorp Vault) בזמן ההרצה. דבר אינו נשמר כאן.",
+      "categoryNative": "מקורי",
+      "structured": "מובנה"
     }
   },
   "adminAutodiscovery": {
@@ -1076,7 +1112,10 @@
       "terragruntVersion": "גרסת Terragrunt",
       "noExpiry": "ללא תפוגה",
       "addDriftIgnoreRule": "הוספת כלל",
-      "debugModeHint": "השאר pods של מריצים שנכשלו פתוחים בסביבות העבודה שהכלל הזה יוצר. כבוי כברירת מחדל — pod שנשמר פתוח מחזיק את האישורים של אותה סביבת עבודה."
+      "debugModeHint": "השאר pods של מריצים שנכשלו פתוחים בסביבות העבודה שהכלל הזה יוצר. כבוי כברירת מחדל — pod שנשמר פתוח מחזיק את האישורים של אותה סביבת עבודה.",
+      "allowForkPrPlansHint": "חל על כל סביבת עבודה שהכלל הזה יוצר. כבוי כברירת מחדל: בקשת משיכה מ-fork אינה מקבלת תכנון ספקולטיבי, מפני שהיא תריץ את הקוד של מחברה עם האישורים של סביבת העבודה.",
+      "oidcAudiences": "קהלים של זהות הריצה (מורשים לסביבות העבודה שנוצרות)",
+      "oidcAudiencesHint": "דריסות קהלים המוחלות על כל סביבת עבודה שכלל זה יוצר, לפי מפתח של תצורת ה-provider שהאסימון מיועד לה — aws, או aws.west לתצורה עם כינוי. השאר ריק והן ישתמשו בתצורה של הפריסה עצמה."
     },
     "table": {
       "name": "שם",
@@ -1270,7 +1309,8 @@
       "cancel": "ביטול",
       "working": "עובד...",
       "previewDryRun": "תצוגה מקדימה (הרצה יבשה)",
-      "applyChanges": "החלת שינויים"
+      "applyChanges": "החלת שינויים",
+      "setOidcAudiences": "הגדרת קהלי OIDC של זהות הריצה (מחליף את המפה בכל סביבת עבודה תואמת)"
     },
     "diff": {
       "colWorkspace": "סביבת עבודה",
@@ -1919,12 +1959,24 @@
       "always": "תמיד",
       "create": "יצירה",
       "createUpdate": "יצירה/עדכון"
+    },
+    "oidcAudiences": {
+      "addProvider": "הוספת תצורת provider",
+      "audiences": "קהלים",
+      "badgeInherited": "ברירת המחדל של הפריסה",
+      "badgeOwned": "סביבת עבודה",
+      "issuerDisabled": "הפריסה הזו אינה מפרסמת מנפיק OpenID Connect כלשהו, ולכן שום דבר שמוגדר כאן אינו יכול להיכנס לתוקף.",
+      "override": "דריסה",
+      "overrideAria": "דריסת הקהלים של {provider} בסביבת העבודה הזו",
+      "providerDuplicate": "לתצורת provider זו יש כבר רשומה.",
+      "providerInvalid": "שם provider אינו מכיל רווחים ובו נקודה אחת לכל היותר — aws או aws.west.",
+      "providerPlaceholder": "aws או aws.west",
+      "removeProviderAria": "הסרת תצורת provider {provider}"
     }
   },
   "planSummary": {
     "aiGenerated": "נוצר על ידי AI",
     "heading": {
-      "planSummary": "סיכום תכנון",
       "failureAnalysis": "ניתוח כשל"
     },
     "errors": {
@@ -1933,13 +1985,11 @@
     "regenerate": {
       "label": "צור מחדש",
       "queueing": "מכניס לתור…",
-      "tooltip": "הרץ מחדש את סיכום ה-AI על אותם קלטי תכנון",
       "ariaLabel": "צור מחדש סיכום AI",
       "confirm": "לייצר מחדש את ניתוח ה-AI? פעולה זו מריצה את המודל שוב.",
       "error": "לא ניתן לייצר מחדש: <mono>{detail}</mono>"
     },
     "pending": {
-      "summarisingPlan": "מסכם את התכנון…",
       "analysingFailure": "מנתח את הכשל…"
     },
     "skipped": {
@@ -1963,7 +2013,6 @@
     "badges": {
       "noChanges": "אין שינויים",
       "noChangesLower": "אין שינויים",
-      "noChangesTitle": "התכנון לא דיווח על שינויים במשאבים",
       "toAdd": "{count, plural, one {# להוספה} two {# להוספה} many {# להוספה} other {# להוספה}}",
       "toChange": "{count, plural, one {# לשינוי} two {# לשינוי} many {# לשינוי} other {# לשינוי}}",
       "toDestroy": "{count, plural, one {# להשמדה} two {# להשמדה} many {# להשמדה} other {# להשמדה}}",
@@ -1973,7 +2022,6 @@
     "chat": {
       "heading": "המשך שיחה",
       "sharedThreadNote": "שרשור משותף אחד, גלוי לכל מי שיש לו הרשאת קריאה לסביבת העבודה.",
-      "placeholder": "שאל שאלת המשך על התכנון הזה… (⌘/Ctrl + Enter לשליחה)",
       "send": "שלח",
       "thinking": "חושב…",
       "you": "אתה",
@@ -1997,7 +2045,6 @@
     "workspaceFallback": "סביבת עבודה",
     "backTo": "חזרה אל {name}",
     "errorHeading": "שגיאה",
-    "discardedHeading": "נדחתה — נדרש תכנון מחדש",
     "common": {
       "yes": "כן",
       "no": "לא"
@@ -2051,14 +2098,13 @@
     },
     "badge": {
       "destroy": "השמדה",
-      "planOnly": "תכנון בלבד"
+      "savedPlan": "תוכנית שמורה",
+      "savedPlanHint": "ההחלה נדחתה: ריצה זו אינה תופסת את סביבת העבודה עד שהתוכנית השמורה מוחלת."
     },
     "actions": {
       "retryShort": "נסה שוב",
       "retryFull": "הרץ שוב",
       "retrying": "מנסה שוב…",
-      "confirmShort": "החל",
-      "confirmFull": "אשר והחל",
       "confirming": "מאשר…",
       "discard": "דחה",
       "discarding": "דוחה…",
@@ -2068,8 +2114,6 @@
       "queuing": "מוסיף לתור…"
     },
     "confirm": {
-      "apply": "להחיל את ההרצה הזו? פעולה זו מחילה את התכנון ומשנה את התשתית.",
-      "discard": "לדחות את התכנון הזה?",
       "cancel": "לבטל את ההרצה הזו?",
       "retry": "להריץ שוב את ההרצה הזו?"
     },
@@ -2092,20 +2136,19 @@
       "impactFull": "גרף השפעה",
       "cost": "עלות",
       "costFull": "אומדן עלות",
-      "planLabel": "תכנון<log>יומן</log>",
-      "applyLabel": "יישום<log>יומן</log>",
-      "planFull": "יומן תכנון",
-      "applyFull": "יומן יישום",
       "details": "פרטים",
       "security": "אבטחה",
       "securityFull": "סריקת אבטחה"
     },
     "banner": {
       "destroy": "זוהי הרצת <strong>השמדה</strong> — כל המשאבים המנוהלים יושמדו בעת ההחלה.",
-      "planOnlyCli": "זוהי הרצת <strong>תכנון בלבד</strong> שהופעלה מה-CLI על סביבת עבודה המחוברת ל-VCS. יישום אינו זמין עבור קוד שהועלה מה-CLI — ניתן להחיל רק קוד המנוהל ב-VCS.",
       "moduleOverridesPrefix": "הרצה זו משתמשת ב<strong>עקיפות מודול</strong>",
       "moduleOverridesFromPr": "מ-PR ‏#{number}",
       "moduleOverridesSuffix": "יימשך מענף ה-PR במקום מגרסת הרישום שפורסמה."
+    },
+    "bindPlan": {
+      "bound": "נעול לתצוגה המקדימה הזו: העדכון מחיל בדיוק את התוכנית המוצגת כאן, כך שכל מה שהשתנה מאז מכשיל את העדכון במקום להיות מוחל.",
+      "unbound": "לא נעול לתצוגה המקדימה הזו: העדכון קובע בעצמו את השינויים שלו בזמן הריצה, כמו pulumi up רגיל, ולכן מה שיוחל עשוי להיות שונה ממה שמוצג כאן."
     },
     "cards": {
       "changes": "שינויים",
@@ -2117,7 +2160,6 @@
     },
     "changes": {
       "noChanges": "אין שינויים",
-      "planning": "מתכנן…",
       "toAdd": "להוספה",
       "toChange": "לשינוי",
       "toDestroy": "להשמדה",
@@ -2154,7 +2196,6 @@
       "executionBackend": "מנוע הרצה",
       "source": "מקור",
       "autoApply": "החלה אוטומטית",
-      "planOnly": "תכנון בלבד",
       "triggeredBy": "הופעל על ידי",
       "created": "נוצר",
       "commit": "קומיט",
@@ -2170,11 +2211,7 @@
     "timeline": {
       "heading": "ציר זמן",
       "queued": "בתור",
-      "planningStarted": "התכנון החל",
-      "planComplete": "התכנון הושלם",
       "confirmed": "אושר",
-      "applyingStarted": "היישום החל",
-      "applied": "יושם",
       "errored": "נכשל",
       "canceled": "בוטל",
       "discarded": "נדחה"
@@ -2198,12 +2235,8 @@
       "followOffTitle": "עקוב אחר הזרם החי",
       "end": "סוף",
       "endTitle": "דלג לסוף היומן",
-      "planEmpty": "אין עדיין פלט תכנון זמין.",
-      "applyEmpty": "אין עדיין פלט יישום זמין.",
       "index": {
         "label": "קפיצה אל",
-        "title": "קפיצה לשינוי משאב או לסיכום התוכנית",
-        "summary": "סיכום התוכנית",
         "action": {
           "create": "יצירה",
           "update": "עדכון",
@@ -2215,13 +2248,11 @@
           "error": "שגיאה",
           "warning": "אזהרה"
         }
-      },
-      "applySkippedNoChanges": "לא בוצעה החלה: בתוכנית לא היו שינויים, כך שלא היה מה להחיל."
+      }
     },
     "policyPanel": {
       "heading": "בדיקות מדיניות",
       "passedCount": "{passed}/{total} עברו",
-      "blockedMessage": "הרצה זו <strong>חסומה על ידי מערך מדיניות חובה</strong>. היא לא תיושם עד שהכשל ייפתר או שמנהל יעקוף אותו.",
       "overriding": "עוקף...",
       "overrideContinue": "עקוף והמשך",
       "overrideFailed": "העקיפה נכשלה",
@@ -2261,7 +2292,6 @@
       "unpricedHint": "שום דבר בנתוני התמחור לא תאם אותם — סוג לא ממופה, משאב ללא עלות ישירה, או ספק שעדיין אינו נתמך.",
       "indicative": "האומדנים הם להמחשה בלבד; העלות בפועל תלויה בשימוש, באזור, בהתחייבויות ובהנחות.",
       "asOfState": "נכון למצב v{serial}",
-      "noState": "עדיין אין עלות — מופיעה לאחר ההחלה הראשונה.",
       "usageBand": "{dimension}: {typical} {unit} טיפוסי (טווח {low}–{high})",
       "usageBandCost": "{dimension}: {costTypical}/חודש טיפוסי — {costLow}–{costHigh} על פני {low}–{high} {unit}"
     },
@@ -2348,7 +2378,6 @@
       "passed": "אף קריטריון מדיניות לא התאים.",
       "overriding": "עוקף...",
       "overrideContinue": "עקוף והמשך",
-      "overrideConfirm": "לעקוף את שער מדיניות ה-AI ולאפשר להרצה זו להיות מיושמת למרות הפסיקה?",
       "overrideFailed": "העקיפה נכשלה",
       "overrideFailedStatus": "העקיפה נכשלה ({status})",
       "overriddenBy": "נעקף על ידי {by}"
@@ -2407,9 +2436,6 @@
       "translatedNote": "תורגם מהמקור בעת הצפייה."
     },
     "drift": {
-      "remediate": "תכנון + החלה",
-      "remediateTitle": "הוספת הרצת תכנון + החלה לתור כדי ליישר מחדש את התשתית עם התצורה",
-      "remediateConfirm": "להוסיף הרצת תכנון + החלה לתור עבור סביבת עבודה זו?",
       "remediateMessage": "נוסף לתור מבדיקת סטייה",
       "remediateFailed": "לא ניתן היה להוסיף את הרצת התיקון לתור"
     }
@@ -2469,6 +2495,7 @@
       "architecture": "ארכיטקטורה",
       "insights": "תובנות",
       "automation": "אוטומציה",
+      "inventory": "מלאי",
       "access": "גישה"
     },
     "lifecycle": {
@@ -2501,6 +2528,9 @@
       "version": "גרסה",
       "versionPlaceholder": "לדוגמה 1.11 או 1.11.5",
       "versionTitle": "גרסה בפורמט X.Y או X.Y.Z (לדוגמה 1.11 או 1.11.5)",
+      "ansibleVersion": "גרסת Ansible",
+      "ansibleVersionPlaceholder": "לדוגמה 2.21.5",
+      "ansibleVersionTitle": "גרסת ansible-core עבור סביבת עבודה זו. השארה ריקה פועלת לפי ברירת המחדל של הפריסה.",
       "terragruntEnabledAgent": "מופעל (מצב סוכן)",
       "terragruntEnabledVersion": "מופעל (v{version})",
       "terragruntVersionPlaceholder": "לדוגמה 1.0",
@@ -2541,12 +2571,16 @@
       "engineTerraform": "Terraform",
       "nameTitlePulumi": "שני חלקים המופרדים ב-'::' — project::stack. אותיות, ספרות, מקפים וקווים תחתונים בלבד; כל חלק חייב להתחיל באות או בספרה.",
       "bindPlan": "נעילת העדכון לתצוגה המקדימה שאושרה",
-      "bindPlanHelp": "כשהאפשרות פעילה, העדכון מחיל בדיוק את התוכנית שהתצוגה המקדימה שמרה, כך שכל מה שהשתנה מאז התצוגה המקדימה מכשיל את העדכון במקום להיות מוחל. הדבר נשען על תוכניות העדכון של Pulumi, שעדיין ניסיוניות. כשהאפשרות כבויה, העדכון קובע בעצמו את השינויים שלו, כמו pulumi up רגיל. <docs>איך הרצות Pulumi עובדות</docs>"
+      "bindPlanHelp": "כשהאפשרות פעילה, העדכון מחיל בדיוק את התוכנית שהתצוגה המקדימה שמרה, כך שכל מה שהשתנה מאז התצוגה המקדימה מכשיל את העדכון במקום להיות מוחל. הדבר נשען על תוכניות העדכון של Pulumi, שעדיין ניסיוניות. כשהאפשרות כבויה, העדכון קובע בעצמו את השינויים שלו, כמו pulumi up רגיל. <docs>איך הרצות Pulumi עובדות</docs>",
+      "oidcAudiences": "קהלים של זהות הריצה",
+      "oidcAudiencesAdd": "הוספת קהל",
+      "oidcAudiencesHint": "Terrapod מנפיק אסימון OpenID Connect קצר-מועד לכל תצורת provider שהריצה משתמשת בה, וכותב אותו לקובץ שהריצה יכולה לקרוא. מפתח הרשומה הוא ה-provider בשם שהתצורה שלך נותנת לו — aws, או aws.west לתצורה עם כינוי — ואחריו רשימת הקהלים שאותו יעד מקבל. כל רשומה דורסת את התצורה של הפריסה עצמה עבור אותו provider; הסר אותה ואותו provider חוזר לקהלים של הפריסה. קהל הוא מחרוזת אטומה שיעד הפדרציה בחר, ולכן הוא נשמר בדיוק כפי שהקלדת אותו.",
+      "oidcAudiencesLoading": "בודק את הקהלים המוגדרים בפריסה …",
+      "oidcAudiencesNone": "ללא (ריצות משתמשות בזהות של מאגר הסוכנים עצמו)",
+      "oidcAudiencesPlaceholder": "לדוגמה sts.amazonaws.com"
     },
     "vcsWorkflowWarning": {
       "title": "ההרשאה הואצלה למאגר ה-VCS שלכם.",
-      "rbac": "כל מי שיכול למזג את ה-PR יכול להחיל. כללי הגנת ענף (סקירות נדרשות, בדיקות סטטוס, אישור בעל קוד) הופכים לשער. RBAC של תפקיד/תווית ב-Terrapod<em>אינו</em>חל על פעולות מונחות-תגובה במצב זה.",
-      "recommended": "<strong>מומלץ:</strong> לדרוש היסטוריה לינארית (שינוי בסיס/כיווץ לפני מיזוג) כך שהמסירה שאתם מיישמים היא המסירה שנוחתת.",
       "credit": "קרדיט: תהליך עבודה זה מבוסס על <atlantis>Atlantis</atlantis>. Atlantis נותר הכלי הנכון לצוותים שרוצים רק החלות מונחות-תגובת-PR וללא ממשק פלטפורמה."
     },
     "vcsPolling": {
@@ -2562,7 +2596,6 @@
     },
     "lock": {
       "title": "מצב נעילה",
-      "lockedDesc": "סביבת עבודה זו נעולה. לא ניתן להריץ תוכניות או החלות.",
       "unlockedDesc": "סביבת עבודה זו פתוחה ומוכנה להרצות.",
       "lock": "נעילה",
       "unlock": "שחרור נעילה",
@@ -2584,7 +2617,6 @@
       "dismissTitle": "נקו את מצב הסטייה המדווח. הבדיקה המתוזמנת הבאה תמלא אותו מחדש מהמציאות.",
       "lastChecked": "נבדק לאחרונה",
       "checkNow": "בדיקה עכשיו",
-      "checkNowTitle": "הוספת הרצת תוכנית-בלבד לתור לבדיקת סטייה",
       "checkNowTitleDisabled": "הפעילו תחילה את זיהוי הסטייה"
     },
     "intervals": {
@@ -2598,13 +2630,10 @@
       "7days": "7 ימים"
     },
     "planExpiry": {
-      "title": "פקיעת תוכנית",
-      "description": "מחיקה אוטומטית של תוכנית לא מאושרת כאשר היא ישנה מכך, כדי שתוכנית מיושנת לא תוחל על עולם שהשתנה. כבוי כברירת מחדל; אז יש להריץ את התוכנית מחדש. (חל על הרצות בעלות יכולת החלה בלבד.)",
       "expireAfter": "פקיעה לאחר"
     },
     "aiSummary": {
       "title": "סיכום תוכנית מבוסס AI",
-      "description": "סיכום שינויים אוטומטי שנוצר על ידי LLM, הערכת סיכונים וניתוח כשלים בכל תוצאת שלב-תוכנית לסביבת עבודה זו.",
       "mode": "מצב",
       "modeDefault": "לפי ברירת המחדל של הפריסה",
       "modeEnabled": "תמיד לסכם",
@@ -2619,7 +2648,6 @@
     },
     "slack": {
       "title": "התראות Slack",
-      "description": "צרפו סביבת עבודה זו להתראות הרצה ב-Slack — בקשות אישור, החלות, שגיאות וסטיות. השאירו את הערוץ ריק וסביבת עבודה זו תישאר שקטה (אין הפצה כלל-פריסתית). דורש שאפליקציית Slack תופעל על ידי מנהל.",
       "channel": "ערוץ",
       "channelPlaceholder": "#deploys או מזהה ערוץ (לדוגמה C0123ABCD)",
       "notSet": "לא הוגדר — שקט.",
@@ -2694,20 +2722,18 @@
       "vaultFileEncoding": "קידוד",
       "vaultFileEncodingNone": "כפי שנשמר ב-OpenBao/Vault",
       "vaultFileEncodingBase64": "פענוח Base64",
-      "vaultFileEncodingHint": "מפענח את השדה לפני שהוא נכתב. התוצאה חייבת להיות טקסט; קבצים בינאריים אינם נתמכים."
+      "vaultFileEncodingHint": "מפענח את השדה לפני שהוא נכתב. התוצאה חייבת להיות טקסט; קבצים בינאריים אינם נתמכים.",
+      "categoryNative": "מקורי",
+      "structured": "מובנה",
+      "categoryTerraform": "Terraform",
+      "categoryPulumiConfig": "תצורת Pulumi"
     },
     "runs": {
       "options": "אפשרויות",
       "hideOptions": "הסתרת אפשרויות",
       "queueDestroy": "השמדה",
-      "queueDestroyTitle": "הוספת תוכנית השמדה לתור",
       "destroyAllConfirm": "להשמיד את כל המשאבים?",
       "confirmDestroy": "אישור השמדה",
-      "queuePlan": "תכנון",
-      "queueRun": "תכנון + החלה",
-      "queuePlanConfirm": "להוסיף תוכנית ספקולטיבית לתור עבור סביבת עבודה זו?",
-      "queueApplyConfirm": "להוסיף הרצת תכנון + יישום לתור? זה עשוי לשנות תשתית.",
-      "planOptions": "אפשרויות תוכנית",
       "targetResources": "משאבי יעד",
       "replaceResources": "החלפת משאבים",
       "commaSeparated": "(מופרד בפסיקים)",
@@ -2718,7 +2744,6 @@
       "branch": "ענף",
       "tag": "תג",
       "defaultBranch": "ברירת מחדל ({branch})",
-      "nonDefaultRefNote": "נבחר רפרנס שאינו ברירת מחדל — ההרצה תהיה תוכנית-בלבד",
       "empty": "אין עדיין הרצות לסביבת עבודה זו.",
       "runId": "מזהה הרצה",
       "status": "סטטוס",
@@ -2729,13 +2754,11 @@
       "created": "נוצר",
       "needsConfirm": "דורש אישור",
       "typeDestroy": "השמדה",
-      "typePlanOnly": "תוכנית בלבד",
-      "typePlanApply": "תכנון + יישום",
       "sourceModuleTest": "בדיקת מודול",
       "sourceModulePublish": "פרסום מודול",
-      "queueApplyTitle": "הוספת הרצת תכנון + החלה לתור",
-      "queueApplyRefBlocked": "החלה אינה זמינה כאשר נבחרו ענף, תגית או קומיט — הרצות אלה הן תמיד תכנון בלבד",
-      "awaitingDecision": "ממתין להחלטה"
+      "awaitingDecision": "ממתין להחלטה",
+      "typeSavedPlan": "תוכנית שמורה",
+      "typeSavedPlanHint": "ההחלה נדחתה: ריצה זו אינה תופסת את סביבת העבודה עד שהתוכנית השמורה מוחלת."
     },
     "state": {
       "deleteConfirm": "למחוק את גרסת המצב #{serial}? לא ניתן לבטל זאת.",
@@ -2752,12 +2775,18 @@
       "runner": "מריץ",
       "latest": "אחרון"
     },
+    "stateOutputs": {
+      "title": "פלטים",
+      "fromSerial": "מספר סידורי #{serial}",
+      "empty": "מצב זה אינו מצהיר על פלטים.",
+      "sensitive": "רגיש",
+      "loadFailed": "טעינת הפלטים של סביבת עבודה זו נכשלה."
+    },
     "configurations": {
       "description": "ארכיוני מקור שהועלו לסביבת עבודה זו, החדש ביותר תחילה. בחרו שתי שורות להשוואה.",
       "selectedCount": "{count}/2 נבחרו",
       "compare": "השוואה",
       "comparing": "משווה…",
-      "empty": "אין עדיין גרסאות תצורה. הן מופיעות כאן ברגע ש-`terraform plan` מעלה או שדחיפה ל-VCS מפעילה הרצה.",
       "id": "מזהה",
       "source": "מקור",
       "status": "סטטוס",
@@ -2819,7 +2848,6 @@
     },
     "runTriggers": {
       "title": "טריגרים להרצה",
-      "description": "כאשר סביבת עבודה מקור משלימה החלה, סביבות עבודה במורד הזרם מקבלות הרצה חדשה בתור אוטומטית. עד 20 סביבות עבודה מקור לכל יעד.",
       "inboundHeading": "סביבות עבודה מקור שמפעילות הרצות כאן",
       "inboundEmpty": "אין סביבות עבודה מקור שמפעילות הרצות בסביבת עבודה זו.",
       "pickerPlaceholder": "חפשו סביבות עבודה להוספה כמקור…",
@@ -2827,6 +2855,173 @@
       "outboundEmpty": "סביבת עבודה זו אינה מפעילה הרצות בשום סביבת עבודה אחרת.",
       "destinationNote": "(יעד; הסירו משם)",
       "removeConfirm": "להסיר טריגר הרצה זה?"
+    },
+    "inventory": {
+      "scope": {
+        "heading": "מלאי",
+        "body": "המארחים והקבוצות שסביבת העבודה הזו מחזיקה, ומה ansible פותר אותם אליו. כל שורה ניתנת לעריכה כאן; הרצת playbook מולם עדיין אינה זמינה."
+      },
+      "nav": {
+        "label": "מקטעי המלאי",
+        "hosts": "מארחים",
+        "groups": "קבוצות",
+        "vars": "משתנים",
+        "resolved": "נפתר",
+        "settings": "הגדרות"
+      },
+      "actions": {
+        "save": "שמירה",
+        "saving": "שומר…",
+        "cancel": "ביטול",
+        "edit": "עריכה",
+        "delete": "מחיקה",
+        "remove": "הסרה",
+        "add": "הוספה",
+        "adding": "מוסיף…",
+        "rename": "שינוי שם"
+      },
+      "hosts": {
+        "heading": "מארחים",
+        "body": "שורה אחת לכל מארח. פתחו מארח כדי לערוך את המשתנים שלו ואת הקבוצות שהוא שייך אליהן.",
+        "empty": "אין עדיין מארחים.",
+        "colName": "מארח",
+        "colGroups": "קבוצות",
+        "colVars": "משתנים",
+        "newLabel": "שם המארח החדש",
+        "newPlaceholder": "web-1",
+        "add": "הוספת מארח",
+        "confirmDelete": "למחוק את המארח {name}? המשתנים שלו והחברות שלו בקבוצות יימחקו עמו.",
+        "renameLabel": "שם המארח"
+      },
+      "groups": {
+        "heading": "קבוצות",
+        "body": "שורה אחת לכל קבוצה. פתחו קבוצה כדי לערוך את המשתנים שלה, את המארחים החברים בה ואת הקבוצות המקוננות בתוכה.",
+        "empty": "אין עדיין קבוצות.",
+        "colName": "קבוצה",
+        "colMembers": "מארחים",
+        "colChildren": "קבוצות בנות",
+        "colVars": "משתנים",
+        "newLabel": "שם הקבוצה החדשה",
+        "newPlaceholder": "web",
+        "add": "הוספת קבוצה",
+        "confirmDelete": "למחוק את הקבוצה {name}? המשתנים שלה והחברויות שלה יימחקו עמה; המארחים עצמם יישארו.",
+        "renameLabel": "שם הקבוצה"
+      },
+      "vars": {
+        "actions": "פעולות",
+        "key": "מפתח",
+        "keyPlaceholder": "ansible_user",
+        "value": "ערך",
+        "structured": "מובנה",
+        "sensitive": "רגיש",
+        "structuredHelp": "רשימה, מספר או אובייקט הם ערך מובנה: סמנו מובנה וכתבו את המקור המילולי שלו בערך. ערך רגיש אינו נקרא בחזרה לעולם — השדה מציג מסכה במקומו.",
+        "structuredBadge": "מובנה",
+        "sensitiveKeep": "השאירו ריק כדי לשמור על הערך המאוחסן.",
+        "empty": "אין כאן משתנים.",
+        "add": "הוספת משתנה",
+        "confirmDelete": "למחוק את המשתנה {key}?"
+      },
+      "hostDetail": {
+        "heading": "המארח {name}",
+        "body": "כל מה שהמארח הזה נושא.",
+        "back": "חזרה למארחים",
+        "gone": "המארח הזה אינו קיים עוד.",
+        "vars": "משתני המארח",
+        "varsBody": "משתנים שחלים על המארח הזה בלבד. הם מנצחים משתנה קבוצה בעל אותו שם.",
+        "memberships": "קבוצות",
+        "membershipsBody": "הקבוצות שהמארח הזה שייך אליהן. חברות היא קישור, ולכן הסרה שלה כאן משאירה גם את המארח וגם את הקבוצה במקומם.",
+        "membershipsEmpty": "המארח הזה אינו באף קבוצה, ולכן ansible משבץ אותו ב-ungrouped.",
+        "addGroup": "הוספה לקבוצה",
+        "addGroupLabel": "בחרו קבוצה",
+        "removeGroupAria": "הסרת המארח הזה מ-{name}",
+        "confirmRemoveGroup": "להוציא את המארח הזה מ-{name}?"
+      },
+      "groupDetail": {
+        "heading": "הקבוצה {name}",
+        "body": "כל מה שהקבוצה הזו נושאת.",
+        "back": "חזרה לקבוצות",
+        "gone": "הקבוצה הזו אינה קיימת עוד.",
+        "vars": "משתני הקבוצה",
+        "varsBody": "משתנים שחלים על כל מארח בקבוצה הזו, ישירות או דרך קינון.",
+        "members": "מארחים חברים",
+        "membersBody": "המארחים שבקבוצה הזו ישירות. מארח שמגיעים אליו רק דרך קבוצה מקוננת אינו מופיע כאן.",
+        "membersEmpty": "אין מארחים בקבוצה הזו ישירות.",
+        "addHost": "הוספת מארח",
+        "addHostLabel": "בחרו מארח",
+        "removeHostAria": "הסרת {name} מהקבוצה הזו",
+        "confirmRemoveHost": "להוציא את {name} מהקבוצה הזו?",
+        "children": "קבוצות בנות",
+        "childrenBody": "קבוצות המקוננות בתוך זו. המארחים שלהן חברים גם בקבוצה הזו, והמשתנים של הקבוצה הזו מגיעים אליהם.",
+        "childrenEmpty": "אין קבוצות מקוננות בתוך זו.",
+        "addChild": "הוספת קבוצה בת",
+        "addChildLabel": "בחרו קבוצה לקינון",
+        "removeChildAria": "הסרת {name} מהקבוצות הבנות של הקבוצה הזו",
+        "confirmRemoveChild": "להפסיק לקנן את {name} בתוך הקבוצה הזו?",
+        "parents": "קבוצות אב",
+        "parentsBody": "הקבוצות שזו מקוננת בתוכן. לקבוצה יכולים להיות כמה אבות.",
+        "parentsEmpty": "הקבוצה הזו אינה מקוננת בתוך דבר.",
+        "addParent": "הוספת קבוצת אב",
+        "addParentLabel": "בחרו קבוצת אב",
+        "removeParentAria": "הסרת הקבוצה הזו מ-{name}",
+        "confirmRemoveParent": "להפסיק לקנן את הקבוצה הזו בתוך {name}?"
+      },
+      "globalVars": {
+        "heading": "משתני המלאי",
+        "body": "משתנים שחלים על כל מארח — group_vars/all של ansible. משתנה קבוצה או מארח בעל אותו שם מנצח את מה שנקבע כאן."
+      },
+      "resolved": {
+        "heading": "מארחים שנפתרו",
+        "body": "מה ש-ansible עושה מהשורות: כל מארח עם המשתנים שהוא מחזיק בסוף, לאחר המיזוג וסדר הקדימות.",
+        "hosts": "מארחים",
+        "groups": "קבוצות",
+        "liveNote": "זה חי. כל מקור כאן סטטי, ולכן הקריאה פותרת את השורות כדי להשיב לעצמה — אין מה לרענן.",
+        "noHosts": "שום דבר לא נפתר למארח.",
+        "noVars": "אין משתנים",
+        "groupsHeading": "חברות בקבוצות",
+        "directOnly": "חברות ישירה בלבד, בדיוק כפי ש-ansible מדווח עליה: קבוצה שכל המארחים שלה מגיעים דרך קבוצה מקוננת אינה מונה אף אחד מהם כשלה. הקינון מופיע למטה.",
+        "noGroups": "לא נפתרו קבוצות.",
+        "noDirectMembers": "אין מארחים ישירים",
+        "nestingHeading": "קינון קבוצות",
+        "nestingBody": "אילו קבוצות יושבות בתוך אילו. הגבלה על קבוצת אב מגיעה לכל מארח שתחתיה.",
+        "noNesting": "אין קבוצות מקוננות.",
+        "limitHeading": "על מה תחול הגבלה?",
+        "limitBody": "הרחיבו תבנית ansible --limit מול המלאי הזה וראו בדיוק אילו מארחים היא בוחרת לפני שדבר מורץ. ansible עושה את ההרחבה, ולכן קבוצה, החרגה ו-~regex מתנהגים בדיוק כפי שיתנהגו בזמן ריצה.",
+        "limitLabel": "תבנית הגבלה",
+        "limitPlaceholder": "web:!web-2",
+        "limitApply": "החלת ההגבלה",
+        "limitClear": "ניקוי",
+        "limitApplied": "מוגבל ל-{limit}. כל מה שלמטה הוא מה שהתבנית הזו מכוונת אליו."
+      },
+      "settings": {
+        "heading": "הגדרות",
+        "body": "האם השורות שמוחזקות כאן נספרות, והמאגר שממנו נקרא מלאי נוסף.",
+        "absent": "אין הגדרות, וזו ברירת המחדל: המארחים והקבוצות שמוחזקים כאן הם כל המלאי.",
+        "includePlatform": "שימוש במארחים ובקבוצות שמוחזקים כאן",
+        "includePlatformHelp": "מופעל כברירת מחדל. כבו אותו כדי לפתור מהמאגר בלבד, כך שהשורות האלה יישארו במקומן אך מחוץ לתשובה.",
+        "included": "כן",
+        "excluded": "לא",
+        "vcsConnection": "חיבור VCS",
+        "vcsNone": "ללא",
+        "field": {
+          "repo-url": "מאגר",
+          "branch": "ענף",
+          "working-directory": "ספרייה"
+        },
+        "branchHelp": "השאירו ריק כדי לעקוב אחר ענף ברירת המחדל של המאגר.",
+        "ignorePaths": "נתיבים שמתעלמים מהם",
+        "ignorePathsHelp": "תבנית glob אחת בכל שורה. כל מה שתואם נשאר מחוץ למלאי שנקרא מהמאגר.",
+        "unset": "לא הוגדר",
+        "create": "הוספת הגדרות",
+        "clear": "ניקוי ההגדרות",
+        "confirmClear": "לנקות את ההגדרות האלה? קישור המאגר יימחק עמן; המארחים והקבוצות שמוחזקים כאן יישארו."
+      },
+      "errors": {
+        "load": "טעינת המלאי נכשלה",
+        "save": "השמירה נכשלה",
+        "delete": "המחיקה נכשלה",
+        "resolved": "פתירת המלאי נכשלה",
+        "settings": "שמירת הגדרות המלאי נכשלה"
+      }
     },
     "sharing": {
       "title": "שיתוף מצב מרוחק",
@@ -2896,8 +3091,6 @@
       "addVariableStatus": "הוספת המשתנה נכשלה ({status})",
       "deleteVariable": "מחיקת המשתנה נכשלה",
       "updateVariable": "עדכון המשתנה נכשל",
-      "queuePlan": "הוספת התוכנית לתור נכשלה",
-      "queuePlanStatus": "הוספת התוכנית לתור נכשלה ({status})",
       "queueDestroy": "הוספת ההשמדה לתור נכשלה",
       "queueDestroyStatus": "הוספת ההשמדה לתור נכשלה ({status})",
       "createNotification": "יצירת ההתראה נכשלה",
@@ -2914,7 +3107,8 @@
       "uploadState": "העלאת המצב נכשלה",
       "uploadStateFile": "העלאת קובץ המצב נכשלה",
       "updateSecurityScan": "עדכון סריקת האבטחה נכשל",
-      "updateDebugMode": "עדכון מצב ניפוי השגיאות נכשל"
+      "updateDebugMode": "עדכון מצב ניפוי השגיאות נכשל",
+      "updateForkPlans": "עדכון התוכניות לבקשות משיכה מ-fork נכשל"
     },
     "subtabs": {
       "state": "מצב",
@@ -2967,6 +3161,14 @@
       "bannerTitle": "מצב ניפוי שגיאות פעיל בסביבת העבודה הזו",
       "bannerBody": "ה-pod של ריצה שנכשלה נשאר פתוח לבדיקה במקום להסתיים, ובזמן הזה הוא מחזיק את האישורים ואת המשתנים המפוענחים של סביבת העבודה הזו. כבה את מצב ניפוי השגיאות כשתסיים לאתר את התקלה.",
       "confirmEnable": "להפעיל מצב ניפוי שגיאות? ה-pod של ריצה שנכשלה יישאר פתוח יחד עם האישורים והמשתנים המפוענחים של סביבת העבודה הזו, עד שהחלון יפוג או שתמחק את ה-pod."
+    },
+    "allowForkPrPlans": {
+      "title": "תוכניות לבקשות משיכה מ-fork",
+      "description": "האם בקשת משיכה שנפתחה מ-fork מקבלת תכנון ספקולטיבי. כבוי כברירת מחדל, מפני שתכנון כזה מריץ את הקוד של מחבר ה-fork עם האישורים של סביבת העבודה הזו.",
+      "label": "תכנון בקשות משיכה מ-fork",
+      "hint": "ריצה מקבלת את משתני הסביבה של סביבת העבודה הזו, ערכים רגישים, כל סוד שנפתר דרך Vault, ואת זהות הענן של המשימה. מי שפותח בקשת משיכה מ-fork אינו בעל הרשאת כתיבה ואינו יכול למזג, ולכן תכנון ספקולטיבי הוא הדרך היחידה שבה הקוד שלו מגיע לאישורים האלה. הפעל זאת עבור סביבת עבודה שאין בה דבר ששווה לקחת — למשל מאגר מודולים ציבורי שמקבל תרומות מהקהילה. בקשות משיכה מענפים במאגר עצמו אינן מושפעות ותמיד מתוכננות.",
+      "activeBadge": "פעיל",
+      "confirmEnable": "לתכנן בקשות משיכה שנפתחו מ-fork? הקוד של מחבריהן ירוץ עם האישורים והמשתנים המפוענחים של סביבת העבודה הזו, בלי שאיש יאשר זאת מראש."
     }
   },
   "graphs": {
@@ -3189,11 +3391,14 @@
     "unknown": "לא ידוע",
     "confirm": {
       "prompt": "לקשר את חשבון ה-Slack הזה לזהות ה-Terrapod<em>שלכם</em>? כל פעולת Slack עתידית (אישור/ביטול) תרוץ כמשתמש Terrapod זה עם ההרשאות שלו.",
+      "slackName": "חשבון Slack",
       "slackUser": "משתמש Slack",
       "slackTeam": "צוות Slack",
       "terrapodAccount": "חשבון Terrapod",
       "warning": "המשיכו רק אם התחלתם את הקישור הזה מ-Slack בעצמכם. אם לא, סגרו את הלשונית ואל תקשרו — פעולה זו כובלת את חשבון ה-Slack שלמעלה לזהות ה-Terrapod<em>שלכם</em>.",
-      "button": "אישור וקישור"
+      "button": "אישור וקישור",
+      "namesUnavailable": "Terrapod לא הצליח לאחזר את שם חשבון ה-Slack הזה. בדקו את המזהים שלמעלה, והמשיכו רק אם אתם בעצמכם התחלתם את הקישור הזה מתוך Slack.",
+      "nameIsSelfChosen": "הכינוי ייחודי במרחב העבודה של Slack; שם התצוגה שמתחתיו נבחר בידי בעליו, אז שפטו לפי הכינוי."
     },
     "success": {
       "message": "חשבון ה-Slack שלכם מקושר כעת ל-Terrapod.",
@@ -3416,7 +3621,77 @@
       },
       "status": {
         "planning": "מתכנן",
-        "applying": "מחיל"
+        "applying": "מחיל",
+        "planned": "תוכנן",
+        "applied": "הוחל"
+      },
+      "words": {
+        "actionConfirmFull": "אשר והחל",
+        "actionConfirmShort": "החל",
+        "activityApplied": "היישום הושלם",
+        "activityConfirmed": "מתחיל יישום",
+        "activityDiscarded": "התכנון נדחה",
+        "activityPlannedComplete": "התכנון הושלם",
+        "activityPlannedConfirmable": "ממתין לאישור והחלה שלך",
+        "activityPlannedSpeculative": "תכנון ספקולטיבי הושלם",
+        "aiPolicyOverrideConfirm": "לעקוף את שער מדיניות ה-AI ולאפשר להרצה זו להיות מיושמת למרות הפסיקה?",
+        "aiSummaryDescription": "סיכום שינויים אוטומטי שנוצר על ידי LLM, הערכת סיכונים וניתוח כשלים בכל תוצאת שלב-תוכנית לסביבת עבודה זו.",
+        "aiSummaryTitle": "סיכום תוכנית מבוסס AI",
+        "badgePlanOnly": "תכנון בלבד",
+        "bannerPlanOnlyCli": "זוהי הרצת <strong>תכנון בלבד</strong> שהופעלה מה-CLI על סביבת עבודה המחוברת ל-VCS. יישום אינו זמין עבור קוד שהועלה מה-CLI — ניתן להחיל רק קוד המנוהל ב-VCS.",
+        "changesPlanning": "מתכנן…",
+        "configurationsEmpty": "אין עדיין גרסאות תצורה. הן מופיעות כאן ברגע ש-`terraform plan` מעלה או שדחיפה ל-VCS מפעילה הרצה.",
+        "confirmApply": "להחיל את ההרצה הזו? פעולה זו מחילה את התכנון ומשנה את התשתית.",
+        "confirmDiscard": "לדחות את התכנון הזה?",
+        "costNoState": "עדיין אין עלות — מופיעה לאחר ההחלה הראשונה.",
+        "detailsPlanOnly": "תכנון בלבד",
+        "discardedHeading": "נדחתה — נדרש תכנון מחדש",
+        "driftCheckNowTitle": "הוספת הרצת תוכנית-בלבד לתור לבדיקת סטייה",
+        "driftRemediate": "תכנון + החלה",
+        "driftRemediateConfirm": "להוסיף הרצת תכנון + החלה לתור עבור סביבת עבודה זו?",
+        "driftRemediateTitle": "הוספת הרצת תכנון + החלה לתור כדי ליישר מחדש את התשתית עם התצורה",
+        "errorsQueuePlan": "הוספת התוכנית לתור נכשלה",
+        "errorsQueuePlanStatus": "הוספת התוכנית לתור נכשלה ({status})",
+        "fieldsAutoMerge": "מיזוג אוטומטי לאחר החלה",
+        "formAutoApplyModeHint": "never: תמיד להמתין לאדם. always: להחיל כל תוכנית מוצלחת. create / create/update: להחיל רק תוכניות המוגבלות לפעולות אלה — לעולם לא מחיקה או החלפה.",
+        "lockLockedDesc": "סביבת עבודה זו נעולה. לא ניתן להריץ תוכניות או החלות.",
+        "logApplyEmpty": "אין עדיין פלט יישום זמין.",
+        "logApplySkipped": "לא בוצעה החלה: בתוכנית לא היו שינויים, כך שלא היה מה להחיל.",
+        "logIndexSummary": "סיכום התוכנית",
+        "logIndexTitle": "קפיצה לשינוי משאב או לסיכום התוכנית",
+        "logPlanEmpty": "אין עדיין פלט תכנון זמין.",
+        "nonDefaultRefNote": "נבחר רפרנס שאינו ברירת מחדל — ההרצה תהיה תוכנית-בלבד",
+        "planExpiryDescription": "מחיקה אוטומטית של תוכנית לא מאושרת כאשר היא ישנה מכך, כדי שתוכנית מיושנת לא תוחל על עולם שהשתנה. כבוי כברירת מחדל; אז יש להריץ את התוכנית מחדש. (חל על הרצות בעלות יכולת החלה בלבד.)",
+        "planExpiryTitle": "פקיעת תוכנית",
+        "planOptions": "אפשרויות תוכנית",
+        "planSummaryChatPlaceholder": "שאל שאלת המשך על התכנון הזה… (⌘/Ctrl + Enter לשליחה)",
+        "planSummaryHeading": "סיכום תכנון",
+        "planSummaryNoChangesTitle": "התכנון לא דיווח על שינויים במשאבים",
+        "planSummaryRegenerateTooltip": "הרץ מחדש את סיכום ה-AI על אותם קלטי תכנון",
+        "planSummarySummarising": "מסכם את התכנון…",
+        "policyBlockedMessage": "הרצה זו <strong>חסומה על ידי מערך מדיניות חובה</strong>. היא לא תיושם עד שהכשל ייפתר או שמנהל יעקוף אותו.",
+        "queueApplyConfirm": "להוסיף הרצת תכנון + יישום לתור? זה עשוי לשנות תשתית.",
+        "queueApplyRefBlocked": "החלה אינה זמינה כאשר נבחרו ענף, תגית או קומיט — הרצות אלה הן תמיד תכנון בלבד",
+        "queueApplyTitle": "הוספת הרצת תכנון + החלה לתור",
+        "queueDestroyTitle": "הוספת תוכנית השמדה לתור",
+        "queuePlan": "תכנון",
+        "queuePlanConfirm": "להוסיף תוכנית ספקולטיבית לתור עבור סביבת עבודה זו?",
+        "queueRun": "תכנון + החלה",
+        "replacePlaceholder": "e.g. aws_instance.web",
+        "runTriggersDescription": "כאשר סביבת עבודה מקור משלימה החלה, סביבות עבודה במורד הזרם מקבלות הרצה חדשה בתור אוטומטית. עד 20 סביבות עבודה מקור לכל יעד.",
+        "tabApplyFull": "יומן יישום",
+        "tabApplyLabel": "יישום<log>יומן</log>",
+        "tabPlanFull": "יומן תכנון",
+        "tabPlanLabel": "תכנון<log>יומן</log>",
+        "targetPlaceholder": "e.g. aws_instance.web, aws_s3_bucket.data",
+        "timelineApplied": "יושם",
+        "timelineApplyingStarted": "היישום החל",
+        "timelinePlanComplete": "התכנון הושלם",
+        "timelinePlanningStarted": "התכנון החל",
+        "typePlanApply": "תכנון + יישום",
+        "vcsWorkflowWarningRbac": "כל מי שיכול למזג את ה-PR יכול להחיל. כללי הגנת ענף (סקירות נדרשות, בדיקות סטטוס, אישור בעל קוד) הופכים לשער. RBAC של תפקיד/תווית ב-Terrapod<em>אינו</em>חל על פעולות מונחות-תגובה במצב זה.",
+        "vcsWorkflowWarningRecommended": "<strong>מומלץ:</strong> לדרוש היסטוריה לינארית (שינוי בסיס/כיווץ לפני מיזוג) כך שהמסירה שאתם מיישמים היא המסירה שנוחתת.",
+        "slackDescription": "צרפו סביבת עבודה זו להתראות הרצה ב-Slack — בקשות אישור, החלות, שגיאות וסטיות. השאירו את הערוץ ריק וסביבת עבודה זו תישאר שקטה (אין הפצה כלל-פריסתית). דורש שאפליקציית Slack תופעל על ידי מנהל."
       }
     },
     "pulumi": {
@@ -3425,14 +3700,84 @@
         "applying": "מריץ pulumi up"
       },
       "runStatus": {
-        "planning": "מתכנן",
-        "planned": "תוכנן",
-        "applying": "מיישם",
-        "applied": "יושם"
+        "planning": "מבצע תצוגה מקדימה",
+        "planned": "בוצעה תצוגה מקדימה",
+        "applying": "מעדכן",
+        "applied": "עודכן"
       },
       "status": {
-        "planning": "מתכנן",
-        "applying": "מחיל"
+        "planning": "מבצע תצוגה מקדימה",
+        "applying": "מעדכן",
+        "planned": "בוצעה תצוגה מקדימה",
+        "applied": "עודכן"
+      },
+      "words": {
+        "actionConfirmFull": "אשר ועדכן",
+        "actionConfirmShort": "עדכן",
+        "activityApplied": "העדכון הושלם",
+        "activityConfirmed": "מתחיל עדכון",
+        "activityDiscarded": "התצוגה המקדימה נדחתה",
+        "activityPlannedComplete": "התצוגה המקדימה הושלמה",
+        "activityPlannedConfirmable": "ממתין לאישור ועדכון שלך",
+        "activityPlannedSpeculative": "תצוגה מקדימה ספקולטיבית הושלמה",
+        "aiPolicyOverrideConfirm": "לעקוף את שער מדיניות ה-AI ולאפשר להרצה זו לעדכן למרות הפסיקה?",
+        "aiSummaryDescription": "סיכום שינויים אוטומטי שנוצר על ידי LLM, הערכת סיכונים וניתוח כשלים בכל תוצאת שלב תצוגה מקדימה לסביבת עבודה זו.",
+        "aiSummaryTitle": "סיכום תצוגה מקדימה מבוסס AI",
+        "badgePlanOnly": "תצוגה מקדימה בלבד",
+        "bannerPlanOnlyCli": "זוהי הרצת <strong>תצוגה מקדימה בלבד</strong> שהופעלה מה-CLI על סביבת עבודה המחוברת ל-VCS. עדכון אינו זמין עבור קוד שהועלה מה-CLI — ניתן לעדכן רק קוד המנוהל ב-VCS.",
+        "changesPlanning": "מבצע תצוגה מקדימה…",
+        "configurationsEmpty": "אין עדיין גרסאות תצורה. הן מופיעות כאן ברגע שדחיפה ל-VCS מפעילה הרצה.",
+        "confirmApply": "לעדכן את ההרצה הזו? פעולה זו מבצעת את התצוגה המקדימה ומשנה את התשתית.",
+        "confirmDiscard": "לדחות את התצוגה המקדימה הזו?",
+        "costNoState": "עדיין אין עלות — מופיעה לאחר העדכון הראשון.",
+        "detailsPlanOnly": "תצוגה מקדימה בלבד",
+        "discardedHeading": "נדחתה — נדרשת תצוגה מקדימה מחדש",
+        "driftCheckNowTitle": "הוספת הרצת תצוגה-מקדימה-בלבד לתור לבדיקת סטייה",
+        "driftRemediate": "תצוגה מקדימה + עדכון",
+        "driftRemediateConfirm": "להוסיף הרצת תצוגה מקדימה + עדכון לתור עבור סביבת עבודה זו?",
+        "driftRemediateTitle": "הוספת הרצת תצוגה מקדימה + עדכון לתור כדי ליישר מחדש את התשתית עם התצורה",
+        "errorsQueuePlan": "הוספת התצוגה המקדימה לתור נכשלה",
+        "errorsQueuePlanStatus": "הוספת התצוגה המקדימה לתור נכשלה ({status})",
+        "fieldsAutoMerge": "מיזוג אוטומטי לאחר עדכון",
+        "formAutoApplyModeHint": "never: תמיד להמתין לאדם. always: לעדכן בכל תצוגה מקדימה מוצלחת. create / create/update: לעדכן רק מתוך תצוגות מקדימות המוגבלות לפעולות אלה — לעולם לא מחיקה או החלפה.",
+        "lockLockedDesc": "סביבת עבודה זו נעולה. לא ניתן להריץ תצוגות מקדימות או עדכונים.",
+        "logApplyEmpty": "אין עדיין פלט עדכון זמין.",
+        "logApplySkipped": "לא בוצע עדכון: בתצוגה המקדימה לא היו שינויים, כך שלא היה מה לעדכן.",
+        "logIndexSummary": "סיכום התצוגה המקדימה",
+        "logIndexTitle": "קפיצה לשינוי משאב או לסיכום התצוגה המקדימה",
+        "logPlanEmpty": "אין עדיין פלט תצוגה מקדימה זמין.",
+        "nonDefaultRefNote": "נבחר רפרנס שאינו ברירת מחדל — ההרצה תהיה תצוגה-מקדימה-בלבד",
+        "planExpiryDescription": "מחיקה אוטומטית של תצוגה מקדימה לא מאושרת כאשר היא ישנה מכך, כדי שתצוגה מקדימה מיושנת לא תבוצע על עולם שהשתנה. כבוי כברירת מחדל; אז יש להריץ את התצוגה המקדימה מחדש. (חל על הרצות בעלות יכולת עדכון בלבד.)",
+        "planExpiryTitle": "פקיעת תצוגה מקדימה",
+        "planOptions": "אפשרויות תצוגה מקדימה",
+        "planSummaryChatPlaceholder": "שאל שאלת המשך על התצוגה המקדימה הזו… (⌘/Ctrl + Enter לשליחה)",
+        "planSummaryHeading": "סיכום תצוגה מקדימה",
+        "planSummaryNoChangesTitle": "התצוגה המקדימה לא דיווחה על שינויים במשאבים",
+        "planSummaryRegenerateTooltip": "הרץ מחדש את סיכום ה-AI על אותם קלטי תצוגה מקדימה",
+        "planSummarySummarising": "מסכם את התצוגה המקדימה…",
+        "policyBlockedMessage": "הרצה זו <strong>חסומה על ידי מערך מדיניות חובה</strong>. היא לא תעדכן עד שהכשל ייפתר או שמנהל יעקוף אותו.",
+        "queueApplyConfirm": "להוסיף הרצת תצוגה מקדימה + עדכון לתור? זה עשוי לשנות תשתית.",
+        "queueApplyRefBlocked": "עדכון אינו זמין כאשר נבחרו ענף, תגית או קומיט — הרצות אלה הן תמיד תצוגה מקדימה בלבד",
+        "queueApplyTitle": "הוספת הרצת תצוגה מקדימה + עדכון לתור",
+        "queueDestroyTitle": "הוספת תצוגה מקדימה של השמדה לתור",
+        "queuePlan": "תצוגה מקדימה",
+        "queuePlanConfirm": "להוסיף תצוגה מקדימה ספקולטיבית לתור עבור סביבת עבודה זו?",
+        "queueRun": "תצוגה מקדימה + עדכון",
+        "replacePlaceholder": "e.g. urn:pulumi:dev::shop::aws:ec2/instance:Instance::web",
+        "runTriggersDescription": "כאשר סביבת עבודה מקור משלימה עדכון, סביבות עבודה במורד הזרם מקבלות הרצה חדשה בתור אוטומטית. עד 20 סביבות עבודה מקור לכל יעד.",
+        "tabApplyFull": "יומן עדכון",
+        "tabApplyLabel": "עדכון<log>יומן</log>",
+        "tabPlanFull": "יומן תצוגה מקדימה",
+        "tabPlanLabel": "תצוגה מקדימה<log>יומן</log>",
+        "targetPlaceholder": "e.g. urn:pulumi:dev::shop::aws:s3/bucket:Bucket::assets",
+        "timelineApplied": "עודכן",
+        "timelineApplyingStarted": "העדכון החל",
+        "timelinePlanComplete": "התצוגה המקדימה הושלמה",
+        "timelinePlanningStarted": "התצוגה המקדימה החלה",
+        "typePlanApply": "תצוגה מקדימה + עדכון",
+        "vcsWorkflowWarningRbac": "כל מי שיכול למזג את ה-PR יכול לעדכן. כללי הגנת ענף (סקירות נדרשות, בדיקות סטטוס, אישור בעל קוד) הופכים לשער. RBAC של תפקיד/תווית ב-Terrapod<em>אינו</em>חל על פעולות מונחות-תגובה במצב זה.",
+        "vcsWorkflowWarningRecommended": "<strong>מומלץ:</strong> לדרוש היסטוריה לינארית (שינוי בסיס/כיווץ לפני מיזוג) כך שהמסירה שממנה אתם מעדכנים היא המסירה שנוחתת.",
+        "slackDescription": "צרפו סביבת עבודה זו להתראות הרצה ב-Slack — בקשות אישור, עדכונים, שגיאות וסטיות. השאירו את הערוץ ריק וסביבת עבודה זו תישאר שקטה (אין הפצה כלל-פריסתית). דורש שאפליקציית Slack תופעל על ידי מנהל."
       }
     }
   },

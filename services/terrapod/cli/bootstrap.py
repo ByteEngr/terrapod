@@ -10,6 +10,10 @@ Reads configuration from environment variables:
   DATABASE_URL                       - PostgreSQL connection URL (from Helm)
   TERRAPOD_BOOTSTRAP_POOL_NAME      - Agent pool name (optional; creates pool + join token)
   TERRAPOD_BOOTSTRAP_POOL_TOKEN     - Raw join token value (optional; generated if pool name set)
+  TERRAPOD_BOOTSTRAP_POOL_TOKEN_MAX_USES    - Uses allowed on each bootstrap join token
+                                              (optional; default 1, `0` = unlimited)
+  TERRAPOD_BOOTSTRAP_POOL_TOKEN_TTL_SECONDS - Lifetime of each bootstrap join token in
+                                              seconds (optional; default 86400, `0` = no expiry)
   TERRAPOD_BOOTSTRAP_SAMPLE_WORKSPACE      - If set (truthy), seed a sample workspace + a
                                              completed plan-only run so an evaluation instance
                                              shows a populated UI on first login. Intended for the
@@ -24,6 +28,7 @@ import os
 import secrets
 import sys
 from dataclasses import dataclass
+from datetime import timedelta
 
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
@@ -100,6 +105,17 @@ async def bootstrap() -> None:
                 session.add(user)
                 logger.info("Created user: %s", admin_email)
                 if generated:
+                    # The one channel by which an operator receives the generated
+                    # initial password: printed once, to this Job's own log, with
+                    # the warning below. Accepted deliberately (2026-10-05) rather
+                    # than fixed — CodeQL #75
+                    # (`py/clear-text-logging-sensitive-data`) is dismissed as
+                    # won't-fix, not a false positive, because the alert is
+                    # factually right about what this does. Anyone with read
+                    # access to pod logs in this namespace can read it. Changing
+                    # that means writing the password to a Secret the operator
+                    # reads once, which is a product change; if that is ever made,
+                    # remove this comment and the dismissal with it.
                     print(f"Generated password: {admin_password}")  # noqa: T201 — intentional one-time credential output
                     print("IMPORTANT: Save this password now. It will not be shown again.")  # noqa: T201
 
@@ -127,10 +143,11 @@ async def bootstrap() -> None:
             # ── Agent pools (optional) ──────────────────────────────
             pools = _pools_from_environment()
             _reject_duplicate_tokens(pools)
+            limits = _token_limits_from_environment()
             failures: list[str] = []
             for spec in pools:
                 try:
-                    await _bootstrap_pool(session, spec)
+                    await _bootstrap_pool(session, spec, limits)
                 except Exception as exc:  # noqa: BLE001 — reported per pool below
                     # Every pool is attempted. Aborting on the first would hide
                     # the other failures, and an operator would then discover
@@ -175,6 +192,58 @@ class PoolSpec:
     #: printing N generated tokens into a Job's logs is not a way to hand out
     #: credentials.
     token: str | None
+
+
+#: Default bootstrap join-token limits (GHSA-93m3-v3h4-4qvw). A bootstrap token
+#: exists for one listener's first join, so one use and a day is what it is for.
+#: These are the chart's defaults too (`bootstrap.poolTokenMaxUses` /
+#: `poolTokenTTLSeconds` render into the Job env unconditionally), and the pair
+#: is duplicated here on purpose: the CLI is also run by hand and from a
+#: hand-written Job, where nothing supplies them.
+_DEFAULT_TOKEN_MAX_USES = 1
+_DEFAULT_TOKEN_TTL_SECONDS = 24 * 60 * 60
+
+
+@dataclass(frozen=True)
+class TokenLimits:
+    """How long a bootstrap join token lives, and how often it may be used.
+
+    `None` on either field is the explicit opt-out — unlimited uses, or no
+    expiry — matching `agent_pool_service.create_pool_token`, where `None` means
+    the same thing. The environment spells that as `0`, because an env var
+    cannot carry a null.
+    """
+
+    max_uses: int | None = _DEFAULT_TOKEN_MAX_USES
+    ttl_seconds: int | None = _DEFAULT_TOKEN_TTL_SECONDS
+
+
+def _token_limits_from_environment() -> TokenLimits:
+    """Read the limits, treating absent as the default and `0` as unlimited.
+
+    Absent and `0` must not collapse into one another. Absent means "nobody
+    said", which takes the secure default; `0` means an operator deliberately
+    asked for no limit, and silently tightening that to 1 use would break the
+    listener they set it for. The chart renders both vars unconditionally, so in
+    a Helm deployment the absent case only arises on an older chart.
+    """
+
+    def _read(name: str, default: int | None) -> int | None:
+        raw = os.environ.get(name, "").strip()
+        if not raw:
+            return default
+        try:
+            value = int(raw)
+        except ValueError as exc:
+            raise SystemExit(f"{name} is not a number: {raw!r}") from exc
+        if value < 0:
+            raise SystemExit(f"{name} must be 0 (no limit) or positive, not {value}")
+        return value or None
+
+    return TokenLimits(
+        max_uses=_read("TERRAPOD_BOOTSTRAP_POOL_TOKEN_MAX_USES", _DEFAULT_TOKEN_MAX_USES),
+        ttl_seconds=_read("TERRAPOD_BOOTSTRAP_POOL_TOKEN_TTL_SECONDS", _DEFAULT_TOKEN_TTL_SECONDS),
+    )
 
 
 def _pools_from_environment() -> list[PoolSpec]:
@@ -256,8 +325,16 @@ def _reject_duplicate_tokens(pools: list[PoolSpec]) -> None:
         seen[digest] = spec.name
 
 
-async def _bootstrap_pool(session: AsyncSession, spec: PoolSpec) -> None:
-    """Create an agent pool and join token if they don't already exist."""
+async def _bootstrap_pool(
+    session: AsyncSession, spec: PoolSpec, limits: TokenLimits | None = None
+) -> None:
+    """Create an agent pool and join token if they don't already exist.
+
+    `limits` defaults to the bounded pair rather than to "no limits", so a caller
+    that does not pass one gets the safe shape — the direction this has to fail
+    in, since the unbounded token is the thing being fixed.
+    """
+    limits = limits or TokenLimits()
     pool_name = spec.name
     raw_token = spec.token or ""
     token_generated = False
@@ -296,14 +373,49 @@ async def _bootstrap_pool(session: AsyncSession, spec: PoolSpec) -> None:
             )
         logger.info("Join token already exists for pool '%s', skipping", pool_name)
     else:
+        # Bounded by default: one use, twenty-four hours (GHSA-93m3-v3h4-4qvw).
+        #
+        # This used to carry no `expires_at` and no `max_uses`, and the comment
+        # here defended that on the grounds that a listener's certificate lives
+        # on an emptyDir, so a replaced pod has lost it and must re-join. **That
+        # was simply not true any more** -- `runner/identity.py` keeps the
+        # cert, key, CA and listener-id in a Secret in the listener's own
+        # namespace, which survives restarts, rolling updates and scale-out, and
+        # a pod with no Secret to read is the only one that touches the join
+        # token at all. So the reason the token was permanent had outlived
+        # itself, and the result was a credential that never expired and could
+        # be used any number of times to join a listener to the pool -- and a
+        # listener in the pool receives every variable the runs it claims
+        # resolve.
+        #
+        # Multiple replicas starting together are fine on a single use: the
+        # winner writes the Secret and every other pod adopts it, which
+        # `_bootstrap_via_join_token` already handles explicitly by re-reading
+        # the Secret when the API reports the token exhausted. What one use does
+        # not tolerate is the winner dying between joining and writing -- hence
+        # `bootstrap.poolTokenMaxUses`, and the API's own default of 2 for
+        # tokens created through it.
+        expires_at = (
+            now_utc() + timedelta(seconds=limits.ttl_seconds) if limits.ttl_seconds else None
+        )
         token = AgentPoolToken(
             pool_id=pool.id,
             token_hash=token_hash,
             description="Bootstrap token",
             created_by="bootstrap",
+            max_uses=limits.max_uses,
+            expires_at=expires_at,
         )
         session.add(token)
-        logger.info("Created join token for pool '%s'", pool_name)
+        # Say what the limits are. An operator who later finds the token
+        # rejected needs to know it was bounded on purpose, and from where —
+        # otherwise an expired token looks like a broken pool.
+        logger.info(
+            "Created join token for pool '%s' (max_uses=%s, expires_at=%s)",
+            pool_name,
+            "unlimited" if limits.max_uses is None else limits.max_uses,
+            "never" if expires_at is None else expires_at.isoformat(),
+        )
         if token_generated:
             print(f"Generated join token: {raw_token}")  # noqa: T201 — intentional one-time credential output
             print("IMPORTANT: Save this token now. It will not be shown again.")  # noqa: T201
@@ -347,7 +459,7 @@ async def _bootstrap_sample_workspace(
         name=sample_name,
         execution_mode="agent",
         execution_backend="tofu",
-        engine_version="1.12",
+        engine_version="1.13",
         owner_email=owner_email,
         labels={"env": "demo", "team": "platform"},
     )
@@ -375,7 +487,7 @@ async def _bootstrap_sample_workspace(
         created_by=owner_email,
         message="Example plan — welcome to Terrapod",
         execution_backend="tofu",
-        engine_version="1.12",
+        engine_version="1.13",
         has_changes=True,
         resource_additions=3,
         resource_changes=1,

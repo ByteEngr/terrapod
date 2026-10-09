@@ -1,4 +1,4 @@
-"""Local-mode Pulumi state: one state version per update (#1564).
+"""Pulumi state: one state version per update (#1564).
 
 A `pulumi` CLI logged in to Terrapod checkpoints the stack many times during an
 update. Each of those used to become a state version, so one long update
@@ -14,8 +14,16 @@ ends. "Ends" covers every way an update can end:
 
 A failed or abandoned update keeps its last checkpoint for the same reason a
 failed Terraform apply keeps its partial state: it is the only record of what
-the update created. That is the shape agent runs have had since #1576 — one
-state version per state-changing update — and it is why local mode now matches.
+the update created.
+
+One state version per state-changing update is the shape agent runs have always
+had — #1576 got it from a single upload at the end of the Job — and this is
+where they get it now. #1881 points a runner's CLI at the same service surface a
+laptop uses, so an agent run checkpoints through here like any other client, and
+holding until the update ends is what keeps an apply's state from being
+published before the apply has finished producing it. That property is load
+bearing rather than tidiness: another stack's `StackReference` resolves against
+Terrapod, so a reader must never see a half-applied state.
 
 The held checkpoint lives outside `state/{workspace_id}/` on purpose. Restore
 treats every object under that prefix as a state version, and a checkpoint is
@@ -50,13 +58,39 @@ def _encode(deployment: Any) -> tuple[bytes, str, str]:
     return payload, md5, hashlib.sha256(payload).hexdigest()
 
 
+def _resource_count(deployment: Any) -> int | None:
+    """How many resources this deployment records (#1568).
+
+    Counted here because this is the one place a deployment is already parsed
+    and about to be written — the alternative is decrypting every stack's whole
+    state later just to print a number in `pulumi stack ls`.
+
+    None for anything that is not a deployment with a resource list, so an
+    unknown count stays distinguishable from a counted zero.
+    """
+    if not isinstance(deployment, dict):
+        return None
+    resources = deployment.get("resources")
+    return len(resources) if isinstance(resources, list) else None
+
+
 async def write_deployment(
-    db: AsyncSession, ws: Workspace, deployment: Any, *, created_by: str | None
+    db: AsyncSession,
+    ws: Workspace,
+    deployment: Any,
+    *,
+    created_by: str | None,
+    run_id: uuid.UUID | None = None,
 ) -> StateVersion:
     """Store a deployment as the stack's next state version, and commit.
 
     Used for a promoted checkpoint and for `pulumi stack import`. The digests
     and size are over the stored plaintext, as they are for Terraform state.
+
+    `run_id` attributes the version to the run that produced it, as the
+    Terraform upload paths already do (#1563) — without it a Pulumi state
+    version has no run, and the run page has nothing to link to. It stays
+    optional because `pulumi stack import` has no run behind it.
     """
     from terrapod.crypto.state import encrypt_state_bytes
     from terrapod.storage import get_storage
@@ -83,6 +117,8 @@ async def write_deployment(
         sha256=sha256,
         state_size=len(payload),
         created_by=created_by,
+        run_id=run_id,
+        resource_count=_resource_count(deployment),
     )
     db.add(sv)
     await db.flush()
@@ -122,7 +158,7 @@ async def hold_checkpoint(
 
 
 async def promote_checkpoint(
-    db: AsyncSession, ws: Workspace, update_id: str
+    db: AsyncSession, ws: Workspace, update_id: str, *, run_id: uuid.UUID | None = None
 ) -> StateVersion | None:
     """Turn an update's last checkpoint into a state version.
 
@@ -144,7 +180,11 @@ async def promote_checkpoint(
         return None
     envelope = await asyncio.to_thread(json.loads, await decrypt_state_bytes(raw))
     sv = await write_deployment(
-        db, ws, envelope.get("deployment"), created_by=envelope.get("created_by")
+        db,
+        ws,
+        envelope.get("deployment"),
+        created_by=envelope.get("created_by"),
+        run_id=run_id,
     )
     try:
         await storage.delete(key)

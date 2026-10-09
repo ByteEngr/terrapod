@@ -67,6 +67,27 @@ through owner, labels and roles exactly as modules and providers are. A
 repository is created by the first push that is allowed to make it, and its
 creator becomes the owner.
 
+**An upload session belongs to its repository.** A chunked push is a sequence of
+calls carrying a session id, and that id is not a secret — it travels in the
+`Location` header of every chunk response. So each session call checks the
+session against the repository in the path, and a mismatch answers **404
+`BLOB_UPLOAD_UNKNOWN`**, exactly as an id that never existed would. Before 2.0
+(GHSA-mhhr-896g-4p33) the handlers authorised the path and then loaded the
+session by id alone, so a caller with write anywhere could append to, cancel, or
+complete someone else's in-progress push — and completing it wrote the blob
+wherever *their* path said.
+
+**A pushed repository cannot be named after a registry.** The first path
+component of a reference names a registry host when it contains a dot, or is
+`localhost` — Docker's own rule, and the one Terrapod's mirror naming below
+relies on. Pushing under such a name is refused with **403 `DENIED`** unless that
+host is a configured upstream, in which case it is a mirror and the push is to
+the mirror. The reason is the lookup order: the database is consulted before the
+upstream list, deliberately, so a repository someone pushed is never overwritten
+by upstream content — which means a locally pushed `docker.io/library/nginx`
+would **permanently** shadow a `docker.io` upstream added later. Repositories
+that already exist are unaffected; only creation is refused.
+
 ## Pull-through mirroring
 
 A repository whose first path component names a configured upstream is a mirror:
@@ -160,11 +181,10 @@ content you put in it: nothing here expires a pushed image because it has gone
 quiet, any more than a registry you pay for would. Reclaiming that space is a
 deliberate act, not a background sweep.
 
-Removing a pushed image is **not yet possible** — there is no delete API — so a
-pushed image is currently permanent. That is the honest position and it is
-tracked in [#1423](https://github.com/mattrobinsonsre/terrapod/issues/1423); the
-collector below is the half that already exists, and deletion is the half that
-will use it.
+Removing one is a delete against the registry's own API —
+`DELETE /v2/{name}/manifests/{reference}` for a tag or a manifest digest, and
+`DELETE /v2/{name}/blobs/{digest}` for a blob — which is the spec's own shape, so
+the tools you already have speak it.
 
 Deleting a manifest reclaims nothing on its own, incidentally, because its layers
 are usually shared with other images. That is why the two are separate: deletion
@@ -325,26 +345,26 @@ outlives its subject deliberately, because destroying the record that an image w
 signed is not something a delete should do quietly.
 
 
-## Engine gating
+## Turning the registry off
 
 This registry exists to serve Ansible execution environments. If you do not run
-Ansible, set `api.config.engines.ansible.enabled: false` and it is not deployed
-at all — the `/v2/` routes are never registered, the collector and upload reaper
-never scheduled. Anything already pushed or mirrored stays in storage and returns
-if you re-enable it.
+Ansible, set `api.config.registry.oci.enabled: false` and it is not deployed at
+all — the `/v2/` routes are never registered, the collector and upload reaper
+never scheduled, and nothing appears in the UI or the OpenAPI schema.
 
-The engine switches sit **above** the per-capability flags in `registry`. A
-capability serves only when its own flag is on *and* an engine that needs it is
-enabled, so `registry.oci.enabled: true` does not bring the registry back once
-Ansible is off. That is deliberate: switching an engine off should be one
-decision, not a hunt for every capability that belongs to it.
+That flag is the only thing deciding it. There is **no engine on/off switch above
+it**: Terrapod offers every engine it can run, and a deployment that does not run
+Ansible simply never pushes an execution environment.
 
-| Capability | Needs |
-|---|---|
-| Container registry (`/v2/`) | `engines.ansible` |
-| PyPI proxy | `engines.ansible` **or** `engines.pulumi` |
-| npm proxy | `engines.pulumi` |
+**Never destructive.** Anything already pushed or mirrored stays in storage and
+returns untouched if you turn the registry on again.
 
-Terraform and OpenTofu's own caches — the provider network mirror, the engine
-binary cache, the module registry — are not gateable and are unaffected by any of
-this.
+Off means *absent*, not present-and-refusing. A surface that 404s every request
+is still a surface — it sits in the schema, carries its dependencies, and reads
+to anyone auditing the deployment as something you do.
+
+The package proxies have their own flags, documented in
+[package-cache.md](package-cache.md#turning-a-proxy-off). Terraform and
+OpenTofu's own caches — the provider network mirror, the engine binary cache, the
+module registry — have no such switch: they are what Terrapod is, not an optional
+engine's supporting cast.

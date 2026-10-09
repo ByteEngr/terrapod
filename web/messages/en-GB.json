@@ -18,9 +18,6 @@
     }
   },
   "planSummary": {
-    "pending": {
-      "summarisingPlan": "Summarising plan…"
-    },
     "errored": {
       "heading": "Summariser failed"
     }
@@ -93,5 +90,17 @@
   },
   "adminVault": {
     "notInitialized": "Not initialised"
+  },
+  "phases": {
+    "terraform": {
+      "words": {
+        "planSummarySummarising": "Summarising plan…"
+      }
+    },
+    "pulumi": {
+      "words": {
+        "planSummarySummarising": "Summarising preview…"
+      }
+    }
   }
 }

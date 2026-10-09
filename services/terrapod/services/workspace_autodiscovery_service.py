@@ -391,8 +391,10 @@ async def find_or_autocreate_workspace(
         execution_mode=rule.execution_mode,
         execution_backend=rule.execution_backend,
         engine_version=rule.engine_version,
+        oidc_audiences=dict(rule.oidc_audiences or {}),
         resource_cpu=rule.resource_cpu,
         parallelism=rule.parallelism,
+        ansible_version=rule.ansible_version,
         resource_memory=rule.resource_memory,
         auto_apply=rule.auto_apply,
         # Inherit the rule's conditional mode too (#1274) — carrying only
@@ -428,6 +430,7 @@ async def find_or_autocreate_workspace(
         plan_expiry_seconds=getattr(rule, "plan_expiry_seconds", None),
         slack_channel=getattr(rule, "slack_channel", ""),
         debug_mode=getattr(rule, "debug_mode", False),
+        allow_fork_pr_plans=getattr(rule, "allow_fork_pr_plans", False),
         vcs_connection_id=rule.vcs_connection_id,
         vcs_repo_url=rule.repo_url,
         vcs_branch=rule.branch,

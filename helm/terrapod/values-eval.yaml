@@ -43,6 +43,13 @@ api:
   config:
     # Browser-facing URL via `kubectl port-forward svc/terrapod-web 8080:3000`.
     external_url: "http://localhost:8080"
+    # No engine on/off switch exists any more (#1986), so there is nothing for an
+    # eval stack to state: it offers every engine Terrapod can run, which is what
+    # an evaluator should see. This block used to resolve a contradiction in the
+    # plan about whether eval hid the newer engines; the question is now moot.
+    #
+    # It still costs a Terraform evaluator nothing — an engine's CLI is fetched
+    # only when a run of that engine happens, so nothing extra is deployed.
     auth:
       local_enabled: true
       # Don't expire CLI/automation API tokens after 7 idle days without an

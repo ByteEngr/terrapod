@@ -14,10 +14,14 @@ Owns the whole life of a single Terrapod run inside a Job pod:
   10. Build var-file / target / replace argv pieces
   11. Run init (FATAL on non-zero)
   12. Backend backstop (FATAL if backend != local)
-  13. Plan phase only: lock-file h1 injection + lock-file upload
-  14. Plan: run plan; on success run show -json + OPA + plan-result
+  13. Per-workspace cloud identity: discover the provider configurations
+      this root module uses and mint one OIDC token each (FATAL if the
+      workspace mints and a token cannot be had). After init because
+      discovery asks the engine, and after any Terragrunt relocation
+  14. Plan phase only: lock-file h1 injection + lock-file upload
+  15. Plan: run plan; on success run show -json + OPA + plan-result
       + plan-file + plan-json upload
-  15. Apply: download plan file (if exists); run apply; upload state
+  16. Apply: download plan file (if exists); run apply; upload state
       (FATAL on state upload failure); apply-result
 
 EXIT trap equivalent: a try/finally around the entire body uploads
@@ -41,6 +45,7 @@ import structlog
 from terrapod.runner import debug_linger, lock_extender, plan_artifacts
 from terrapod.runner.phases import (
     backend_backstop,
+    cloud_identity,
     cost,
     discovery,
     execution_hooks,
@@ -51,6 +56,7 @@ from terrapod.runner.phases import (
     mirror_config,
     opa,
     plan_apply,
+    provider_credentials,
     resource_profile,
     security_scan,
     terragrunt,
@@ -661,9 +667,26 @@ def _run_body(cfg: RunnerConfig, work_dir: Path) -> int:
     cwd = working_dir.resolve_and_chdir(strip_dir, cfg.working_dir)
     log.info("chdir", cwd=str(cwd))
 
-    # The engine decides three things below -- this file, the state download
-    # and the plan-lock reuse -- so it is read once, here, rather than at each.
-    is_pulumi = os.environ.get("TP_ENGINE", "") == "pulumi"
+    # The engine decides four things below -- this file, the state download, the
+    # plan-lock reuse and the provider-credential export -- so it is read once,
+    # here, rather than at each.
+    engine = os.environ.get("TP_ENGINE", "")
+    is_pulumi = engine == "pulumi"
+
+    # 4a. Let the Terrapod provider authenticate from inside the run, so a
+    # workspace can declare its inventory with `terrapod_inventory_item` and an
+    # empty `provider "terrapod" {}` block (#1968). Exported here rather than in
+    # the Job spec because only `TP_`-prefixed names are reserved, so a
+    # workspace variable could otherwise redirect the provider's host while the
+    # spec still supplied the real token -- see the module docstring.
+    #
+    # It sits after the engine is known rather than beside the mirror config,
+    # because the export is engine-gated: `exec_subprocess` scrubs the `TP_`
+    # prefix and not these names, so the token does reach every provider plugin
+    # the configuration loads, and an engine that cannot use it should not be
+    # handed it.
+    for k, v in provider_credentials.export_env(cfg, env=os.environ, engine=engine).items():
+        os.environ[k] = v
 
     # 4b. Render terrapod.auto.tfvars from the mounted vars Secret (if any),
     # BEFORE init so it's part of the post-init baseline (the plan-artifacts
@@ -671,14 +694,19 @@ def _run_body(cfg: RunnerConfig, work_dir: Path) -> int:
     # contents terragrunt copies into its cache. The file is absent when the
     # workspace has no terraform variables.
     #
-    # Terraform's alone, for the same reason as the state download at step 5 --
-    # and more sharply (#1869). Nothing in a Pulumi run reads a tfvars file, so
-    # writing one only drops the workspace's terraform variables into the
-    # directory the user's program runs in. `runs.py` applies no engine filter
-    # when it assembles `terraform-vars`, and that delivery is deliberately
-    # uniform -- sensitive and not -- because for Terraform the file IS the
-    # delivery mechanism. For Pulumi it is just plaintext secrets on disk that
-    # nothing consumes. Pulumi config arrives as `pulumi_config` (#1565).
+    # THIS is where the one delivered list becomes an engine's own delivery
+    # (#1898). The blob holds the workspace's native variables for every engine
+    # -- one role, one list -- and each engine takes it the way its own users
+    # deliver parameters: Terraform renders a tfvars file here, and Pulumi runs
+    # `pulumi config set` further down. So the dispatch is on the run's engine,
+    # in one place, rather than on a category the API filtered by.
+    #
+    # Rendering the file on a Pulumi run would be worse than useless (#1869):
+    # nothing reads it, so it only drops the workspace's values -- sensitive
+    # ones included -- into the directory the user's program runs in. The
+    # delivery is deliberately uniform, sensitive and not, because for Terraform
+    # the file IS the mechanism; that is exactly why it must not be written for
+    # an engine that has another one.
     if not is_pulumi and _VARS_FILE.exists():
         try:
             import json as _json
@@ -708,11 +736,11 @@ def _run_body(cfg: RunnerConfig, work_dir: Path) -> int:
         log.warning("git module auth setup skipped", error=str(exc))
 
     # 5. State download — AFTER chdir so terraform.tfstate lands beside
-    # the user's .tf files. Terraform's alone, like step 6: a Pulumi run fetches
-    # its stack itself, in the shape its CLI imports (#1576). Fetched here, a
-    # Pulumi workspace's state would be the stored deployment with its secrets
-    # still sealed, dropped into the working directory as terraform.tfstate for
-    # nothing to read.
+    # the user's .tf files. Terraform's alone, like step 6: a Pulumi run never
+    # holds its state as a file at all (#1881). The CLI reads and writes the
+    # stack through Terrapod's Pulumi service backend, so there is nothing to
+    # fetch here; a state file dropped into the working directory would be the
+    # stored deployment, secrets still sealed, for nothing to read.
     if not is_pulumi:
         state_present = download_state(cfg, strip_dir=cwd)
         if state_present:
@@ -748,10 +776,9 @@ def _run_body(cfg: RunnerConfig, work_dir: Path) -> int:
     # tarball, the chdir into the working directory, private-git-module auth, and
     # the operator's `pre_init` hooks — all engine-neutral. What it skips is
     # Terraform's alone: var-file argv, `init`, terragrunt relocation and the
-    # backstop. Pulumi's state is handled inside its own phase: a file backend in
-    # this Job, seeded from the stack's deployment and handed back after an
-    # update (#1576), so there is no terraform.tfstate to place and no backend
-    # block to neutralise.
+    # backstop. Pulumi's state is handled inside its own phase, which points the
+    # CLI at Terrapod's Pulumi service backend (#1881) — so there is no
+    # terraform.tfstate to place and no backend block to neutralise.
     if os.environ.get("TP_ENGINE", "") == "pulumi":
         return _run_pulumi_phase(cfg, child_grace=_child_grace_seconds(cfg))
 
@@ -803,6 +830,33 @@ def _run_body(cfg: RunnerConfig, work_dir: Path) -> int:
         log.error("backend backstop failed", err=str(exc))
         return 1
 
+    # 10b. Per-workspace cloud identity (#1901): mint this run's OIDC tokens and
+    # write one per provider configuration where the operator's provider blocks
+    # expect them.
+    #
+    # AFTER init, unlike the git auth at 4b, and the position is load-bearing
+    # twice over. Discovering which provider configurations this root module
+    # actually uses means asking the engine, which cannot answer before the
+    # providers are installed; and with Terragrunt step 9b moves the working
+    # directory after init, so `cwd` here is the only one that holds the
+    # configuration the run will execute. It is also after the backend backstop
+    # deliberately: a run that is about to be failed for a remote backend should
+    # not mint credentials first.
+    #
+    # The cost of the position is that a pre_init hook can no longer see the
+    # tokens. A hook that talks to a cloud belongs at pre_plan or pre_apply,
+    # both of which run after this point.
+    #
+    # `{}` when this workspace mints nothing, which is most of them: the run then
+    # authenticates with the agent pool's own identity exactly as before, and
+    # does not invoke the engine for discovery at all. Anything else propagates
+    # — there is deliberately no warn-and-continue here, because falling through
+    # does not mean no credentials, it means the POOL's, broader than the ones
+    # this workspace was moved off, so the run would succeed against real
+    # infrastructure under permissions nobody chose.
+    for _k, _v in cloud_identity.run(cfg, binary=binary, cwd=cwd).items():
+        os.environ[_k] = _v
+
     # 11. Phase-specific execution. Terraform only — Pulumi returned at 7b.
     if cfg.phase == "plan":
         return _run_plan_phase(
@@ -825,12 +879,47 @@ def _run_body(cfg: RunnerConfig, work_dir: Path) -> int:
 
 
 def _run_pulumi_phase(cfg, *, child_grace: int) -> int:  # type: ignore[no-untyped-def]
+    """Run the phase with a loopback plugin proxy alive for the whole of it.
+
+    The proxy is started here rather than beside the env var it serves because
+    plugins download during `preview` and `up` themselves, not in a dependency
+    step — and because this function returns from a dozen places, so only a
+    `finally` around all of them can promise the thread is stopped.
+
+    One per Job, which is one per phase: preview and update run in different
+    pods and neither can see the other's.
+    """
+    from terrapod.runner.phases import pulumi_exec
+
+    proxy = None
+    if cfg.api_url:
+        proxy = pulumi_exec.CacheProxy(cfg.api_url, cfg.auth_token, "pulumi")
+        proxy.start()
+    try:
+        return _run_pulumi_phase_inner(
+            cfg, child_grace=child_grace, plugin_proxy_port=proxy.port if proxy else 0
+        )
+    finally:
+        if proxy is not None:
+            proxy.stop()
+
+
+def _run_pulumi_phase_inner(  # type: ignore[no-untyped-def]
+    cfg, *, child_grace: int, plugin_proxy_port: int
+) -> int:
     """Run one Pulumi phase.
 
-    `preview` then `up`, against a file backend in this Job (#1576): the stack's
-    deployment is imported at the start and, after an update, exported and handed
-    back once — the way a Terraform run downloads `terraform.tfstate` and uploads
-    it after apply. Pulumi never uses Terrapod as a live backend from here.
+    `preview` then `up`, against Terrapod's own Pulumi service backend (#1881).
+    The Job holds no backend of its own: the CLI is pointed at the API and drives
+    the ordinary update lifecycle against it — begin, checkpoint, complete — so
+    nothing here imports a deployment at the start or hands one back at the end.
+
+    That does not publish an apply's state before the apply has finished
+    producing it. A checkpoint is held against its update and becomes a state
+    version only when the update completes (#1564), and a preview's lease cannot
+    checkpoint at all (#1550) — state written continuously and published once,
+    which is the property a Terraform run gets from holding `terraform.tfstate`
+    in the Job and uploading it after apply.
 
     With the workspace's opt-in (#1553), `preview --save-plan` then `up --plan`
     makes an approved preview and its update the same decision, exactly as
@@ -842,7 +931,7 @@ def _run_pulumi_phase(cfg, *, child_grace: int) -> int:  # type: ignore[no-untyp
     import structlog
 
     from terrapod.runner import exec_subprocess
-    from terrapod.runner.phases import platform_tool, pulumi_deps, pulumi_exec
+    from terrapod.runner.phases import platform_tool, pulumi_config, pulumi_deps, pulumi_exec
 
     log = structlog.get_logger("runner.job_entrypoint")
     plan_file = os.environ.get("TP_PULUMI_PLAN_FILE", "/workspace/plan.json")
@@ -855,14 +944,24 @@ def _run_pulumi_phase(cfg, *, child_grace: int) -> int:  # type: ignore[no-untyp
     if not bind_plan:
         plan_file = ""
 
-    # The CLI reads its plugin-download override from the environment, and
-    # `exec_subprocess.run` inherits this process's, so it is set here rather
-    # than passed. The backend is set the same way, by `prepare_local_stack`.
-    os.environ.update(pulumi_exec.plugin_override_env(cfg.api_url, cfg.auth_token))
+    # The CLI reads both its backend and its plugin-download override from the
+    # environment, and `exec_subprocess.run` inherits this process's, so they are
+    # set here rather than passed.
+    #
+    # AFTER the workspace's own variables, deliberately: those are already in
+    # this environment, and agent mode owns the backend (#1881). A variable named
+    # `PULUMI_BACKEND_URL` must not be able to send a run's state somewhere
+    # Terrapod does not know about — the same line the Terraform path holds with
+    # its backend override file. The one thing set later is the preview branch's
+    # `PULUMI_DEBUG_COMMANDS`, which the CLI reads for nothing but whether
+    # `--event-log` is a flag it recognises.
+    os.environ.update(
+        pulumi_exec.plugin_override_env(cfg.api_url, cfg.auth_token, plugin_proxy_port)
+    )
+    os.environ.update(pulumi_exec.service_backend_env(cfg.api_url, cfg.auth_token))
 
     # Decide what to run before fetching what runs it, so an unrecognised phase
     # costs nothing.
-    keys = None
     if phase in ("preview", "plan"):
         is_update = False
         # Read back below into the run's plan result and plan artifact (#1560).
@@ -890,15 +989,11 @@ def _run_pulumi_phase(cfg, *, child_grace: int) -> int:  # type: ignore[no-untyp
                 "longer constrained to the operations the approved preview showed",
             )
             plan_file = ""
-        if plan_file:
-            # The plan's secrets are sealed under the preview's stack key, which
-            # travels with it; this stack must be made with the same one.
-            keys = pulumi_exec.unbundle_plan(Path(plan_file))
-            if keys is None:
-                log.warning(
-                    "pulumi plan carries no stack key; a plan holding secrets will "
-                    "not open under this run's stack"
-                )
+        # No key travels with the plan any more (#1881). It used to, because the
+        # preview's stack lived in its own Pod under its own passphrase and the
+        # update's fresh key could not open what it had sealed. Both phases now
+        # speak to one backend with one secrets provider, so a saved plan opens
+        # where it is read.
         argv = pulumi_exec.update_argv(plan_file, cfg)
         log_file = str(_APPLY_LOG)
     else:
@@ -930,9 +1025,9 @@ def _run_pulumi_phase(cfg, *, child_grace: int) -> int:  # type: ignore[no-untyp
     # CLI tarball -- is a shim that shells out to a `node` the image does not
     # carry. Both are fetched here.
     #
-    # Before `prepare_local_stack`, not after: that runs the CLI against the
-    # program, and a stack command on a program whose language host cannot start
-    # fails with something far less legible than "npm install failed".
+    # Before `select_stack`, not after: that runs the CLI against the program,
+    # and a stack command on a program whose language host cannot start fails
+    # with something far less legible than "npm install failed".
     #
     # This runs in BOTH phases because preview and update are different pods, so
     # `node_modules/` does not survive between them.
@@ -943,12 +1038,44 @@ def _run_pulumi_phase(cfg, *, child_grace: int) -> int:  # type: ignore[no-untyp
         return exc.exit_code
 
     try:
-        stack = pulumi_exec.prepare_local_stack(
-            cfg, binary, keys=keys, child_grace=float(child_grace)
-        )
-    except pulumi_exec.LocalStackError as exc:
-        log.error("could not prepare the run's stack", error=str(exc))
+        stack_ref = pulumi_exec.select_stack(binary, child_grace=float(child_grace))
+    except pulumi_exec.StackError as exc:
+        log.error("could not select the run's stack", error=str(exc))
         return 1
+
+    # The workspace's Pulumi config, set on the stack before anything reads it
+    # (#1565). After select, because it writes to the selected stack; before the
+    # hooks, so a pre_plan hook inspecting `pulumi config` sees what the run will
+    # actually use rather than only what the repository committed.
+    try:
+        pulumi_config.apply(binary, stack=stack_ref)
+    except pulumi_config.ConfigError as exc:
+        # Fatal, deliberately: a program running without config the operator set
+        # is doing something nobody asked for, and `config.get` with a default
+        # would take the default without a word. See the phase's docstring.
+        log.error("could not set the workspace's Pulumi config", error=str(exc))
+        return 1
+
+    # Per-workspace cloud identity (#2006), in the same relative slot a Terraform
+    # run uses: after the engine can understand the program (deps, stack, config)
+    # and BEFORE the hooks, so a pre_plan or pre_apply hook that talks to a cloud
+    # sees the tokens exactly as it does on a Terraform run.
+    #
+    # `discover_providers=False`: a Pulumi program is arbitrary code whose
+    # provider instances are built at runtime, so there is nothing to enumerate
+    # before `preview` -- and `preview` is what needs the credentials. The API
+    # reads the engine off the workspace row and mints the workspace's whole
+    # resolved mapping.
+    #
+    # Fatal when it raises, like the Terraform path: falling through would not
+    # mean "no cloud credentials", it would mean the agent POOL's, which are
+    # broader than the ones this workspace was deliberately moved off (#1442).
+    # Propagates, exactly as on the Terraform path: `main` names this failure
+    # rather than letting it read as a crash.
+    for _k, _v in cloud_identity.run(
+        cfg, binary=binary, cwd=Path.cwd(), discover_providers=False
+    ).items():
+        os.environ[_k] = _v
 
     # The same execution hooks a Terraform run gets, at the same points (#1559).
     # A workspace's hooks are a property of the workspace, not of the engine it
@@ -999,20 +1126,22 @@ def _run_pulumi_phase(cfg, *, child_grace: int) -> int:  # type: ignore[no-untyp
         try:
             from terrapod.runner.phases import uploads
 
-            pulumi_exec.bundle_plan(Path(plan_file), stack.keys)
+            # Uploaded as it stands. It used to be wrapped with the key it was
+            # sealed under, because the update Pod's stack had a different one;
+            # one backend, one secrets provider, nothing to carry (#1881).
             uploads.upload_plan_file(cfg, Path(plan_file))
         except Exception as exc:  # noqa: BLE001
             log.warning("pulumi plan-file upload raised (non-fatal)", err=str(exc))
 
-    if is_update:
-        rc = _hand_back_pulumi_state(
-            cfg, binary, stack, exit_code=result.exit_code, child_grace=float(child_grace)
-        )
-        # Only after a successful update and a successful hand-back: a hook that
-        # runs after a failed update would be reporting on something that did
-        # not happen, and one that runs before the state is stored could see a
-        # stack Terrapod has not recorded yet.
-        return _run_pulumi_hook("post_apply") if rc == 0 else rc
+    if is_update and result.exit_code == 0:
+        # There is no state to hand back (#1881). The CLI checkpointed to Terrapod
+        # as it went and completed the update, which is what turns the last
+        # checkpoint into the workspace's one new state version (#1564) — so by
+        # the time this line runs, the state is already recorded.
+        #
+        # Only after a successful update, as before: a hook that runs after a
+        # failed one would be reporting on something that did not happen.
+        return _run_pulumi_hook("post_apply")
     return result.exit_code
 
 
@@ -1056,6 +1185,10 @@ def _finish_pulumi_preview(cfg, event_log: Path) -> int:  # type: ignore[no-unty
     would have the gate decide against evaluations that have not arrived --
     which, failing closed, holds every apply. That is the shape of the bug
     this issue exists to fix, so it must not be reintroduced by reordering.
+
+    The cost estimate (#1569) comes last, after the plan-result, which is where
+    the Terraform path puts it too: nothing gates on a price, and it downloads a
+    pricesheet, so ahead of step 3 it would delay every apply for no one.
     """
     import structlog
 
@@ -1111,6 +1244,14 @@ def _finish_pulumi_preview(cfg, event_log: Path) -> int:  # type: ignore[no-unty
         uploads.post_plan_result(cfg, has_changes=bool(digest["has_changes"]))
     except Exception as exc:  # noqa: BLE001
         log.warning("plan-result raised (non-fatal)", err=str(exc))
+
+    # Cost estimate (#1569). AFTER plan-result, exactly where the Terraform path
+    # puts it: it is advisory add-on work, and it downloads a pricesheet, so
+    # running it earlier would hold the post-plan gate behind a network fetch for
+    # a number nothing gates on. Best-effort throughout — a run is never failed
+    # by a price.
+    _pulumi_cost(cfg, event_log)
+
     log.info(
         "preview reported",
         has_changes=digest["has_changes"],
@@ -1119,45 +1260,29 @@ def _finish_pulumi_preview(cfg, event_log: Path) -> int:  # type: ignore[no-unty
     return 0
 
 
-def _hand_back_pulumi_state(  # type: ignore[no-untyped-def]
-    cfg, binary: str, stack, *, exit_code: int, child_grace: float
-) -> int:
-    """After an update, export the run's stack and hand it back — once.
+def _pulumi_cost(cfg, event_log: Path) -> None:  # type: ignore[no-untyped-def]
+    """Price the preview and upload the estimate. Never raises.
 
-    Whether or not the update succeeded, as Terraform's state upload is: a failed
-    `up` can still have created resources, and leaving them out of the stored
-    state would orphan them. An update that left the stack as it found it hands
-    back nothing, so a no-op run adds no state version.
-
-    Failing to export or upload is fatal and flags the workspace state-diverged,
-    exactly as a failed Terraform state upload does: infrastructure may have
-    changed and Terrapod no longer knows how.
+    The whole path is wrapped rather than each step: cost is advisory, so the
+    only correct response to any failure here — a log that will not translate,
+    an unreachable pricesheet, an engine that raised — is to say nothing and let
+    the run finish. `estimate_from_doc` already returns None rather than raising
+    for its own failures; this catches the translation's.
     """
     import structlog
 
-    from terrapod.runner.phases import pulumi_exec, uploads
+    from terrapod.runner.phases import cost, pulumi_preview, uploads
 
     log = structlog.get_logger("runner.job_entrypoint")
     try:
-        path, after = pulumi_exec.export_local_stack(binary, stack, child_grace=child_grace)
-    except pulumi_exec.LocalStackError as exc:
-        log.error("FATAL: could not read the stack back after the update", error=str(exc))
-        uploads.signal_state_diverged(cfg)
-        return exit_code or 1
-
-    try:
-        if not pulumi_exec.deployment_changed(stack.deployment, after):
-            log.info("the update left the stack unchanged; nothing to hand back")
-            return exit_code
-        if not cfg.has_api:
-            return exit_code
-        if not uploads.upload_pulumi_deployment(cfg, path, base_serial=stack.base_serial):
-            uploads.signal_state_diverged(cfg)
-            return exit_code or 1
-        log.info("pulumi state handed back", serial=stack.base_serial + 1)
-        return exit_code
-    finally:
-        path.unlink(missing_ok=True)
+        tf_json = pulumi_preview.build_cost_input(event_log)
+        if tf_json is None:
+            return
+        estimate = cost.estimate_from_doc(cfg, tf_json)
+        if estimate is not None:
+            uploads.upload_cost_estimate(cfg, estimate)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("cost estimate raised (non-fatal)", err=str(exc))
 
 
 def _fetch_pulumi_plan(cfg, plan_file: str) -> bool:  # type: ignore[no-untyped-def]
@@ -1214,6 +1339,14 @@ def main(argv: list[str] | None = None) -> int:
             # A known failure that explains itself (#1600): log it as one, not
             # as a crash whose traceback buries the cause.
             log.error("configuration archive unusable", err=str(exc))
+            exit_code = 1
+        except cloud_identity.CloudIdentityUnavailable as exc:
+            # Same reason as above. This one carries the operator's whole
+            # explanation in its message -- which identity could not be had and
+            # why continuing would have run under the agent pool's broader one --
+            # and `log.exception` would bury it under a traceback of our own call
+            # stack, which tells the operator nothing they can act on.
+            log.error("cloud identity unavailable", err=str(exc))
             exit_code = 1
         except SystemExit as exc:
             exit_code = int(exc.code) if isinstance(exc.code, int) else 1

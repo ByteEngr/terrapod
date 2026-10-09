@@ -100,11 +100,11 @@ Every tool is namespaced `terrapod_*` and carries a safety annotation
 
 | Tool | What it does |
 |---|---|
-| `terrapod_workspace_list` | List workspaces with status, execution mode, lock, drift, labels. |
+| `terrapod_workspace_list` | List workspaces with status, execution mode, lock, drift, labels. Takes an `engine` filter — narrow with it before anything that assumes one engine. |
 | `terrapod_workspace_get` | One workspace by id or name — full config + status. |
 | `terrapod_run_list` | Recent runs for a workspace (status, plan-only/destroy, has-changes). |
 | `terrapod_run_get` | One run's full status incl. Terrapod-native detail (has-changes, drift, resource profile, permitted actions). |
-| `terrapod_run_plan_json` | What a plan will do, from its structured JSON plan (`tofu show -json`). The default `view: changes` is compact, usually a few KB: tofu's add/change/destroy counts plus each resource the plan acts on, with only the attributes that change, sensitive values redacted. Narrow it with `address` (prefix or glob) and `actions`; page with `start`/`limit`. `view: full` returns the raw document, paged by `offset` once it is larger than `max_bytes` — often megabytes, and unredacted. |
+| `terrapod_run_plan_json` | What a plan will do, from its structured JSON plan (`tofu show -json`). The default `view: changes` is compact, usually a few KB: tofu's add/change/destroy counts plus each resource the plan acts on, with only the attributes that change, sensitive values redacted. Narrow it with `address` (prefix or glob) and `actions`; page with `start`/`limit`. `view: full` returns the whole document, paged by `offset` once it is larger than `max_bytes` — often megabytes; sensitive values are redacted in both views (GHSA-3g53-5gw3-hh42). Needs `state:read` on the workspace (the `plan` tier, as raw state download does) since 2.0; a read-only principal is refused. |
 | `terrapod_run_logs` | The plan or apply LOG — the terraform/tofu output, i.e. *why* a run failed rather than merely that it did. Returns the end of the log by default (a failure is reported last, and an apply log can be megabytes), ANSI stripped; `offset` pages further back. |
 | `terrapod_run_cost` | A run's monthly cost estimate — the plan's cost *delta* (projected total, this-run delta, previous, per-resource, unpriced). Data only, no AI. |
 | `terrapod_workspace_cost` | A workspace's *current* monthly cost from its latest state — total, per-resource, unpriced, and which state version was priced. Data only, no AI. |
@@ -120,6 +120,8 @@ Every tool is namespaced `terrapod_*` and carries a safety annotation
 | `terrapod_vault_status` | Each configured OpenBao (or HashiCorp Vault) instance's sampled status: reachable, sealed, standby and version from `sys/health`; whether Terrapod can log in, and its token's TTL; which trust store TLS used; and the last resolution failure from any run. Unknown is `null`, never `false`. Never a secret value. Admin or audit. |
 | `terrapod_vault_reference_check` | Check an OpenBao/Vault reference, or a stored variable's, without resolving it. It asks the server whether Terrapod may read the path, reading nothing there; for kv-v2 only, it lists key **names** and says which fields the reference needs but are missing. A dynamic engine is never read, because a read mints a credential. Needs `var:write` on the workspace, or admin for a variable set. |
 | `terrapod_ha_status` | This deployment's HA posture: the leader/follower pair (in sync, seconds since the last sync, classes still backfilling — read these before a failover) and the in-cluster component health. |
+| `terrapod_oidc_signing_keys` | The OIDC issuer's published signing keys for [per-workspace cloud identity](cloud-identity.md) — each key's `kid`, when it was created, when it starts signing and when it was retired, plus which one signs now. Public key metadata only; no private material. Admin. |
+| `terrapod_oidc_signing_key_rotate` | **Destructive.** Adds a new signing key and retires the current one. A published trust root cannot be swapped atomically, so the new key is published immediately but only starts signing after `key_propagation_seconds`, and the retired key stays published for `retired_key_grace_seconds`. Rotating twice inside those windows, or with a cloud that caches longer than them, breaks token verification for every federated run — read [the runbook](runbooks.md) first. Refused (409) when the key is operator-supplied. Admin. |
 
 ### Act (gated) — the normal run lifecycle
 
@@ -161,6 +163,28 @@ Every tool is namespaced `terrapod_*` and carries a safety annotation
 | `terrapod_catalog_item_interface` | A service-catalog item's module interface — the **inputs + outputs** of the module version the item resolves to (its pin, or the latest uploaded version). Needs catalog read on the item. |
 | `terrapod_registry_provider_list` | List the private registry providers published here. |
 | `terrapod_registry_provider_get` | One provider by name — namespace, owner, labels. |
+
+### Inventory (gated) — build and read an ansible inventory
+
+A workspace's [ansible inventory](ansible-inventory.md) as the structures ansible
+has: hosts, groups, the memberships and nestings between them, and variables on a
+host, a group or the inventory. Each row is addressable by its typed id, and
+these tools **write** as well as read — a row an agent creates that a
+configuration later claims collides with a `409`, and the practitioner imports
+it, which is how every other Terraform-managed thing behaves.
+
+| Tool | Safety | What it does |
+|---|---|---|
+| `terrapod_inventory_settings` | read-only | The workspace's inventory settings. `configured: false` means no git source is bound, which is the normal default rather than a problem. |
+| `terrapod_inventory_settings_set` | — | Create or change them — bind a repository directory, or turn the declared rows off. Patches, falling back to a full write on first use. |
+| `terrapod_inventory_list` | read-only | A workspace's hosts, groups and the variables under `all`, each carrying counts rather than the rows themselves. |
+| `terrapod_inventory_detail` | read-only | One host or group with its variables and links. Dispatches on the typed id prefix, so there is no `kind` argument to get wrong. |
+| `terrapod_inventory_resolved` | read-only | The merged resolution — every host with its variables, each group's **direct** membership, and the nesting. An optional `limit` is expanded by ansible itself, **through** the nesting, which is the authoritative "what would this target". |
+| `terrapod_inventory_host_declare` | — | Declare a host. |
+| `terrapod_inventory_group_declare` | — | Declare a group. `all` and `ungrouped` are refused: ansible derives both. |
+| `terrapod_inventory_link` | — | A membership (host in group) or a nesting (group in group). |
+| `terrapod_inventory_var_set` | — | Set a variable on a host, on a group, or on the inventory (`group_vars/all`). |
+| `terrapod_inventory_remove` | destructive | Remove any row by its typed id. A host takes its memberships and variables with it; a group takes its memberships, nestings and variables. |
 
 ### Discover (gated) — onboard existing resources
 

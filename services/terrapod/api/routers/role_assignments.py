@@ -26,6 +26,7 @@ from terrapod.auth.recent_users import list_recent_users
 from terrapod.db.models import PlatformRoleAssignment, Role, RoleAssignment, User
 from terrapod.db.session import get_db
 from terrapod.logging_config import get_logger
+from terrapod.services.role_change_propagation import propagate_identity_role_change
 
 router = APIRouter(tags=["role-assignments"])
 logger = get_logger(__name__)
@@ -37,12 +38,18 @@ def _rfc3339(dt) -> str:
     return dt.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _assignment_json(provider: str, email: str, role_name: str, created_at=None) -> dict:
+def _assignment_json(
+    provider: str, email: str, role_name: str, created_at=None, subject: str | None = None
+) -> dict:
     return {
         "type": "role-assignments",
         "attributes": {
             "provider-name": provider,
             "email": email,
+            # Optional pin to one IdP subject. Null is the normal case and means the
+            # assignment matches on (provider, email); set, it matches only that
+            # subject, so an email takeover inherits nothing (GHSA-3m8x-ff8g-7x8c).
+            "subject": subject,
             "role-name": role_name,
             "created-at": _rfc3339(created_at) if created_at else "",
         },
@@ -65,14 +72,20 @@ async def list_role_assignments(
         )
     )
     for pra in result.scalars().all():
-        data.append(_assignment_json(pra.provider_name, pra.email, pra.role_name, pra.created_at))
+        data.append(
+            _assignment_json(
+                pra.provider_name, pra.email, pra.role_name, pra.created_at, pra.subject
+            )
+        )
 
     # Custom role assignments
     result = await db.execute(
         select(RoleAssignment).order_by(RoleAssignment.email, RoleAssignment.role_name)
     )
     for ra in result.scalars().all():
-        data.append(_assignment_json(ra.provider_name, ra.email, ra.role_name, ra.created_at))
+        data.append(
+            _assignment_json(ra.provider_name, ra.email, ra.role_name, ra.created_at, ra.subject)
+        )
 
     page_items, meta = paginate(data, request)
     return JSONResponse(content={"data": page_items, "meta": meta})
@@ -169,6 +182,11 @@ async def set_role_assignments(
     provider_name = attrs.get("provider-name", "local")
     email = attrs.get("email", "")
     role_names = attrs.get("roles", [])
+    # Optional: pin these assignments to one IdP subject. Stored verbatim -- it is an
+    # opaque provider-issued string and transforming it would stop it matching.
+    subject = attrs.get("subject") or None
+    if subject is not None and not isinstance(subject, str):
+        raise HTTPException(status_code=422, detail="Subject must be a string")
 
     if not email:
         raise HTTPException(status_code=422, detail="Email is required")
@@ -182,7 +200,12 @@ async def set_role_assignments(
             if result.scalar_one_or_none() is None:
                 raise HTTPException(status_code=422, detail=f"Role '{rn}' not found")
 
-    # Remove existing assignments for this provider+email
+    # Remove existing assignments for this provider+email, recording what they
+    # were first: whether this write is a reduction or a widening is the whole
+    # input to how live credentials are handled, and after the delete there is
+    # nothing left to compare against.
+    previous: set[str] = set()
+
     existing_platform = await db.execute(
         select(PlatformRoleAssignment).where(
             PlatformRoleAssignment.provider_name == provider_name,
@@ -190,6 +213,7 @@ async def set_role_assignments(
         )
     )
     for pra in existing_platform.scalars().all():
+        previous.add(pra.role_name)
         await db.delete(pra)
 
     existing_custom = await db.execute(
@@ -199,6 +223,7 @@ async def set_role_assignments(
         )
     )
     for ra in existing_custom.scalars().all():
+        previous.add(ra.role_name)
         await db.delete(ra)
 
     # Create new assignments
@@ -211,6 +236,7 @@ async def set_role_assignments(
                     provider_name=provider_name,
                     email=email,
                     role_name=rn,
+                    subject=subject,
                 )
             )
         else:
@@ -219,18 +245,31 @@ async def set_role_assignments(
                     provider_name=provider_name,
                     email=email,
                     role_name=rn,
+                    subject=subject,
                 )
             )
 
     await db.commit()
 
-    # Invalidate cached roles for this user
-    from terrapod.redis.client import get_redis_client
+    # Carry the change to credentials that were issued before it: the cached
+    # token-role set (as before) AND the web sessions, whose embedded roles were
+    # resolved at login and otherwise keep a removed role until the session ends
+    # (GHSA-pwrq-j4cv-w7qg). `everyone` is implicit and never stored, so it must
+    # not count as an addition.
+    outcome = await propagate_identity_role_change(
+        provider_name,
+        email,
+        previous=previous,
+        current={rn for rn in role_names if rn != "everyone"},
+    )
 
-    redis = get_redis_client()
-    await redis.delete(f"tp:token_roles:{email}")
-
-    logger.info("Role assignments updated", provider=provider_name, email=email, roles=role_names)
+    logger.info(
+        "Role assignments updated",
+        provider=provider_name,
+        email=email,
+        roles=role_names,
+        sessions=outcome,
+    )
 
     # Return the new state
     data = []
@@ -277,10 +316,10 @@ async def delete_role_assignment(
 
     await db.commit()
 
-    # Invalidate cached roles
-    from terrapod.redis.client import get_redis_client
-
-    redis = get_redis_client()
-    await redis.delete(f"tp:token_roles:{email}")
+    # Removing an assignment is a reduction by construction, so this always ends
+    # the identity's sessions for this provider as well as busting the token-role
+    # cache. A session carries the roles login resolved and would otherwise keep
+    # the removed one (GHSA-pwrq-j4cv-w7qg).
+    await propagate_identity_role_change(provider_name, email, previous={role_name}, current=set())
 
     logger.info("Role assignment deleted", provider=provider_name, email=email, role=role_name)

@@ -2,7 +2,7 @@ import { test, expect, type Page, type Route, type Dialog } from '@playwright/te
 // Lives in helpers/, not here: Playwright forbids a spec importing a spec, and
 // any suite adding a surface should be able to reuse the mobile guard.
 import { expectNoHorizontalPageScroll } from '../helpers/responsive';
-import { getStoredToken, createWorkspace, lockWorkspace, createUser, createAgentPool, createRegistryModule, seedRun, seedStateVersion, seedStateVersionWithContent, seedRunTask, uniqueName } from '../helpers/api';
+import { getStoredToken, createWorkspace, lockWorkspace, createUser, createAgentPool, createRegistryModule, seedRun, seedStateVersion, seedStateVersionWithContent, seedRunTask, seedInventoryHost, seedInventoryGroup, seedInventoryMembership, seedInventoryVar, uniqueName } from '../helpers/api';
 
 const API_URL = process.env.API_URL || 'http://localhost:8000';
 
@@ -193,6 +193,38 @@ test.describe('Responsive harness (phone viewport)', () => {
     await expectNoHorizontalPageScroll(page)
   })
 
+  test('a variable keeps its category and value at phone width (#1898)', async ({ page }) => {
+    // The category is primary signal — it is what says whether a value reaches
+    // the engine or the process environment — so it must survive the narrow
+    // layout rather than being one of the columns that gets hidden.
+    //
+    // This replaces a test for the `applies-to-engine` badge. That badge
+    // existed because a variable could sit in a category its engine would never
+    // read; with one category for every engine's parameters, that state cannot
+    // arise and there is nothing left to flag.
+    const token = getStoredToken()
+    const wsId = await createWorkspace(token, uniqueName('e2erespvareng'))
+    const seed = await fetch(`${API_URL}/api/v1/workspaces/${wsId}/vars`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/vnd.api+json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        data: {
+          type: 'vars',
+          attributes: { key: 'aws:region', category: 'native', value: 'eu-west-1' },
+        },
+      }),
+    })
+    expect(seed.status).toBe(201)
+
+    await page.goto(`/workspaces/${wsId}?tab=variables`)
+    const card = page.locator('li').filter({ hasText: 'aws:region' })
+    await expect(card).toBeVisible({ timeout: 15_000 })
+    // The engine's own word for the category, not the API value (#1898).
+    await expect(card).toContainText('Terraform')
+    await expect(card).toContainText('eu-west-1')
+    await expectNoHorizontalPageScroll(page)
+  })
+
   test('variable-set variables adapt to mobile (#1439)', async ({ page }) => {
     // Seeded with a real variable: on an empty set the page renders an empty
     // state and there is no table in the DOM at all, so the assertion would
@@ -328,7 +360,7 @@ test.describe('Responsive harness (phone viewport)', () => {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/vnd.api+json' },
       body: JSON.stringify({
-        data: { type: 'vcs-connections', attributes: { name, provider: 'gitlab', token: 'glpat-e2e-not-a-real-token' } },
+        data: { type: 'vcs-connections', attributes: { name, provider: 'gitlab', token: 'glpat-e2e-not-a-real-token' /* gitleaks:allow — fixture, not a credential */ } },
       }),
     })
     expect(created.ok).toBeTruthy()
@@ -359,6 +391,104 @@ test.describe('Responsive harness (phone viewport)', () => {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` },
       })
+    }
+  })
+
+  test('a VCS connection states which repositories it may reach, at phone width (GHSA-v8g7-pqrj-8mcm)', async ({ page }) => {
+    // Two connections, because the thing under test is a CONTRAST: an empty
+    // allowlist means *any* repository, which is the opposite of what a blank
+    // list usually implies. A single unrestricted fixture would pass however
+    // the two states were worded, so one of each is seeded.
+    const token = getStoredToken()
+    const open = uniqueName('e2erespvcsopen')
+    const shut = uniqueName('e2erespvcsshut')
+    const ids: string[] = []
+
+    async function seed(name: string, allowed: string[]) {
+      const res = await fetch(`${API_URL}/api/terrapod/v1/vcs-connections`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/vnd.api+json' },
+        body: JSON.stringify({
+          data: {
+            type: 'vcs-connections',
+            attributes: {
+              name,
+              provider: 'gitlab',
+              token: 'glpat-e2e-not-a-real-token' /* gitleaks:allow — fixture, not a credential */,
+              'owner-email': 'owner@example.com',
+              labels: { team: 'platform' },
+              'allowed-repositories': allowed,
+            },
+          },
+        }),
+      })
+      expect(res.ok).toBeTruthy()
+      ids.push((await res.json()).data.id)
+    }
+
+    try {
+      await seed(open, [])
+      await seed(shut, ['example/infra-*', 'example/platform'])
+
+      await page.goto('/admin/vcs-connections')
+      await expect(page.getByText(open)).toBeVisible({ timeout: 15_000 })
+
+      // Each card carries its own verdict, so locate within the card rather
+      // than page-wide — page-wide would pass on either fixture's text.
+      //
+      // Scoped by test id, NOT by `locator('div').filter(...).last()`: that
+      // matches every ancestor and descendant div whose subtree contains the
+      // name, and `.last()` then takes the innermost — here the header div
+      // holding the <h3>, which contains the name and none of the verdicts. It
+      // failed as "element(s) not found" while the page rendered correctly.
+      const card = (name: string) =>
+        page.getByTestId('vcs-connection-card').filter({ hasText: name })
+      const openCard = card(open)
+      const shutCard = card(shut)
+      await expect(openCard.getByText('Any repository is allowed')).toBeVisible()
+      await expect(shutCard.getByText('Restricted to 2 repositories')).toBeVisible()
+      // The patterns themselves are readable from the list — the question an
+      // operator comes here to answer should not need a form opened.
+      await expect(shutCard.getByText('example/infra-*')).toBeVisible()
+      // The owner and the access labels are visible too.
+      await expect(openCard.getByText('Owned by owner@example.com')).toBeVisible()
+      await expect(openCard.getByText('platform')).toBeVisible()
+
+      await expectNoHorizontalPageScroll(page)
+
+      // The edit form's access controls have to be usable here, not just
+      // present: a glob typed on a phone is the same security decision.
+      await openCard.getByRole('button', { name: 'Edit' }).click()
+      await expect(page.locator('#vcs-owner')).toHaveValue('owner@example.com')
+      await expect(
+        page.getByText('No patterns are listed, so this connection may be pointed at any repository.'),
+      ).toBeVisible()
+
+      const add = page.getByRole('button', { name: 'Add a pattern' })
+      // A real tap target, not a run of coloured text (AGENTS.md → Responsive).
+      expect((await add.boundingBox())!.height).toBeGreaterThanOrEqual(44)
+      await add.click()
+      const row = page.locator('input[placeholder="org/repo-*"]')
+      await row.fill('example/only-this')
+      // Adding the first pattern flips the stated posture from permissive to
+      // restrictive — the UI must not keep claiming "any repository".
+      await expect(page.getByText('1 pattern is listed', { exact: false })).toBeVisible()
+      // Scoped to the pattern row, not `.first()` page-wide: the labels editor
+      // renders above this one and its per-chip remove is also named "Remove …",
+      // so `.first()` measured a different control than the one under test. (It
+      // was 16px tall, which was a real defect and is fixed — but in the labels
+      // editor, which this test is not about.)
+      const remove = row.locator('xpath=..').getByRole('button', { name: 'Remove' }).first()
+      expect((await remove.boundingBox())!.height).toBeGreaterThanOrEqual(44)
+
+      await expectNoHorizontalPageScroll(page)
+    } finally {
+      for (const id of ids) {
+        await fetch(`${API_URL}/api/terrapod/v1/vcs-connections/${id}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${token}` },
+        })
+      }
     }
   })
 
@@ -574,7 +704,7 @@ test.describe('Responsive harness (phone viewport)', () => {
       '  + resource "aws_s3_bucket" "assets" {\n    }\n\n' +
       'Plan: 1 to add, 1 to change, 0 to destroy.\n\x03';
 
-    await page.route(`**/api/v2/runs/${runId}`, async (route: Route) => {
+    await page.route(`**/api/*/runs/${runId}`, async (route: Route) => {
       const res = await route.fetch();
       const json = await res.json();
       json.data.attributes.status = 'planned';
@@ -616,7 +746,7 @@ test.describe('Responsive harness (phone viewport)', () => {
     const runId = await seedRun(token, wsId);
     const body = Array.from({ length: 40 }, (_, i) => `plan ${i}  Still reading...`).join('\n') + '\n';
 
-    await page.route(`**/api/v2/runs/${runId}`, async (route: Route) => {
+    await page.route(`**/api/*/runs/${runId}`, async (route: Route) => {
       const res = await route.fetch();
       const json = await res.json();
       json.data.attributes.status = 'planning';
@@ -736,6 +866,12 @@ test.describe('Responsive harness (phone viewport)', () => {
     // to the visible (mobile-card) copy.
     await expect(page.getByText('#1', { exact: true }).filter({ visible: true })).toBeVisible({ timeout: 15_000 });
     await expect(page.getByRole('button', { name: 'Download' }).filter({ visible: true })).toBeVisible();
+
+    // Outputs (#1568) sit below the version list, for either engine, and are
+    // the first surface Terrapod has ever had for them. A seeded state
+    // declares none, so this asserts the section is present and says so —
+    // an empty state, never an error.
+    await expect(page.getByRole('heading', { name: 'Outputs' })).toBeVisible({ timeout: 15_000 });
 
     await expectNoHorizontalPageScroll(page);
   });
@@ -1389,6 +1525,293 @@ test.describe('AI policy gate (#1766)', () => {
     expect(dialogFired).toBe(false)
     page.off('dialog', spy)
 
+    await expectNoHorizontalPageScroll(page)
+  })
+})
+
+test.describe('Per-workspace run identity (#1901)', () => {
+  // The mobile guard for the three surfaces #1901 adds the audience editor to.
+  // The value is a MAP of provider configuration -> audiences, so each entry is
+  // a card holding its own key, a provenance badge and its own list of rows,
+  // and an audience is a long opaque string (`api://AzureADTokenExchange`) —
+  // exactly the shape that pushes a page sideways when a value is allowed to
+  // set a card's width.
+  //
+  // What this suite CANNOT reach: the inherited half. A workspace read returns
+  // the deployment catalogue merged over the workspace's own map, so an entry
+  // only reads as inherited when the deployment configures one — and
+  // `auth.oidc_issuer.audiences` defaults to empty with the issuer OFF, which
+  // the e2e stack does not override. Configuring it is a compose/Helm change,
+  // so the subtraction is pinned by unit test (`web/tests/oidc-audiences.test.ts`)
+  // and what is asserted here is the half this stack can actually produce:
+  // every entry workspace-owned, and the issuer-disabled notice shown rather
+  // than an empty editor that looks configurable.
+
+  test('the workspace audience map reads and edits at phone width', async ({ page }) => {
+    const token = getStoredToken()
+    // Two entries, and the second is ALIASED: `aws.west` is one key, never
+    // split on the dot, so the read view has to show it whole.
+    const wsId = await createWorkspace(token, uniqueName('e2erespoidc'), {
+      'oidc-audiences': {
+        aws: ['sts.amazonaws.com'],
+        'aws.west': ['api://AzureADTokenExchange'],
+      },
+    })
+
+    // Read-only: both the provider keys and every audience stay visible, not
+    // hidden behind a breakpoint to make the grid fit. Someone checking which
+    // audiences a workspace mints for on a phone is the whole point.
+    await page.goto(`/workspaces/${wsId}`)
+    const shown = page.getByTestId('oidc-audiences')
+    await expect(shown).toBeVisible({ timeout: 15_000 })
+    await expect(shown).toContainText('aws.west')
+    await expect(shown).toContainText('api://AzureADTokenExchange')
+    await expectNoHorizontalPageScroll(page)
+
+    // Editing it is a reversible settings write, not a single-tap mutation, so
+    // tier 2 of the #719 confirm policy does not apply and it must NOT prompt.
+    let dialogFired = false
+    const spy = async (d: Dialog) => { dialogFired = true; await d.dismiss() }
+    page.on('dialog', spy)
+
+    // Provenance is rendered, not inferred from absence: this stack configures
+    // no catalogue, so both entries are the workspace's own and both say so.
+    // A badge on each side is what makes "which of these did I set" answerable
+    // at a glance, and the read view is where someone asks it.
+    await expect(shown.getByText('Workspace', { exact: true }).first()).toBeVisible()
+    await expect(shown.getByText('Deployment default')).toHaveCount(0)
+
+    await page.getByRole('button', { name: 'Edit' }).first().click()
+
+    // Each existing entry carries its own audience list, so 'Add audience'
+    // belongs to a card while 'Add provider configuration' is the top-level one.
+    // The editor appears only once the catalogue probe has settled — before
+    // that the partition would mark every inherited entry as owned — so this
+    // wait is load-bearing, not incidental.
+    const addProvider = page.getByRole('button', { name: 'Add provider configuration' })
+    await expect(addProvider).toBeVisible({ timeout: 15_000 })
+    await expect(page.getByRole('button', { name: 'Add audience' }).first()).toBeVisible()
+    await expectNoHorizontalPageScroll(page)
+
+    // The issuer is off by default, so the editor says it is inert rather than
+    // letting an operator configure something that can never be minted for.
+    await expect(page.getByTestId('oidc-issuer-disabled')).toBeVisible()
+    await expectNoHorizontalPageScroll(page)
+
+    // A row's action is a real button with a tap target, not bare coloured
+    // text, and adding a third entry keeps the page inside the viewport.
+    //
+    // Counted by the per-card remove's OWN accessible name, not by the word
+    // "Remove": that button carries an aria-label naming its provider, which
+    // overrides its text content, so `{ name: 'Remove' }` matches the
+    // per-AUDIENCE removes inside each card instead and counts rows rather
+    // than cards. Asserting the aria-label is also the stronger check, since
+    // it is what a screen-reader user hears for a control that would otherwise
+    // be one of several identical "Remove"s on the page.
+    const removeProvider = page.getByRole('button', {
+      name: /^Remove the .+ provider configuration$/,
+    })
+    await expect(removeProvider).toHaveCount(2)
+    await expect(addProvider).toBeDisabled()
+    await page.getByTestId('oidc-provider-input').fill('vault')
+    await expect(addProvider).toBeEnabled()
+    await addProvider.click()
+    await expect(removeProvider).toHaveCount(3)
+    await expect(
+      page.getByRole('button', { name: 'Remove the vault provider configuration' })
+    ).toBeVisible()
+    await expectNoHorizontalPageScroll(page)
+
+    expect(dialogFired).toBe(false)
+    page.off('dialog', spy)
+  })
+
+  test('the fleet form gates the list behind a checkbox and fits a phone', async ({ page }) => {
+    // The gate is load-bearing, not decoration: an empty list is a real value
+    // here (it turns run identity off), so it cannot also mean "leave alone".
+    await page.goto('/admin/bulk-update')
+    await expectNoHorizontalPageScroll(page)
+
+    // The checkbox INSIDE its label, not the label's text. This checkbox has no
+    // `aria-label` and would be named by the label wrapping it, while the one
+    // checkbox this suite already finds by name carries an explicit one -- so
+    // that is no precedent. `.check()` also drives the input and waits for
+    // actionability, where clicking the long label row did not.
+    const gate = page
+      .locator('label', { hasText: /Set OIDC run identity audiences/i })
+      .locator('input[type="checkbox"]')
+    await expect(gate).toBeVisible({ timeout: 15_000 })
+
+    // An empty map has no entries, so the only control the gate reveals is the
+    // top-level one; 'Add audience' lives inside an entry and does not exist yet.
+    const add = page.getByRole('button', { name: 'Add provider configuration' })
+    await expect(add).toHaveCount(0)
+
+    // Retried, and only while the list is still closed, so a handler that
+    // hydrates after the first click cannot toggle it back shut.
+    await expect(async () => {
+      if ((await add.count()) === 0) await gate.check()
+      await expect(add).toBeVisible({ timeout: 1_000 })
+    }).toPass({ timeout: 15_000 })
+
+    await expectNoHorizontalPageScroll(page)
+
+    // Naming a provider reveals that entry's own audience list, still inside
+    // the viewport once a card and its row are both on the page.
+    await page.getByTestId('oidc-provider-input').fill('aws.west')
+    await add.click()
+    await expect(page.getByRole('button', { name: 'Add audience' })).toBeVisible()
+    // A fleet template is a pure override with nothing to merge against, so it
+    // has no provenance to report. The badge the workspace read view carries
+    // must NOT appear here, or the form asserts an ownership it cannot know --
+    // the defect `showProvenance` was added to fix, and this is its only guard.
+    // Scoped to the editor: a bare negative on an admin page could pass or fail
+    // on any other element that happens to render the exact word.
+    const editor = page.getByTestId('oidc-audience-editor')
+    await expect(editor.getByText('Workspace', { exact: true })).toHaveCount(0)
+    await expect(editor.getByText('Deployment default')).toHaveCount(0)
+    await expectNoHorizontalPageScroll(page)
+  })
+
+  test('the autodiscovery rule form carries the audience list at phone width', async ({ page }) => {
+    await page.goto('/admin/autodiscovery')
+    await expectNoHorizontalPageScroll(page)
+
+    // Two things have to happen before the editor exists: open the form, and
+    // expand the collapsed "Workspace template defaults" <details> the field
+    // lives in. The <details> is worth naming because it fails misleadingly in
+    // two different ways -- a closed one keeps its content in the DOM, so
+    // `getByText` finds the label and then fails `toBeVisible`, while
+    // `getByRole` reports "element(s) not found" because browsers drop that
+    // content from the accessibility tree. Neither message mentions a section.
+    //
+    // Both steps are inside the retry and both are guarded on the editor still
+    // being absent: clicking the summary a second time would collapse it again.
+    const add = page.getByRole('button', { name: 'Add provider configuration' })
+    await expect(async () => {
+      if ((await add.count()) > 0) {
+        await expect(add).toBeVisible({ timeout: 1_000 })
+        return
+      }
+      const newRule = page.getByRole('button', { name: 'New Rule' })
+      if ((await newRule.count()) > 0) await newRule.click()
+      const summary = page.getByText('Workspace template defaults')
+      if ((await summary.count()) > 0) await summary.click()
+      await expect(add).toBeVisible({ timeout: 1_000 })
+    }).toPass({ timeout: 20_000 })
+
+    await expectNoHorizontalPageScroll(page)
+
+    // An aliased key is one key: typing the dot must not split it into a
+    // nested anything, and the card's heading carries it whole.
+    await page.getByTestId('oidc-provider-input').fill('vault.eu')
+    await add.click()
+    await expect(page.getByRole('button', { name: 'Remove' }).first()).toBeVisible()
+    await expect(page.getByText('vault.eu', { exact: true })).toBeVisible()
+    await expectNoHorizontalPageScroll(page)
+  })
+
+})
+
+// The inventory tab is its own feature, not part of the run-identity work the
+// block above covers; it was sitting in that describe by accident.
+test.describe('Workspace inventory (#1967, #1968, #1969)', () => {
+  test('the Inventory tab holds up at phone width (#1967, #1968, #1969)', async ({ page }) => {
+    // Five sub-views, and every one of them is a phone-width hazard: two
+    // multi-column tables of rows, a variable table whose values have no spaces
+    // to wrap on, a text input beside its button, a run of resolved host
+    // variables, and a form built on a `<fieldset>` — which defaults to
+    // `min-inline-size: min-content` and will not shrink below its content
+    // unless it is told to, which is how /admin/bulk-update once overflowed by
+    // 122px. All five are walked here.
+    const token = getStoredToken()
+    const wsId = await createWorkspace(token, uniqueName('e2erespinv'))
+    const web = await seedInventoryGroup(token, wsId, 'web')
+    const h1 = await seedInventoryHost(token, wsId, 'web-1')
+    const h2 = await seedInventoryHost(token, wsId, 'web-2')
+    await seedInventoryMembership(token, web, h1)
+    await seedInventoryMembership(token, web, h2)
+    // Long enough to push a narrow container sideways if nothing wraps it.
+    await seedInventoryVar(token, { host: h1 }, 'ansible_python_interpreter', '/usr/bin/python3')
+    await seedInventoryVar(token, { workspace: wsId }, 'ansible_user', 'deploy')
+
+    await page.goto(`/workspaces/${wsId}?tab=inventory`)
+    await expect(page.getByRole('heading', { name: 'Hosts', exact: true })).toBeVisible()
+    await expectNoHorizontalPageScroll(page)
+
+    // The primary signal survives the reflow. A card list that dropped the
+    // group or variable counts would still pass the overflow check on its own.
+    //
+    // Scoped to what is VISIBLE, not `.first()`. Both renders sit in the DOM at
+    // every width — the desktop table is `hidden md:block` and the card list is
+    // `md:hidden` — so `.first()` takes the table's cell in DOM order and then
+    // asserts a hidden element is visible.
+    await expect(page.getByText('web-1').filter({ visible: true }).first()).toBeVisible()
+    await expect(page.getByText('web-2').filter({ visible: true }).first()).toBeVisible()
+    const card = page.locator('li', { hasText: 'web-1' }).filter({ visible: true }).first()
+    await expect(card.getByText('Groups')).toBeVisible()
+    await expect(card.getByText('Variables')).toBeVisible()
+    // Row actions are real buttons with a background, not clickable text, so
+    // they are tappable at this width.
+    await expect(card.getByRole('button', { name: 'Edit', exact: true })).toBeVisible()
+    await expectNoHorizontalPageScroll(page)
+
+    // The sub-view nav wraps rather than scrolling inside itself: an inner
+    // scroller hides whichever entry the reader needs.
+    for (const view of ['Groups', 'Variables', 'Resolved', 'Settings']) {
+      await page.getByRole('button', { name: view, exact: true }).click()
+      await expectNoHorizontalPageScroll(page)
+    }
+
+    // The settings form — the `<fieldset>` case. Opened, because a collapsed
+    // form cannot overflow and so proves nothing.
+    await expect(page.getByRole('button', { name: 'Add settings', exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Add settings', exact: true }).click()
+    await expect(page.getByLabel('Repository')).toBeVisible()
+    await expectNoHorizontalPageScroll(page)
+
+    // The variable table, whose values are unbroken identifier-ish runs.
+    await page.getByRole('button', { name: 'Variables', exact: true }).click()
+    await expect(page.getByText('ansible_user').filter({ visible: true }).first()).toBeVisible()
+    await expectNoHorizontalPageScroll(page)
+
+    // The limit control is what this tab exists to offer before anything runs,
+    // so it has to be usable on a phone: typable input, tappable button.
+    await page.getByRole('button', { name: 'Resolved', exact: true }).click()
+    const input = page.getByLabel('Limit pattern')
+    await expect(input).toBeVisible()
+    await input.fill('web:!web-2')
+    await expect(input).toHaveValue('web:!web-2')
+    await expect(page.getByRole('button', { name: 'Apply limit', exact: true })).toBeVisible()
+    await expectNoHorizontalPageScroll(page)
+
+    // The resolution is live, so there is no Refresh to mis-tap.
+    await expect(page.getByRole('button', { name: /refresh/i })).toHaveCount(0)
+  })
+
+  test('removing a group membership prompts a touch confirm (#1969)', async ({ page }) => {
+    // Tier 2 of the #719 policy: a reversible single-tap mutation prompts on a
+    // COARSE pointer, where a mis-tap is easy, and proceeds without one on a
+    // precise pointer (asserted in confirm-guards.spec.ts and inventory.spec.ts).
+    // A membership removal is the reversible case — the link can be recreated —
+    // so it must not be promoted to the unconditional delete tier either.
+    const token = getStoredToken()
+    const wsId = await createWorkspace(token, uniqueName('e2erespinvmem'))
+    const web = await seedInventoryGroup(token, wsId, 'web')
+    const h1 = await seedInventoryHost(token, wsId, 'web-1')
+    await seedInventoryMembership(token, web, h1)
+
+    await page.goto(`/workspaces/${wsId}?tab=inventory&inv=${h1}`)
+    await expect(page.getByRole('heading', { name: 'Host web-1' })).toBeVisible()
+
+    let message = ''
+    page.once('dialog', async (d: Dialog) => {
+      message = d.message()
+      await d.accept()
+    })
+    await page.getByRole('button', { name: /Remove this host from web/ }).click()
+    await expect.poll(() => message, { timeout: 5_000 }).toContain('web')
+    await expect(page.getByText(/in no group/i)).toBeVisible({ timeout: 10_000 })
     await expectNoHorizontalPageScroll(page)
   })
 })

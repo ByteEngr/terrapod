@@ -27,8 +27,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from terrapod.api.dependencies import AuthenticatedUser, get_current_user, require_admin
+from terrapod.api.engine_scope import load_workspace_scoped
 from terrapod.api.ids import parse_id
 from terrapod.api.pagination import paginate
+from terrapod.api.prefixes import is_tfe_path
 from terrapod.auth import capabilities as cap
 from terrapod.auth.capabilities import has_capability
 from terrapod.db.models import (
@@ -57,6 +59,23 @@ router = APIRouter(tags=["variables"])
 #: surface `tfci` consumes, so they are mounted at `/api/terrapod/v1/` by the app
 #: factory rather than sitting alongside the CLI-contract routes above.
 native_router = APIRouter(tags=["variables"])
+
+#: The routes whose *representation* differs between the two surfaces, mounted
+#: on BOTH (#1898).
+#:
+#: A variable's `category` goes out as `terraform` where a client's constants
+#: say `terraform`, and as `native` where Terrapod is free to say what the thing
+#: is. That distinction needs two doors to be real rather than theoretical —
+#: with only the TFE mount, the honest name has nowhere to come out and the
+#: branch that chooses it can never be taken.
+#:
+#: Exactly these routes, and not the rest of this module: `tfci` drives them, so
+#: they cannot *move*, but AGENTS.md puts variable management on the native
+#: surface and serving both is purely additive. The varset *collection* route
+#: stays TFE-only because it carries an `organizations/default/` segment, which
+#: the native surface must never have (architecture principle 9) — giving
+#: varsets a native home is its own change, not a re-mount.
+dual_router = APIRouter(tags=["variables"])
 logger = get_logger(__name__)
 
 
@@ -82,6 +101,16 @@ def _validated_value_source(attrs: dict, current: str = "static") -> str:
     if "value-source" not in attrs:
         return current
     src = attrs["value-source"] or "static"
+    # A non-string reaches `in VALUE_SOURCES` as an unhashable key and raises
+    # TypeError, which the global handler turns into a 500 — so a caller sending the
+    # object shape this field looks like it should take got "Internal server error"
+    # instead of being told the field is a string. Found by a test that guessed the
+    # shape wrong, which is exactly what a caller would do.
+    if not isinstance(src, str):
+        raise HTTPException(
+            status_code=422,
+            detail=f"value-source must be a string, one of {sorted(VALUE_SOURCES)}",
+        )
     if src not in VALUE_SOURCES:
         raise HTTPException(
             status_code=422, detail=f"value-source must be one of {sorted(VALUE_SOURCES)}"
@@ -244,8 +273,32 @@ def _apply_value_source(
     return src, True
 
 
-def _var_json(var: Variable) -> dict:
-    """Serialize a Variable to TFE V2 JSON:API format."""
+def _is_tfe(request: Request | None) -> bool:
+    """Whether this request arrived on the TFE-compatible surface.
+
+    Both surfaces serve these routes, and the category is the one field whose
+    spelling differs between them. `package_cache` already varies its output by
+    the door a request came through; `is_tfe_path` is the shared answer to which
+    door that was.
+
+    No request means an internal caller, and that reads as the compatible
+    surface: a caller that forgets to thread one can then only be too
+    conservative, never break a CLI.
+    """
+    if request is None:
+        return True
+    return is_tfe_path(request.url.path)
+
+
+def _var_json(var: Variable, *, tfe_surface: bool = True) -> dict:
+    """Serialize a Variable to TFE V2 JSON:API format.
+
+    ``tfe_surface`` picks which name the stored category goes out under: the
+    TFE-compatible surface says `terraform` for ever, because `tfci` and
+    `go-tfe` have that as a constant and an unrecognised value would be a
+    compatibility break; the native surface says `native`. Defaults to the
+    compatible name, so a caller that forgets cannot break a CLI (#1898).
+    """
     return {
         "id": f"var-{var.id}",
         "type": "vars",
@@ -258,7 +311,7 @@ def _var_json(var: Variable) -> dict:
             # without hiding anything that is actually sensitive.
             "value": _visible_value(var),
             "sensitive": var.sensitive,
-            "category": var.category,
+            "category": variable_service.wire_category(var.category, tfe_surface=tfe_surface),
             # Both names, always equal. `hcl` is what go-tfe reads (#1435).
             "structured": var.structured,
             "hcl": var.structured,
@@ -279,13 +332,16 @@ def _var_json(var: Variable) -> dict:
     }
 
 
-async def _get_workspace(workspace_id: str, db: AsyncSession) -> Workspace:
-    ws_uuid = workspace_id.removeprefix("ws-")
-    result = await db.execute(select(Workspace).where(Workspace.id == ws_uuid))
-    ws = result.scalar_one_or_none()
-    if ws is None:
-        raise HTTPException(status_code=404, detail="Workspace not found")
-    return ws
+async def _get_workspace(
+    workspace_id: str, db: AsyncSession, *, request: Request | None = None
+) -> Workspace:
+    """Load the workspace, scoped to the surface the request arrived on (#1572).
+
+    This router serves both surfaces, so the scoping is a property of the
+    request, not of the router. On `/api/tfe/v2` a workspace belonging to
+    another engine does not exist; on `/api/v1` it does.
+    """
+    return await load_workspace_scoped(workspace_id, db, request=request)
 
 
 # ── Workspace Variables ──────────────────────────────────────────────────
@@ -318,7 +374,7 @@ def _structured_from(attrs: dict, *, default: bool | None = None) -> bool | None
     return default
 
 
-@router.get("/workspaces/{workspace_id}/vars")
+@dual_router.get("/workspaces/{workspace_id}/vars")
 async def list_workspace_vars(
     workspace_id: str = Path(...),
     request: Request = None,
@@ -326,27 +382,28 @@ async def list_workspace_vars(
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """List all variables for a workspace. Requires read."""
-    ws = await _get_workspace(workspace_id, db)
+    ws = await _get_workspace(workspace_id, db, request=request)
     caps = await resolve_workspace_capabilities_for(db, user, ws)
     if not has_capability(caps, cap.VAR_READ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Requires read permission on workspace"
         )
     variables = await variable_service.list_variables(db, ws.id)
-    items = [_var_json(v) for v in variables]
+    items = [_var_json(v, tfe_surface=_is_tfe(request)) for v in variables]
     page_items, meta = paginate(items, request)
     return JSONResponse(content={"data": page_items, "meta": meta})
 
 
-@router.post("/workspaces/{workspace_id}/vars", status_code=201)
+@dual_router.post("/workspaces/{workspace_id}/vars", status_code=201)
 async def create_workspace_var(
     workspace_id: str = Path(...),
     body: dict = Body(...),
+    request: Request = None,
     user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """Create a variable for a workspace. Requires write."""
-    ws = await _get_workspace(workspace_id, db)
+    ws = await _get_workspace(workspace_id, db, request=request)
     caps = await resolve_workspace_capabilities_for(db, user, ws)
     if not has_capability(caps, cap.VAR_WRITE):
         raise HTTPException(
@@ -389,11 +446,14 @@ async def create_workspace_var(
 
     await publish_workspace_event(str(ws.id), "workspace_variable_change")
 
-    return JSONResponse(content={"data": _var_json(var)}, status_code=201)
+    return JSONResponse(
+        content={"data": _var_json(var, tfe_surface=_is_tfe(request))}, status_code=201
+    )
 
 
-@router.patch("/workspaces/{workspace_id}/vars/{var_id}")
+@dual_router.patch("/workspaces/{workspace_id}/vars/{var_id}")
 async def update_workspace_var(
+    request: Request = None,
     workspace_id: str = Path(...),
     var_id: str = Path(...),
     body: dict = Body(...),
@@ -401,7 +461,7 @@ async def update_workspace_var(
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """Update a workspace variable. Requires write."""
-    ws = await _get_workspace(workspace_id, db)
+    ws = await _get_workspace(workspace_id, db, request=request)
     caps = await resolve_workspace_capabilities_for(db, user, ws)
     if not has_capability(caps, cap.VAR_WRITE):
         raise HTTPException(
@@ -446,18 +506,19 @@ async def update_workspace_var(
 
     await publish_workspace_event(str(ws.id), "workspace_variable_change")
 
-    return JSONResponse(content={"data": _var_json(var)})
+    return JSONResponse(content={"data": _var_json(var, tfe_surface=_is_tfe(request))})
 
 
-@router.delete("/workspaces/{workspace_id}/vars/{var_id}", status_code=204)
+@dual_router.delete("/workspaces/{workspace_id}/vars/{var_id}", status_code=204)
 async def delete_workspace_var(
+    request: Request,
     workspace_id: str = Path(...),
     var_id: str = Path(...),
     user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> None:
     """Delete a workspace variable. Requires write."""
-    ws = await _get_workspace(workspace_id, db)
+    ws = await _get_workspace(workspace_id, db, request=request)
     caps = await resolve_workspace_capabilities_for(db, user, ws)
     if not has_capability(caps, cap.VAR_WRITE):
         raise HTTPException(
@@ -585,6 +646,29 @@ def _validated_assignment_rule(attrs: dict) -> dict | None:
     # Normalise first: parse_filter accepts hyphens, so an underscore-only guard
     # below would be decorative — `workspace-ids` sailed straight past it.
     rule = {str(k).replace("-", "_"): v for k, v in rule.items()}
+
+    # GHSA-49q6-pm68-3xgw. Some dimensions are platform STATE, not identity, and a
+    # workspace's own owner can move them through endpoints that have no business
+    # paying a variable-set check — `dismiss-drift` needs only `drift:dismiss`,
+    # lock/unlock only `workspace:lock`. A rule keyed on one of those is
+    # self-joinable whatever the create/PATCH guard does, so the dimension is
+    # refused rather than five more endpoints gated.
+    from terrapod.services.varset_self_join import (
+        RULE_DIMENSIONS_REFUSED,
+        rule_refused_dimensions,
+    )
+
+    refused = rule_refused_dimensions(rule)
+    if refused:
+        why = "; ".join(f"{k}: {RULE_DIMENSIONS_REFUSED[k]}" for k in refused)
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"assignment-rule cannot select on {', '.join(refused)} — {why}. "
+                "Select on something the workspace's owner cannot change, such as "
+                "labels an admin applies, or assign the set explicitly."
+            ),
+        )
 
     if "workspace_ids" in rule:
         # A literal list of ids is not a rule — it is explicit assignment, which
@@ -731,8 +815,15 @@ async def delete_varset(
 # ── Variable Set Variables ───────────────────────────────────────────────
 
 
-def _vsvar_json(vsv: VariableSetVariable, varset_id: str) -> dict:
-    """Serialize a VariableSetVariable."""
+def _vsvar_json(vsv: VariableSetVariable, varset_id: str, *, tfe_surface: bool = True) -> dict:
+    """Serialize a VariableSetVariable.
+
+    ``tfe_surface`` picks the category's spelling, exactly as `_var_json` does
+    — these rows carry the same column, and `tfci` reads them here too. It was
+    emitting the stored name unconditionally, which would have started sending
+    `native` to a client whose constants are `terraform` the moment the column
+    was renamed (#1898). Defaults to the compatible name for the same reason.
+    """
     return {
         "id": f"var-{vsv.id}",
         "type": "vars",
@@ -742,7 +833,7 @@ def _vsvar_json(vsv: VariableSetVariable, varset_id: str) -> dict:
             # not a secret, so it is shown rather than masked (#1439).
             "value": _visible_value(vsv),
             "sensitive": vsv.sensitive,
-            "category": vsv.category,
+            "category": variable_service.wire_category(vsv.category, tfe_surface=tfe_surface),
             "structured": vsv.structured,
             "hcl": vsv.structured,
             "value-source": vsv.value_source,
@@ -759,7 +850,7 @@ def _vsvar_json(vsv: VariableSetVariable, varset_id: str) -> dict:
     }
 
 
-@router.get("/varsets/{varset_id}/relationships/vars")
+@dual_router.get("/varsets/{varset_id}/relationships/vars")
 async def list_varset_vars(
     varset_id: str = Path(...),
     request: Request = None,
@@ -769,14 +860,15 @@ async def list_varset_vars(
     """List variables in a variable set."""
     vs = await _get_varset(varset_id, db)
     await db.refresh(vs, ["variables"])
-    items = [_vsvar_json(v, varset_id) for v in vs.variables]
+    items = [_vsvar_json(v, varset_id, tfe_surface=_is_tfe(request)) for v in vs.variables]
     page_items, meta = paginate(items, request)
     return JSONResponse(content={"data": page_items, "meta": meta})
 
 
-@router.post("/varsets/{varset_id}/relationships/vars", status_code=201)
+@dual_router.post("/varsets/{varset_id}/relationships/vars", status_code=201)
 async def create_varset_var(
     varset_id: str = Path(...),
+    request: Request = None,
     body: dict = Body(...),
     user: AuthenticatedUser = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
@@ -827,12 +919,16 @@ async def create_varset_var(
     await db.commit()
     await db.refresh(vsv)
 
-    return JSONResponse(content={"data": _vsvar_json(vsv, varset_id)}, status_code=201)
+    return JSONResponse(
+        content={"data": _vsvar_json(vsv, varset_id, tfe_surface=_is_tfe(request))},
+        status_code=201,
+    )
 
 
-@router.patch("/varsets/{varset_id}/relationships/vars/{var_id}")
+@dual_router.patch("/varsets/{varset_id}/relationships/vars/{var_id}")
 async def update_varset_var(
     varset_id: str = Path(...),
+    request: Request = None,
     var_id: str = Path(...),
     body: dict = Body(...),
     user: AuthenticatedUser = Depends(require_admin),
@@ -907,10 +1003,10 @@ async def update_varset_var(
 
     await db.commit()
     await db.refresh(vsv)
-    return JSONResponse(content={"data": _vsvar_json(vsv, varset_id)})
+    return JSONResponse(content={"data": _vsvar_json(vsv, varset_id, tfe_surface=_is_tfe(request))})
 
 
-@router.delete("/varsets/{varset_id}/relationships/vars/{var_id}", status_code=204)
+@dual_router.delete("/varsets/{varset_id}/relationships/vars/{var_id}", status_code=204)
 async def delete_varset_var(
     varset_id: str = Path(...),
     var_id: str = Path(...),
@@ -1021,7 +1117,7 @@ async def list_workspace_varsets(
     Uses the same resolver as injection, so what is listed here is what the run
     will actually receive.
     """
-    ws = await _get_workspace(workspace_id, db)
+    ws = await _get_workspace(workspace_id, db, request=request)
     caps = await resolve_workspace_capabilities_for(db, user, ws)
     if not has_capability(caps, cap.WORKSPACE_READ):
         raise HTTPException(status_code=404, detail="Workspace not found")

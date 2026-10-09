@@ -225,6 +225,38 @@ class TestBulkUpdateValidation:
     @patch("terrapod.api.app.init_storage", new_callable=AsyncMock)
     @patch("terrapod.api.app.init_redis")
     @patch("terrapod.api.app.init_db")
+    async def test_ansible_version_prerelease_422_no_commit(self, *_mocks):
+        """The same policy the single-workspace routes apply (#2010).
+
+        Bulk update is the documented way to move a fleet's ansible version, so
+        it is also the way to move a whole fleet onto a release candidate a
+        GA-only deployment has refused everywhere else. It validates once up
+        front and the transaction is all-or-nothing, so a refusal must leave
+        nothing committed.
+        """
+        from terrapod.config import settings
+
+        body = {"filter": {"all": True}, "update": {"ansible-version": "2.21.5rc1"}}
+        with patch.object(settings.registry.binary_cache, "allow_prerelease", "none"):
+            resp, db = await self._post(body)
+        assert resp.status_code == 422
+        assert "allow_prerelease" in resp.json()["detail"]
+        db.commit.assert_not_awaited()
+
+    @patch("terrapod.api.app.init_storage", new_callable=AsyncMock)
+    @patch("terrapod.api.app.init_redis")
+    @patch("terrapod.api.app.init_db")
+    async def test_ansible_version_non_string_422(self, *_mocks):
+        """Unvalidated this reached a `String(20)` column raw and became a
+        DataError at commit -- a 500 where the guard exists to give a 422."""
+        body = {"filter": {"all": True}, "update": {"ansible-version": 2.21}}
+        resp, db = await self._post(body)
+        assert resp.status_code == 422
+        db.commit.assert_not_awaited()
+
+    @patch("terrapod.api.app.init_storage", new_callable=AsyncMock)
+    @patch("terrapod.api.app.init_redis")
+    @patch("terrapod.api.app.init_db")
     async def test_bad_execution_mode_422(self, *_mocks):
         body = {"filter": {"all": True}, "update": {"execution-mode": "remote"}}
         resp, db = await self._post(body)
@@ -958,3 +990,42 @@ class TestBulkUpdateRemainingSettings1763:
         resp = await self._post(app, {"pulumi-bind-plan": True})
         assert resp.status_code == 200, resp.text
         assert pu.pulumi_bind_plan is True
+
+
+class TestASettingRuleCannotValidateSomethingTheLoopNeverReaches:
+    """`_SETTING_RULES` is consulted ONLY inside the `_FIELD_MAP` loop.
+
+    So a rule keyed on something absent from `_FIELD_MAP` is dead code that
+    reads as validation. That is not hypothetical: `allow-fork-pr-plans`
+    shipped with a rule here and its name in `_FIELDS_HANDLED_SEPARATELY`
+    instead of the map. The parity gate passed -- that dict is exactly how a
+    setting declares "handled elsewhere" -- the admin form offered the
+    control, the bulk update reported success, and the column was never
+    written. Every mechanism in the chain said yes and nothing set the value.
+
+    The lesson generalises past this one field: an entry in
+    `_FIELDS_HANDLED_SEPARATELY` is an assertion that code exists, and the
+    parity gate takes it on trust. This checks the half that is checkable.
+    """
+
+    def test_every_setting_rule_keys_on_a_field_the_loop_actually_walks(self):
+        from terrapod.api.routers.workspace_bulk import _FIELD_MAP, _SETTING_RULES
+
+        orphaned = sorted(set(_SETTING_RULES) - set(_FIELD_MAP))
+        assert not orphaned, (
+            f"_SETTING_RULES has rule(s) for {orphaned}, which are not in _FIELD_MAP. "
+            "`_validate_scalar_fields` only consults a rule while iterating _FIELD_MAP, "
+            "so these never run. Either add the key to _FIELD_MAP so it is applied and "
+            "written, or delete the rule -- do not leave it looking like validation."
+        )
+
+    def test_nothing_is_in_both_the_field_map_and_the_handled_elsewhere_list(self):
+        """The two are alternatives. A key in both is a contradiction, and the
+        parity gate reads the union, so it would not notice."""
+        from terrapod.api.routers.workspace_bulk import (
+            _FIELD_MAP,
+            _FIELDS_HANDLED_SEPARATELY,
+        )
+
+        both = sorted(set(_FIELD_MAP) & set(_FIELDS_HANDLED_SEPARATELY))
+        assert not both, f"{both} claim to be both mapped and handled separately"

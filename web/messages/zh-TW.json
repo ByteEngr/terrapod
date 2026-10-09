@@ -27,6 +27,7 @@
     "account": "帳戶",
     "apiTokens": "API 令牌",
     "sessions": "會話",
+    "slackLinks": "Slack 連結",
     "logOut": "登出",
     "menu": "選單",
     "openMenu": "開啟選單",
@@ -70,7 +71,6 @@
       "agentPool": "代理池",
       "none": "無",
       "autoApply": "自動應用",
-      "autoApplyModeHint": "never：一律等待人工確認。always：套用每一個成功的計畫。create / create/update：只套用僅限於這些操作的計畫——絕不套用銷毀或取代。",
       "enabled": "已啟用",
       "workingDirectory": "工作目錄",
       "workingDirectoryPlaceholder": "例如 environments/dev",
@@ -372,6 +372,22 @@
         "load": "載入會話失敗",
         "revoke": "撤銷會話失敗（{status}）",
         "revokeGeneric": "撤銷會話失敗"
+      }
+    },
+    "slackLinks": {
+      "title": "Slack 連結",
+      "description": "可以以您身分操作的 Slack 帳戶。已連結的 Slack 帳戶能以您的權限核准與丟棄執行，因此請撤銷任何您不認識的連結。",
+      "empty": "沒有 Slack 帳戶與您連結。",
+      "revoke": "撤銷",
+      "confirmRevoke": "撤銷 Slack 使用者 {user} 的連結？該帳戶將無法再從 Slack 以您的身分操作。",
+      "columns": {
+        "slackUser": "Slack 使用者",
+        "team": "Slack 團隊",
+        "linkedAt": "連結時間"
+      },
+      "errors": {
+        "load": "無法載入您的 Slack 連結。",
+        "revoke": "無法撤銷該 Slack 連結。"
       }
     }
   },
@@ -761,7 +777,9 @@
       "setAssignmentStatus": "設定分配失敗（{status}）",
       "deleteAssignment": "刪除分配失敗",
       "conflictingLabelKeys": "{keys} 被指定了多個值。標籤規則每個索引鍵只保留一個值，因此最後一個會悄悄取代先前的值。API 支援一個索引鍵對應多個值，但此處尚不能設定。"
-    }
+    },
+    "pinnedToSubject": "已釘選",
+    "pinnedToSubjectTitle": "已釘選至 IdP 主體 {subject}"
   },
   "adminVcs": {
     "title": "VCS 連線",
@@ -774,6 +792,23 @@
       "delete": "刪除"
     },
     "confirmDelete": "刪除此 VCS 連線？使用它的工作區將失去 VCS 整合。此操作無法撤銷。",
+    "access": {
+      "heading": "誰可以使用此連線",
+      "intro": "這三項設定決定哪些工作區可以指向此連線。憑證本身仍為唯寫。",
+      "ownerEmail": "擁有者電子郵件",
+      "ownerEmailHint": "擁有者一律可以使用此連線。留空可讓此連線沒有擁有者。",
+      "labels": "存取標籤",
+      "labelsHint": "規則與這些標籤相符的角色可以將工作區指向此連線。",
+      "allowedRepositories": "允許的存放庫",
+      "allowedRepositoriesHint": "與工作區要求使用的存放庫進行比對的 glob 模式。",
+      "addPattern": "新增模式",
+      "anyRepositoryWarning": "未列出任何模式，因此此連線可以指向任何存放庫。",
+      "restricted": "已列出 {count, plural, one {# 個模式} other {# 個模式}}，因此與其中任何一個都不相符的存放庫都會被拒絕。",
+      "ownedBy": "由 {email} 擁有",
+      "unowned": "未設定擁有者",
+      "anyRepositorySummary": "允許任何存放庫",
+      "repositoryCount": "僅限 {count, plural, one {# 個存放庫} other {# 個存放庫}}"
+    },
     "form": {
       "name": "名稱",
       "namePattern": "僅限字母、數字、連字元和下劃線。必須以字母或數字開頭。",
@@ -922,7 +957,6 @@
       "varKey": "鍵",
       "varValue": "值",
       "varCategory": "類別",
-      "categoryTerraform": "Terraform",
       "categoryEnv": "環境",
       "sensitive": "敏感",
       "sensAbbr": "敏感",
@@ -988,7 +1022,9 @@
       "valueSource": "值來源",
       "valueSourceStatic": "直接輸入值",
       "valueSourceVault": "從 OpenBao/Vault 讀取",
-      "vaultHint": "Terrapod 於執行時從 OpenBao（或 HashiCorp Vault）讀取密鑰，此處不會儲存任何內容。"
+      "vaultHint": "Terrapod 於執行時從 OpenBao（或 HashiCorp Vault）讀取密鑰，此處不會儲存任何內容。",
+      "categoryNative": "原生",
+      "structured": "結構化"
     }
   },
   "adminAutodiscovery": {
@@ -1076,7 +1112,10 @@
       "terragruntVersion": "Terragrunt 版本",
       "noExpiry": "不過期",
       "addDriftIgnoreRule": "新增規則",
-      "debugModeHint": "在此規則建立的工作區上讓失敗執行器的 Pod 保持開啟。預設關閉 — 保持開啟的 Pod 會保留該工作區的憑證。"
+      "debugModeHint": "在此規則建立的工作區上讓失敗執行器的 Pod 保持開啟。預設關閉 — 保持開啟的 Pod 會保留該工作區的憑證。",
+      "allowForkPrPlansHint": "適用於此規則建立的每個工作區。預設關閉：來自 fork 的拉取請求不會取得推測性計畫，因為那會以工作區的憑證執行其作者的程式碼。",
+      "oidcAudiences": "執行身分受眾（由所建立的工作區繼承）",
+      "oidcAudiencesHint": "套用到此規則建立的每個工作區上的受眾覆寫，以權杖所對應的 provider 設定為鍵 — aws，或帶別名的設定用 aws.west。留空則這些工作區使用部署自身的設定。"
     },
     "table": {
       "name": "名稱",
@@ -1270,7 +1309,8 @@
       "cancel": "取消",
       "working": "正在處理...",
       "previewDryRun": "預覽（試執行）",
-      "applyChanges": "應用更改"
+      "applyChanges": "應用更改",
+      "setOidcAudiences": "設定執行身分的 OIDC 受眾（替換每個相符工作區上的對映）"
     },
     "diff": {
       "colWorkspace": "工作區",
@@ -1919,12 +1959,24 @@
       "always": "一律",
       "create": "建立",
       "createUpdate": "建立/更新"
+    },
+    "oidcAudiences": {
+      "addProvider": "新增 provider 設定",
+      "audiences": "受眾",
+      "badgeInherited": "部署預設值",
+      "badgeOwned": "工作區",
+      "issuerDisabled": "此部署未簽發任何 OpenID Connect 簽發者，因此這裡設定的任何內容都不會生效。",
+      "override": "覆寫",
+      "overrideAria": "在此工作區覆寫 {provider} 的受眾",
+      "providerDuplicate": "該 provider 設定已有一筆項目。",
+      "providerInvalid": "provider 名稱不含空格，且最多一個點 — aws，或 aws.west。",
+      "providerPlaceholder": "aws，或 aws.west",
+      "removeProviderAria": "移除 provider 設定 {provider}"
     }
   },
   "planSummary": {
     "aiGenerated": "AI 生成",
     "heading": {
-      "planSummary": "計畫摘要",
       "failureAnalysis": "失敗分析"
     },
     "errors": {
@@ -1933,13 +1985,11 @@
     "regenerate": {
       "label": "重新生成",
       "queueing": "正在排隊…",
-      "tooltip": "針對相同的計畫輸入重新執行 AI 摘要",
       "ariaLabel": "重新生成 AI 摘要",
       "confirm": "重新生成 AI 分析？這將再次執行模型。",
       "error": "無法重新生成：<mono>{detail}</mono>"
     },
     "pending": {
-      "summarisingPlan": "正在摘要計畫…",
       "analysingFailure": "正在分析失敗…"
     },
     "skipped": {
@@ -1963,7 +2013,6 @@
     "badges": {
       "noChanges": "無更改",
       "noChangesLower": "無更改",
-      "noChangesTitle": "計畫報告沒有資源更改",
       "toAdd": "{count, plural, one {# 項待新增} other {# 項待新增}}",
       "toChange": "{count, plural, one {# 項待更改} other {# 項待更改}}",
       "toDestroy": "{count, plural, one {# 項待銷毀} other {# 項待銷毀}}",
@@ -1973,7 +2022,6 @@
     "chat": {
       "heading": "追問",
       "sharedThreadNote": "一個共享執行緒，對任何具有工作區讀取權限的人可見。",
-      "placeholder": "就此計畫提一個追問… （⌘/Ctrl + Enter 傳送）",
       "send": "傳送",
       "thinking": "正在思考…",
       "you": "你",
@@ -1997,7 +2045,6 @@
     "workspaceFallback": "工作區",
     "backTo": "返回 {name}",
     "errorHeading": "錯誤",
-    "discardedHeading": "已丟棄 — 需要重新計畫",
     "common": {
       "yes": "是",
       "no": "否"
@@ -2051,14 +2098,13 @@
     },
     "badge": {
       "destroy": "銷毀",
-      "planOnly": "僅計畫"
+      "savedPlan": "已儲存的計畫",
+      "savedPlanHint": "套用已延後：在套用已儲存的計畫之前，此執行不會佔用工作區。"
     },
     "actions": {
       "retryShort": "重試",
       "retryFull": "重試執行",
       "retrying": "正在重試…",
-      "confirmShort": "應用",
-      "confirmFull": "確認並應用",
       "confirming": "正在確認…",
       "discard": "丟棄",
       "discarding": "正在丟棄…",
@@ -2068,8 +2114,6 @@
       "queuing": "正在加入佇列…"
     },
     "confirm": {
-      "apply": "應用此執行？這將應用計畫並更改基礎設施。",
-      "discard": "丟棄此計畫？",
       "cancel": "取消此執行？",
       "retry": "重試此執行？"
     },
@@ -2092,20 +2136,19 @@
       "impactFull": "影響圖",
       "cost": "成本",
       "costFull": "成本估算",
-      "planLabel": "計畫<log>日誌</log>",
-      "applyLabel": "應用<log>日誌</log>",
-      "planFull": "計畫日誌",
-      "applyFull": "應用日誌",
       "details": "詳情",
       "security": "安全",
       "securityFull": "安全掃描"
     },
     "banner": {
       "destroy": "這是一次<strong>銷毀</strong>執行 — 應用時所有受管理的資源都將被銷毀。",
-      "planOnlyCli": "這是從 CLI 在已連線 VCS 的工作區上發起的<strong>僅計畫</strong>執行。對於 CLI 上傳的程式碼不可應用 — 只有 VCS 管理的程式碼才能被應用。",
       "moduleOverridesPrefix": "此執行使用<strong>模組覆蓋</strong>",
       "moduleOverridesFromPr": "來自 PR #{number}",
       "moduleOverridesSuffix": "將從 PR 分支而非已釋出的登錄庫版本獲取。"
+    },
+    "bindPlan": {
+      "bound": "已鎖定至此預覽：更新會嚴格套用此處顯示的計畫，自預覽以來的任何變化都會使更新失敗，而不會被套用。",
+      "unbound": "未鎖定至此預覽：更新執行時會像一般的 pulumi up 一樣自行判斷變更，因此實際套用的內容可能與此處顯示的不同。"
     },
     "cards": {
       "changes": "更改",
@@ -2117,7 +2160,6 @@
     },
     "changes": {
       "noChanges": "無更改",
-      "planning": "正在計畫…",
       "toAdd": "待新增",
       "toChange": "待更改",
       "toDestroy": "待銷毀",
@@ -2154,7 +2196,6 @@
       "executionBackend": "執行後端",
       "source": "來源",
       "autoApply": "自動應用",
-      "planOnly": "僅計畫",
       "triggeredBy": "觸發者",
       "created": "建立時間",
       "commit": "提交",
@@ -2170,11 +2211,7 @@
     "timeline": {
       "heading": "時間線",
       "queued": "已排隊",
-      "planningStarted": "計畫已開始",
-      "planComplete": "計畫已完成",
       "confirmed": "已確認",
-      "applyingStarted": "應用已開始",
-      "applied": "已應用",
       "errored": "已出錯",
       "canceled": "已取消",
       "discarded": "已丟棄"
@@ -2198,12 +2235,8 @@
       "followOffTitle": "跟隨實時尾部",
       "end": "末尾",
       "endTitle": "跳轉到日誌末尾",
-      "planEmpty": "暫無可用的計畫輸出。",
-      "applyEmpty": "暫無可用的應用輸出。",
       "index": {
         "label": "跳至",
-        "title": "跳至資源變更或計畫摘要",
-        "summary": "計畫摘要",
         "action": {
           "create": "建立",
           "update": "更新",
@@ -2215,13 +2248,11 @@
           "error": "錯誤",
           "warning": "警告"
         }
-      },
-      "applySkippedNoChanges": "未執行套用：計畫中沒有變更，因此無需套用。"
+      }
     },
     "policyPanel": {
       "heading": "策略檢查",
       "passedCount": "{passed}/{total} 已透過",
-      "blockedMessage": "此執行<strong>被強制策略集阻止</strong>。在失敗得到解決或管理員覆蓋之前，它不會應用。",
       "overriding": "正在覆蓋...",
       "overrideContinue": "覆蓋並繼續",
       "overrideFailed": "覆蓋失敗",
@@ -2261,7 +2292,6 @@
       "unpricedHint": "定價資料中沒有與這些資源相符的項目——未對應的類型、沒有直接成本的資源，或尚未支援的供應商。",
       "indicative": "估算僅供參考；實際成本取決於使用量、區域、承諾用量與折扣。",
       "asOfState": "截至狀態 v{serial}",
-      "noState": "尚無成本 — 首次套用後顯示。",
       "usageBand": "{dimension}：典型 {typical} {unit}（範圍 {low}–{high}）",
       "usageBandCost": "{dimension}：典型 {costTypical}/月 — {low}–{high} {unit} 區間 {costLow}–{costHigh}"
     },
@@ -2348,7 +2378,6 @@
       "passed": "沒有相符的政策準則。",
       "overriding": "正在覆蓋...",
       "overrideContinue": "覆蓋並繼續",
-      "overrideConfirm": "覆寫 AI 政策閘門並允許此執行在存在裁定的情況下套用？",
       "overrideFailed": "覆蓋失敗",
       "overrideFailedStatus": "覆蓋失敗（{status}）",
       "overriddenBy": "由 {by} 覆蓋"
@@ -2407,9 +2436,6 @@
       "translatedNote": "檢視時從原文翻譯。"
     },
     "drift": {
-      "remediate": "計畫 + 套用",
-      "remediateTitle": "將計畫 + 套用執行加入佇列，使基礎架構重新與組態一致",
-      "remediateConfirm": "要為此工作區加入計畫 + 套用執行嗎？",
       "remediateMessage": "由偏移檢查加入佇列",
       "remediateFailed": "無法將修復執行加入佇列"
     }
@@ -2469,6 +2495,7 @@
       "architecture": "架構",
       "insights": "洞察",
       "automation": "自動化",
+      "inventory": "清單",
       "access": "存取"
     },
     "lifecycle": {
@@ -2501,6 +2528,9 @@
       "version": "版本",
       "versionPlaceholder": "例如 1.11 或 1.11.5",
       "versionTitle": "版本採用 X.Y 或 X.Y.Z 格式（例如 1.11 或 1.11.5）",
+      "ansibleVersion": "Ansible 版本",
+      "ansibleVersionPlaceholder": "例如 2.21.5",
+      "ansibleVersionTitle": "此工作區使用的 ansible-core 版本。留空則遵循部署預設設定。",
       "terragruntEnabledAgent": "已啟用（代理模式）",
       "terragruntEnabledVersion": "已啟用（v{version}）",
       "terragruntVersionPlaceholder": "例如 1.0",
@@ -2541,12 +2571,16 @@
       "engineTerraform": "Terraform",
       "nameTitlePulumi": "由 '::' 分隔的兩部分 — project::stack。僅限字母、數字、連字號與底線；每部分必須以字母或數字開頭。",
       "bindPlan": "將更新鎖定至已核准的預覽",
-      "bindPlanHelp": "開啟後，更新會嚴格套用預覽儲存的計畫，因此自預覽以來的任何變化都會使更新失敗，而不會被套用。此功能仰賴 Pulumi 的更新計畫，目前仍屬實驗性質。關閉後，更新會像一般的 pulumi up 一樣自行判斷變更。<docs>Pulumi 執行的運作方式</docs>"
+      "bindPlanHelp": "開啟後，更新會嚴格套用預覽儲存的計畫，因此自預覽以來的任何變化都會使更新失敗，而不會被套用。此功能仰賴 Pulumi 的更新計畫，目前仍屬實驗性質。關閉後，更新會像一般的 pulumi up 一樣自行判斷變更。<docs>Pulumi 執行的運作方式</docs>",
+      "oidcAudiences": "執行身分受眾",
+      "oidcAudiencesAdd": "新增受眾",
+      "oidcAudiencesHint": "Terrapod 為執行所使用的每個 provider 設定簽發一個短期的 OpenID Connect 權杖，並寫入執行可讀取的檔案。項目的鍵使用你的設定對該 provider 的命名 — aws，或帶別名的設定用 aws.west — 然後列出該目標接受的受眾。每筆項目會覆寫部署自身針對該 provider 的設定；移除它，該 provider 便回退到部署的受眾。受眾是聯合目標自行選定的不透明字串，因此會依你輸入的原樣儲存。",
+      "oidcAudiencesLoading": "正在檢查部署中設定的受眾 …",
+      "oidcAudiencesNone": "無（執行使用代理池自身的身分）",
+      "oidcAudiencesPlaceholder": "例如 sts.amazonaws.com"
     },
     "vcsWorkflowWarning": {
       "title": "授權已委託給您的 VCS 倉庫。",
-      "rbac": "任何能夠合併 PR 的人都可以應用。分支保護規則（必需的審查、狀態檢查、程式碼所有者批准）成為把關。在此模式下，Terrapod 的角色/標籤 RBAC <em>不</em>適用於由評論驅動的操作。",
-      "recommended": "<strong>建議：</strong>要求線性歷史（合併前進行 rebase/squash），以便您應用的提交就是最終落地的提交。",
       "credit": "致謝：此工作流參照 <atlantis>Atlantis</atlantis> 設計。對於只需要 PR 評論驅動應用、不需要平台 UI 的團隊，Atlantis 仍是合適的工具。"
     },
     "vcsPolling": {
@@ -2562,7 +2596,6 @@
     },
     "lock": {
       "title": "鎖定狀態",
-      "lockedDesc": "此工作區已鎖定。無法執行任何計畫或應用。",
       "unlockedDesc": "此工作區已解鎖，可供執行。",
       "lock": "鎖定",
       "unlock": "解鎖",
@@ -2584,7 +2617,6 @@
       "dismissTitle": "清除已報告的漂移狀態。下次計畫檢查將根據實際情況重新填充它。",
       "lastChecked": "上次檢查",
       "checkNow": "立即檢查",
-      "checkNowTitle": "排隊一次僅計畫執行以檢查漂移",
       "checkNowTitleDisabled": "請先啟用漂移檢測"
     },
     "intervals": {
@@ -2598,13 +2630,10 @@
       "7days": "7 天"
     },
     "planExpiry": {
-      "title": "計畫過期",
-      "description": "當未確認的計畫超過此時長後自動丟棄，以防止過時的計畫針對已變化的環境被應用。預設關閉；關閉時計畫必須重新執行。（僅適用於可應用的執行。）",
       "expireAfter": "過期時長"
     },
     "aiSummary": {
       "title": "AI 計畫摘要",
-      "description": "對此工作區每個計畫階段的結果自動生成由 LLM 編寫的更改摘要、風險評估和失敗分析。",
       "mode": "模式",
       "modeDefault": "遵循部署預設設定",
       "modeEnabled": "始終摘要",
@@ -2619,7 +2648,6 @@
     },
     "slack": {
       "title": "Slack 通知",
-      "description": "讓此工作區選擇接收 Slack 執行通知 — 審批請求、應用、錯誤和漂移。將頻道留空則此工作區保持靜默（沒有部署級扇出）。需要管理員啟用 Slack 應用。",
       "channel": "頻道",
       "channelPlaceholder": "#deploys 或頻道 ID（例如 C0123ABCD）",
       "notSet": "未設定 — 靜默。",
@@ -2694,20 +2722,18 @@
       "vaultFileEncoding": "編碼",
       "vaultFileEncodingNone": "依 OpenBao/Vault 中儲存的原樣",
       "vaultFileEncodingBase64": "Base64 解碼",
-      "vaultFileEncodingHint": "在寫入前解碼該欄位。結果必須是文字；不支援二進位檔案。"
+      "vaultFileEncodingHint": "在寫入前解碼該欄位。結果必須是文字；不支援二進位檔案。",
+      "categoryNative": "原生",
+      "structured": "結構化",
+      "categoryTerraform": "Terraform",
+      "categoryPulumiConfig": "Pulumi 配置"
     },
     "runs": {
       "options": "選項",
       "hideOptions": "隱藏選項",
       "queueDestroy": "銷毀",
-      "queueDestroyTitle": "排隊一次銷毀計畫",
       "destroyAllConfirm": "銷毀所有資源？",
       "confirmDestroy": "確認銷毀",
-      "queuePlan": "計畫",
-      "queueRun": "計畫 + 套用",
-      "queuePlanConfirm": "為此工作區排隊一次推測性計畫？",
-      "queueApplyConfirm": "排隊一次 plan + apply 執行？這可能會更改基礎設施。",
-      "planOptions": "計畫選項",
       "targetResources": "目標資源",
       "replaceResources": "替換資源",
       "commaSeparated": "（逗號分隔）",
@@ -2718,7 +2744,6 @@
       "branch": "分支",
       "tag": "標籤",
       "defaultBranch": "預設（{branch}）",
-      "nonDefaultRefNote": "已選擇非預設引用 — 執行將僅計畫",
       "empty": "此工作區暫無執行。",
       "runId": "執行 ID",
       "status": "狀態",
@@ -2729,13 +2754,11 @@
       "created": "建立時間",
       "needsConfirm": "需要確認",
       "typeDestroy": "銷毀",
-      "typePlanOnly": "僅計畫",
-      "typePlanApply": "plan + apply",
       "sourceModuleTest": "模組測試",
       "sourceModulePublish": "模組釋出",
-      "queueApplyTitle": "將計畫 + 套用執行加入佇列",
-      "queueApplyRefBlocked": "選取分支、標籤或提交時無法套用——這些執行一律僅為計畫",
-      "awaitingDecision": "等待決定"
+      "awaitingDecision": "等待決定",
+      "typeSavedPlan": "已儲存的計畫",
+      "typeSavedPlanHint": "套用已延後：在套用已儲存的計畫之前，此執行不會佔用工作區。"
     },
     "state": {
       "deleteConfirm": "刪除狀態版本 #{serial}？此操作無法撤銷。",
@@ -2752,12 +2775,18 @@
       "runner": "執行器",
       "latest": "最新"
     },
+    "stateOutputs": {
+      "title": "輸出",
+      "fromSerial": "序列號 #{serial}",
+      "empty": "此狀態未宣告任何輸出。",
+      "sensitive": "敏感",
+      "loadFailed": "載入此工作區的輸出失敗。"
+    },
     "configurations": {
       "description": "此工作區已上傳的源歸檔，最新的在前。選擇兩行進行比較。",
       "selectedCount": "已選擇 {count}/2",
       "compare": "比較",
       "comparing": "正在比較…",
-      "empty": "暫無配置版本。當 `terraform plan` 上傳或 VCS 推送觸發執行時，它們會立即在此處顯示。",
       "id": "ID",
       "source": "來源",
       "status": "狀態",
@@ -2819,7 +2848,6 @@
     },
     "runTriggers": {
       "title": "執行觸發器",
-      "description": "當源工作區完成一次應用時，下游工作區會自動排隊一次新執行。每個目標最多 20 個源工作區。",
       "inboundHeading": "在此處觸發執行的源工作區",
       "inboundEmpty": "沒有源工作區在此工作區上觸發執行。",
       "pickerPlaceholder": "搜尋要新增為源的工作區…",
@@ -2827,6 +2855,173 @@
       "outboundEmpty": "此工作區不會在任何其他工作區上觸發執行。",
       "destinationNote": "（目標；請從那裡移除）",
       "removeConfirm": "移除此執行觸發器？"
+    },
+    "inventory": {
+      "scope": {
+        "heading": "清單",
+        "body": "此工作區持有的主機和主機組，以及 ansible 對它們的解析結果。每一行都可以在此編輯；但還無法針對它們執行 Playbook。"
+      },
+      "nav": {
+        "label": "清單區段",
+        "hosts": "主機",
+        "groups": "主機組",
+        "vars": "變數",
+        "resolved": "解析結果",
+        "settings": "設定"
+      },
+      "actions": {
+        "save": "儲存",
+        "saving": "正在儲存…",
+        "cancel": "取消",
+        "edit": "編輯",
+        "delete": "刪除",
+        "remove": "移除",
+        "add": "新增",
+        "adding": "正在新增…",
+        "rename": "重新命名"
+      },
+      "hosts": {
+        "heading": "主機",
+        "body": "每行一台主機。開啟某台主機即可編輯它的變數和它所屬的主機組。",
+        "empty": "尚無主機。",
+        "colName": "主機",
+        "colGroups": "主機組",
+        "colVars": "變數",
+        "newLabel": "新主機名稱",
+        "newPlaceholder": "web-1",
+        "add": "新增主機",
+        "confirmDelete": "刪除主機 {name}？它的變數和它的主機組歸屬會一併刪除。",
+        "renameLabel": "主機名稱"
+      },
+      "groups": {
+        "heading": "主機組",
+        "body": "每行一個主機組。開啟某個主機組即可編輯它的變數、它的成員主機，以及巢狀在它裡面的主機組。",
+        "empty": "尚無主機組。",
+        "colName": "主機組",
+        "colMembers": "主機",
+        "colChildren": "子組",
+        "colVars": "變數",
+        "newLabel": "新主機組名稱",
+        "newPlaceholder": "web",
+        "add": "新增主機組",
+        "confirmDelete": "刪除主機組 {name}？它的變數和成員關係會一併刪除，但主機本身保留。",
+        "renameLabel": "主機組名稱"
+      },
+      "vars": {
+        "actions": "操作",
+        "key": "鍵",
+        "keyPlaceholder": "ansible_user",
+        "value": "值",
+        "structured": "結構化",
+        "sensitive": "敏感",
+        "structuredHelp": "列表、數字或物件屬於結構化值：勾選「結構化」，並在值中寫出它的字面原始碼。敏感值永遠不會被回讀 — 該欄位改為顯示遮罩。",
+        "structuredBadge": "結構化",
+        "sensitiveKeep": "留空以保留已儲存的值。",
+        "empty": "此處沒有變數。",
+        "add": "新增變數",
+        "confirmDelete": "刪除變數 {key}？"
+      },
+      "hostDetail": {
+        "heading": "主機 {name}",
+        "body": "這一台主機所承載的全部內容。",
+        "back": "返回主機列表",
+        "gone": "該主機已不存在。",
+        "vars": "主機變數",
+        "varsBody": "僅適用於這台主機的變數。它們會覆蓋同名的主機組變數。",
+        "memberships": "主機組",
+        "membershipsBody": "這台主機所屬的主機組。成員關係只是一條關聯，因此在此移除其中一條後，主機和主機組都會保留。",
+        "membershipsEmpty": "這台主機不屬於任何主機組，因此 ansible 會把它放進 ungrouped。",
+        "addGroup": "新增到主機組",
+        "addGroupLabel": "選擇主機組",
+        "removeGroupAria": "將這台主機從 {name} 中移除",
+        "confirmRemoveGroup": "要把這台主機從 {name} 中移出嗎？"
+      },
+      "groupDetail": {
+        "heading": "主機組 {name}",
+        "body": "這一個主機組所承載的全部內容。",
+        "back": "返回主機組列表",
+        "gone": "該主機組已不存在。",
+        "vars": "主機組變數",
+        "varsBody": "適用於此主機組中每一台主機的變數，無論是直接歸屬還是透過巢狀。",
+        "members": "成員主機",
+        "membersBody": "直接屬於此主機組的主機。僅透過巢狀的主機組才到達的主機不會列在這裡。",
+        "membersEmpty": "此主機組沒有直接歸屬的主機。",
+        "addHost": "新增主機",
+        "addHostLabel": "選擇主機",
+        "removeHostAria": "將 {name} 從此主機組中移除",
+        "confirmRemoveHost": "要把 {name} 從此主機組中移出嗎？",
+        "children": "子組",
+        "childrenBody": "巢狀在此主機組內的主機組。它們的主機同樣是此主機組的成員，此主機組的變數也會作用於它們。",
+        "childrenEmpty": "此主機組內沒有巢狀任何主機組。",
+        "addChild": "新增子組",
+        "addChildLabel": "選擇要巢狀的主機組",
+        "removeChildAria": "將 {name} 從此主機組的子組中移除",
+        "confirmRemoveChild": "不再把 {name} 巢狀在此主機組內嗎？",
+        "parents": "父組",
+        "parentsBody": "此主機組被巢狀進的那些主機組。一個主機組可以有多個父組。",
+        "parentsEmpty": "此主機組沒有被巢狀在任何主機組內。",
+        "addParent": "新增父組",
+        "addParentLabel": "選擇父組",
+        "removeParentAria": "將此主機組從 {name} 中移除",
+        "confirmRemoveParent": "不再把此主機組巢狀在 {name} 內嗎？"
+      },
+      "globalVars": {
+        "heading": "清單變數",
+        "body": "適用於每一台主機的變數 — 即 ansible 的 group_vars/all。同名的主機組變數或主機變數會覆蓋在此設定的值。"
+      },
+      "resolved": {
+        "heading": "解析後的主機",
+        "body": "ansible 對這些行的解讀：經過合併和優先順序之後，每台主機最終持有的變數。",
+        "hosts": "主機",
+        "groups": "主機組",
+        "liveNote": "這是即時的。此處的每個來源都是靜態的，因此每次讀取都會就地解析這些行來給出答案 — 沒有什麼需要重新整理。",
+        "noHosts": "沒有任何內容解析為主機。",
+        "noVars": "無變數",
+        "groupsHeading": "主機組成員關係",
+        "directOnly": "只顯示直接成員關係，與 ansible 的報告完全一致：若某個主機組的主機全都是透過巢狀的主機組而來，它便不會列出任何自己的主機。巢狀關係見下方。",
+        "noGroups": "沒有解析出任何主機組。",
+        "noDirectMembers": "無直接主機",
+        "nestingHeading": "主機組巢狀",
+        "nestingBody": "顯示哪些主機組位於哪些主機組之內。對父組施加的 limit 會涵蓋它之下的每一台主機。",
+        "noNesting": "沒有任何主機組被巢狀。",
+        "limitHeading": "limit 會選取什麼？",
+        "limitBody": "針對此清單展開 ansible 的 --limit 模式，在任何操作執行之前準確檢視它會選取哪些主機。展開由 ansible 自己完成，因此主機組、排除項和 ~regex 的行為都與執行時完全一致。",
+        "limitLabel": "limit 模式",
+        "limitPlaceholder": "web:!web-2",
+        "limitApply": "套用 limit",
+        "limitClear": "清除",
+        "limitApplied": "已限定為 {limit}。下方的內容全部是該模式所選取的。"
+      },
+      "settings": {
+        "heading": "設定",
+        "body": "此處持有的行是否計入，以及另外從哪個儲存庫讀取清單。",
+        "absent": "沒有設定，這也是預設情況：此處持有的主機和主機組就是整份清單。",
+        "includePlatform": "使用此處持有的主機和主機組",
+        "includePlatformHelp": "預設開啟。關閉後將僅從儲存庫解析，這些行仍會保留，但不會出現在結果中。",
+        "included": "是",
+        "excluded": "否",
+        "vcsConnection": "VCS 連線",
+        "vcsNone": "無",
+        "field": {
+          "repo-url": "儲存庫",
+          "branch": "分支",
+          "working-directory": "目錄"
+        },
+        "branchHelp": "留空則追蹤儲存庫的預設分支。",
+        "ignorePaths": "忽略的路徑",
+        "ignorePathsHelp": "每行一個 glob 模式。比對到的內容會從儲存庫讀取的清單中排除。",
+        "unset": "未設定",
+        "create": "新增設定",
+        "clear": "清除設定",
+        "confirmClear": "清除這些設定？與儲存庫的綁定會一併消失，但此處持有的主機和主機組會保留。"
+      },
+      "errors": {
+        "load": "載入清單失敗",
+        "save": "儲存失敗",
+        "delete": "刪除失敗",
+        "resolved": "解析清單失敗",
+        "settings": "儲存清單設定失敗"
+      }
     },
     "sharing": {
       "title": "遠端狀態共享",
@@ -2896,8 +3091,6 @@
       "addVariableStatus": "新增變數失敗（{status}）",
       "deleteVariable": "刪除變數失敗",
       "updateVariable": "更新變數失敗",
-      "queuePlan": "排隊計畫失敗",
-      "queuePlanStatus": "排隊計畫失敗（{status}）",
       "queueDestroy": "排隊銷毀失敗",
       "queueDestroyStatus": "排隊銷毀失敗（{status}）",
       "createNotification": "建立通知失敗",
@@ -2914,7 +3107,8 @@
       "uploadState": "上傳狀態失敗",
       "uploadStateFile": "上傳狀態檔案失敗",
       "updateSecurityScan": "更新安全掃描失敗",
-      "updateDebugMode": "更新偵錯模式失敗"
+      "updateDebugMode": "更新偵錯模式失敗",
+      "updateForkPlans": "更新 fork 拉取請求計畫失敗"
     },
     "subtabs": {
       "state": "狀態",
@@ -2967,6 +3161,14 @@
       "bannerTitle": "此工作區已開啟偵錯模式",
       "bannerBody": "失敗執行的 Pod 不會結束，而是保持開啟供檢查，並在保持期間保留此工作區的憑證與已解密的變數。排查完畢後請關閉偵錯模式。",
       "confirmEnable": "要開啟偵錯模式嗎？失敗執行的 Pod 將保持開啟，並保留此工作區的憑證與已解密的變數，直到時間窗到期或你刪除該 Pod。"
+    },
+    "allowForkPrPlans": {
+      "title": "來自 fork 的拉取請求的計畫",
+      "description": "從 fork 發起的拉取請求是否會取得推測性計畫。預設關閉，因為該計畫會以此工作區的憑證執行 fork 作者的程式碼。",
+      "label": "為 fork 的拉取請求執行計畫",
+      "hint": "一次執行會取得此工作區的環境變數、敏感值、所有由 Vault 解析的密鑰，以及該工作的雲端身分。從 fork 發起拉取請求的人沒有寫入權限，也無法合併，因此推測性計畫是其程式碼接觸到這些憑證的唯一途徑。請只為沒有任何值得竊取之物的工作區開啟它 — 例如一個接受社群貢獻的公開模組儲存庫。來自儲存庫自身分支的拉取請求不受影響，始終會執行計畫。",
+      "activeBadge": "已開啟",
+      "confirmEnable": "要為從 fork 發起的拉取請求執行計畫嗎？其作者的程式碼將使用此工作區的憑證與已解密的變數執行，且無需任何人事先核准。"
     }
   },
   "graphs": {
@@ -3189,11 +3391,14 @@
     "unknown": "未知",
     "confirm": {
       "prompt": "將此 Slack 帳戶關聯到<em>您的</em> Terrapod 身分？今後每個 Slack 操作（批准/丟棄）都將以此 Terrapod 使用者及其權限執行。",
+      "slackName": "Slack 帳戶",
       "slackUser": "Slack 使用者",
       "slackTeam": "Slack 團隊",
       "terrapodAccount": "Terrapod 帳戶",
       "warning": "僅當您本人剛剛從 Slack 發起此關聯時才繼續。如果不是，請關閉此標籤頁且不要關聯 — 這會將上方的 Slack 帳戶繫結到<em>您的</em> Terrapod 身分。",
-      "button": "確認並關聯"
+      "button": "確認並關聯",
+      "namesUnavailable": "Terrapod 無法取得此 Slack 帳戶的名稱。請核對上方的 ID，僅在您本人從 Slack 發起此連結時才繼續。",
+      "nameIsSelfChosen": "帳號代號在該 Slack 工作區內是唯一的；下方的顯示名稱由本人自行設定，因此請以代號為準。"
     },
     "success": {
       "message": "您的 Slack 帳戶現已關聯到 Terrapod。",
@@ -3416,7 +3621,77 @@
       },
       "status": {
         "planning": "正在計畫",
-        "applying": "正在應用"
+        "applying": "正在應用",
+        "planned": "已計畫",
+        "applied": "已應用"
+      },
+      "words": {
+        "actionConfirmFull": "確認並應用",
+        "actionConfirmShort": "應用",
+        "activityApplied": "應用已完成",
+        "activityConfirmed": "正在開始應用",
+        "activityDiscarded": "計畫已丟棄",
+        "activityPlannedComplete": "計畫已完成",
+        "activityPlannedConfirmable": "正在等待您確認並應用",
+        "activityPlannedSpeculative": "推測性計畫已完成",
+        "aiPolicyOverrideConfirm": "覆寫 AI 政策閘門並允許此執行在存在裁定的情況下套用？",
+        "aiSummaryDescription": "對此工作區每個計畫階段的結果自動生成由 LLM 編寫的更改摘要、風險評估和失敗分析。",
+        "aiSummaryTitle": "AI 計畫摘要",
+        "badgePlanOnly": "僅計畫",
+        "bannerPlanOnlyCli": "這是從 CLI 在已連線 VCS 的工作區上發起的<strong>僅計畫</strong>執行。對於 CLI 上傳的程式碼不可應用 — 只有 VCS 管理的程式碼才能被應用。",
+        "changesPlanning": "正在計畫…",
+        "configurationsEmpty": "暫無配置版本。當 `terraform plan` 上傳或 VCS 推送觸發執行時，它們會立即在此處顯示。",
+        "confirmApply": "應用此執行？這將應用計畫並更改基礎設施。",
+        "confirmDiscard": "丟棄此計畫？",
+        "costNoState": "尚無成本 — 首次套用後顯示。",
+        "detailsPlanOnly": "僅計畫",
+        "discardedHeading": "已丟棄 — 需要重新計畫",
+        "driftCheckNowTitle": "排隊一次僅計畫執行以檢查漂移",
+        "driftRemediate": "計畫 + 套用",
+        "driftRemediateConfirm": "要為此工作區加入計畫 + 套用執行嗎？",
+        "driftRemediateTitle": "將計畫 + 套用執行加入佇列，使基礎架構重新與組態一致",
+        "errorsQueuePlan": "排隊計畫失敗",
+        "errorsQueuePlanStatus": "排隊計畫失敗（{status}）",
+        "fieldsAutoMerge": "應用後自動合併",
+        "formAutoApplyModeHint": "never：一律等待人工確認。always：套用每一個成功的計畫。create / create/update：只套用僅限於這些操作的計畫——絕不套用銷毀或取代。",
+        "lockLockedDesc": "此工作區已鎖定。無法執行任何計畫或應用。",
+        "logApplyEmpty": "暫無可用的應用輸出。",
+        "logApplySkipped": "未執行套用：計畫中沒有變更，因此無需套用。",
+        "logIndexSummary": "計畫摘要",
+        "logIndexTitle": "跳至資源變更或計畫摘要",
+        "logPlanEmpty": "暫無可用的計畫輸出。",
+        "nonDefaultRefNote": "已選擇非預設引用 — 執行將僅計畫",
+        "planExpiryDescription": "當未確認的計畫超過此時長後自動丟棄，以防止過時的計畫針對已變化的環境被應用。預設關閉；關閉時計畫必須重新執行。（僅適用於可應用的執行。）",
+        "planExpiryTitle": "計畫過期",
+        "planOptions": "計畫選項",
+        "planSummaryChatPlaceholder": "就此計畫提一個追問… （⌘/Ctrl + Enter 傳送）",
+        "planSummaryHeading": "計畫摘要",
+        "planSummaryNoChangesTitle": "計畫報告沒有資源更改",
+        "planSummaryRegenerateTooltip": "針對相同的計畫輸入重新執行 AI 摘要",
+        "planSummarySummarising": "正在摘要計畫…",
+        "policyBlockedMessage": "此執行<strong>被強制策略集阻止</strong>。在失敗得到解決或管理員覆蓋之前，它不會應用。",
+        "queueApplyConfirm": "排隊一次 plan + apply 執行？這可能會更改基礎設施。",
+        "queueApplyRefBlocked": "選取分支、標籤或提交時無法套用——這些執行一律僅為計畫",
+        "queueApplyTitle": "將計畫 + 套用執行加入佇列",
+        "queueDestroyTitle": "排隊一次銷毀計畫",
+        "queuePlan": "計畫",
+        "queuePlanConfirm": "為此工作區排隊一次推測性計畫？",
+        "queueRun": "計畫 + 套用",
+        "replacePlaceholder": "e.g. aws_instance.web",
+        "runTriggersDescription": "當源工作區完成一次應用時，下游工作區會自動排隊一次新執行。每個目標最多 20 個源工作區。",
+        "tabApplyFull": "應用日誌",
+        "tabApplyLabel": "應用<log>日誌</log>",
+        "tabPlanFull": "計畫日誌",
+        "tabPlanLabel": "計畫<log>日誌</log>",
+        "targetPlaceholder": "e.g. aws_instance.web, aws_s3_bucket.data",
+        "timelineApplied": "已應用",
+        "timelineApplyingStarted": "應用已開始",
+        "timelinePlanComplete": "計畫已完成",
+        "timelinePlanningStarted": "計畫已開始",
+        "typePlanApply": "plan + apply",
+        "vcsWorkflowWarningRbac": "任何能夠合併 PR 的人都可以應用。分支保護規則（必需的審查、狀態檢查、程式碼所有者批准）成為把關。在此模式下，Terrapod 的角色/標籤 RBAC <em>不</em>適用於由評論驅動的操作。",
+        "vcsWorkflowWarningRecommended": "<strong>建議：</strong>要求線性歷史（合併前進行 rebase/squash），以便您應用的提交就是最終落地的提交。",
+        "slackDescription": "讓此工作區選擇接收 Slack 執行通知 — 審批請求、應用、錯誤和漂移。將頻道留空則此工作區保持靜默（沒有部署級扇出）。需要管理員啟用 Slack 應用。"
       }
     },
     "pulumi": {
@@ -3425,14 +3700,84 @@
         "applying": "正在執行 pulumi up"
       },
       "runStatus": {
-        "planning": "正在計畫",
-        "planned": "已計畫",
-        "applying": "正在應用",
-        "applied": "已應用"
+        "planning": "正在預覽",
+        "planned": "已預覽",
+        "applying": "正在更新",
+        "applied": "已更新"
       },
       "status": {
-        "planning": "正在計畫",
-        "applying": "正在應用"
+        "planning": "正在預覽",
+        "applying": "正在更新",
+        "planned": "已預覽",
+        "applied": "已更新"
+      },
+      "words": {
+        "actionConfirmFull": "確認並更新",
+        "actionConfirmShort": "更新",
+        "activityApplied": "更新已完成",
+        "activityConfirmed": "正在開始更新",
+        "activityDiscarded": "預覽已丟棄",
+        "activityPlannedComplete": "預覽已完成",
+        "activityPlannedConfirmable": "正在等待您確認並更新",
+        "activityPlannedSpeculative": "推測性預覽已完成",
+        "aiPolicyOverrideConfirm": "覆寫 AI 政策閘門並允許此執行在存在裁定的情況下更新？",
+        "aiSummaryDescription": "對此工作區每個預覽階段的結果自動生成由 LLM 編寫的更改摘要、風險評估和失敗分析。",
+        "aiSummaryTitle": "AI 預覽摘要",
+        "badgePlanOnly": "僅預覽",
+        "bannerPlanOnlyCli": "這是從 CLI 在已連線 VCS 的工作區上發起的<strong>僅預覽</strong>執行。對於 CLI 上傳的程式碼不可更新 — 只有 VCS 管理的程式碼才能被更新。",
+        "changesPlanning": "正在預覽…",
+        "configurationsEmpty": "暫無配置版本。當 VCS 推送觸發執行時，它們會立即在此處顯示。",
+        "confirmApply": "更新此執行？這將執行預覽的內容並更改基礎設施。",
+        "confirmDiscard": "丟棄此預覽？",
+        "costNoState": "尚無成本 — 首次更新後顯示。",
+        "detailsPlanOnly": "僅預覽",
+        "discardedHeading": "已丟棄 — 需要重新預覽",
+        "driftCheckNowTitle": "排隊一次僅預覽執行以檢查漂移",
+        "driftRemediate": "預覽 + 更新",
+        "driftRemediateConfirm": "要為此工作區加入預覽 + 更新執行嗎？",
+        "driftRemediateTitle": "將預覽 + 更新執行加入佇列，使基礎架構重新與組態一致",
+        "errorsQueuePlan": "排隊預覽失敗",
+        "errorsQueuePlanStatus": "排隊預覽失敗（{status}）",
+        "fieldsAutoMerge": "更新後自動合併",
+        "formAutoApplyModeHint": "never：一律等待人工確認。always：對每一個成功的預覽執行更新。create / create/update：只從僅限於這些操作的預覽進行更新——絕不進行銷毀或取代。",
+        "lockLockedDesc": "此工作區已鎖定。無法執行任何預覽或更新。",
+        "logApplyEmpty": "暫無可用的更新輸出。",
+        "logApplySkipped": "未執行更新：預覽中沒有變更，因此無需更新。",
+        "logIndexSummary": "預覽摘要",
+        "logIndexTitle": "跳至資源變更或預覽摘要",
+        "logPlanEmpty": "暫無可用的預覽輸出。",
+        "nonDefaultRefNote": "已選擇非預設引用 — 執行將僅預覽",
+        "planExpiryDescription": "當未確認的預覽超過此時長後自動丟棄，以防止過時的預覽針對已變化的環境被執行。預設關閉；關閉時預覽必須重新執行。（僅適用於可更新的執行。）",
+        "planExpiryTitle": "預覽過期",
+        "planOptions": "預覽選項",
+        "planSummaryChatPlaceholder": "就此預覽提一個追問… （⌘/Ctrl + Enter 傳送）",
+        "planSummaryHeading": "預覽摘要",
+        "planSummaryNoChangesTitle": "預覽報告沒有資源更改",
+        "planSummaryRegenerateTooltip": "針對相同的預覽輸入重新執行 AI 摘要",
+        "planSummarySummarising": "正在摘要預覽…",
+        "policyBlockedMessage": "此執行<strong>被強制策略集阻止</strong>。在失敗得到解決或管理員覆蓋之前，它不會更新。",
+        "queueApplyConfirm": "排隊一次 preview + update 執行？這可能會更改基礎設施。",
+        "queueApplyRefBlocked": "選取分支、標籤或提交時無法更新——這些執行一律僅為預覽",
+        "queueApplyTitle": "將預覽 + 更新執行加入佇列",
+        "queueDestroyTitle": "排隊一次銷毀預覽",
+        "queuePlan": "預覽",
+        "queuePlanConfirm": "為此工作區排隊一次推測性預覽？",
+        "queueRun": "預覽 + 更新",
+        "replacePlaceholder": "e.g. urn:pulumi:dev::shop::aws:ec2/instance:Instance::web",
+        "runTriggersDescription": "當源工作區完成一次更新時，下游工作區會自動排隊一次新執行。每個目標最多 20 個源工作區。",
+        "tabApplyFull": "更新日誌",
+        "tabApplyLabel": "更新<log>日誌</log>",
+        "tabPlanFull": "預覽日誌",
+        "tabPlanLabel": "預覽<log>日誌</log>",
+        "targetPlaceholder": "e.g. urn:pulumi:dev::shop::aws:s3/bucket:Bucket::assets",
+        "timelineApplied": "已更新",
+        "timelineApplyingStarted": "更新已開始",
+        "timelinePlanComplete": "預覽已完成",
+        "timelinePlanningStarted": "預覽已開始",
+        "typePlanApply": "preview + update",
+        "vcsWorkflowWarningRbac": "任何能夠合併 PR 的人都可以更新。分支保護規則（必需的審查、狀態檢查、程式碼所有者批准）成為把關。在此模式下，Terrapod 的角色/標籤 RBAC <em>不</em>適用於由評論驅動的操作。",
+        "vcsWorkflowWarningRecommended": "<strong>建議：</strong>要求線性歷史（合併前進行 rebase/squash），以便您據以更新的提交就是最終落地的提交。",
+        "slackDescription": "讓此工作區選擇接收 Slack 執行通知 — 審批請求、更新、錯誤和漂移。將頻道留空則此工作區保持靜默（沒有部署級扇出）。需要管理員啟用 Slack 應用。"
       }
     }
   },

@@ -91,7 +91,7 @@ Two consequences worth knowing before you write path-matching code:
 | `services/terrapod/` | API server (FastAPI) **and** the runner listener — one codebase, different entrypoints. Implicit namespace package (no `__init__.py`). | Python 3.14 |
 | `web/` | Next.js frontend + BFF (the single ingress; proxies `/api/*` to the API). | TypeScript / React |
 | `go-terrapod/` | Public, canonical Go SDK for the Terrapod API. Source of truth for the Go-side view of every endpoint. | Go |
-| `provider/` | `terraform-provider-terrapod` — the first-class **Terraform / OpenTofu provider for managing Terrapod itself as code** (28 `terrapod_*` resources + 11 data sources); a thin, typed wrapper over go-terrapod. See [`docs/terraform-provider.md`](docs/terraform-provider.md). | Go |
+| `provider/` | `terraform-provider-terrapod` — the first-class **Terraform / OpenTofu provider for managing Terrapod itself as code** (36 `terrapod_*` resources + 13 data sources); a thin, typed wrapper over go-terrapod. See [`docs/terraform-provider.md`](docs/terraform-provider.md). | Go |
 | `migrate/` | `terrapod-migrate` — TFE/HCP + Atlantis migration CLI. | Go |
 | `publish/` | `terrapod-publish` — registry publish CLI (client-signed provider/module uploads). | Go |
 | `query/` | `terrapod-query` — tofu-native discovery engine for onboarding existing resources (schema → filtered data-source query → `import {}` blocks; MPL, no BUSL). Standalone CLI + baked into the api/runner images. | Go |
@@ -307,6 +307,18 @@ Routing rules of thumb:
   outage shipped in v1.3.0 (#1244): the per-cycle metadata cache was reached
   through an optional `meta`, every poll-cycle test omitted it, and the wrapper
   was never once executed through the caller that uses it.
+- **Configuration an external tool consumes** — an environment variable, a
+  config file, a URL an external binary is pointed at — → a test that **drives
+  the tool**, or the nearest stand-in for it, and asserts the effect. Asserting
+  the string's shape is not the same thing and repeatedly reads as if it were:
+  the value can be perfectly well-formed, agree with every neighbouring setting,
+  and still configure something that cannot work. Terrapod pointed Pulumi's
+  plugin downloader at an authenticated cache the downloader never sends a
+  credential to (#1906); the tests pinned the prefix, the catch-all pattern and
+  that two helpers agreed on the token, and every provider download answered 401.
+  Only a program using no provider at all worked, so nothing caught it. Where the
+  tool genuinely cannot run in CI, drive the *boundary it talks to* — start the
+  proxy, make a real request through it, assert what the upstream saw.
 - A **new replicated entity class** (registered in
   `services/terrapod/services/replication_registry.py`) → the **full per-class test matrix**,
   claimed with `@pytest.mark.replication_matrix("<class>", "<row>")`. Registering
@@ -436,6 +448,20 @@ multi-language implementation ships in the same PR**:
   British dialect *override* that carries only the spelling deltas from the
   American source (the shared strings are genuinely identical, not a gap), so it
   is gated as a subset, not full parity.
+- **Key parity is not translation — assert the property, not the presence.** The
+  completeness gate compares each catalogue's key *set* against `en`. It has no
+  opinion about values, so a locale holding a key with the English string copied
+  into it passes every gate while being untranslated, and thirty-two locales
+  doing so are indistinguishable from thirty-two that are correct. That is not a
+  hypothetical: 26 of 33 locales described a Pulumi run in Terraform's words for
+  a full release, because `phases.pulumi.status.applied` existed everywhere and
+  held `Applied` (#1915). **Where a string's correctness is a relationship —
+  two values inside one catalogue that must differ, a value that must not equal
+  the source language's — that relationship needs its own guard**, because no
+  key-parity gate can see it. The per-engine vocabulary is guarded in
+  `web/tests/phase-vocabulary.test.ts`, which walks every catalogue and requires
+  the two engines to read differently on every key, with an
+  `IDENTICAL_BY_DESIGN` allowlist that must carry a reason per entry.
 - **Preserve ICU + tags.** Placeholders (`{name}`, `{count, plural, one {…}
   other {…}}`, `#`, escaped `'{'`/`'}'`) and rich-text tag names (`<code>`,
   `<strong>`, `<link>`, …) are structural — translate only the human words
@@ -670,6 +696,22 @@ multi-language implementation ships in the same PR**:
     Secret is left exactly as it is. The question the probe answers is the one
     that matters: can we see the cluster well enough to know whether a
     credential already exists?
+
+    **Better still, do not generate it in the chart at all.** A credential the
+    *application* generates on first startup and persists -- in the database,
+    behind a transaction-scoped advisory lock so concurrent replicas cannot each
+    create one -- cannot have this problem, because no manifest contains a random
+    value for a renderer to re-mint or a pruning controller to delete. That is
+    how the listener certificate authority has always worked (`auth/ca.py`) and
+    where the token signing key ended up (`auth/token_signing.py`), after the
+    guarded-generation approach above. Prefer it for anything Terrapod can
+    generate for itself; the probe is for a credential that genuinely has to
+    exist as a Kubernetes Secret before the application starts.
+
+    An operator-supplied credential is a separate matter and must stay
+    authoritative: let it win on every startup and do not copy it into the
+    application's own store, or the first value supplied wins for ever and every
+    later rotation is silently ignored.
   - **Render an API-only object only where the API is deployed.** A Secret or
     ConfigMap consumed by one component must carry that component's own gate
     (`{{- if ne .Values.api.enabled false }}`, matching
@@ -775,6 +817,59 @@ multi-language implementation ships in the same PR**:
   flaky test: prove it's flaky, then **fix the flake** — re-running until green
   just hides it for the next person.
 
+## CI capacity is finite — keep the merge chain short
+
+This is a free, public project, so the CI runners are a limited and **contended**
+resource, and the contention is wall-clock time rather than just budget. Measured
+per-job queue delay (the gap between a run starting and its jobs actually starting)
+across four consecutive runs on this repository:
+
+| jobs in flight | median wait before a job starts | p90 |
+|---|---|---|
+| 80 | **788s** | 1312s |
+| 50 | 40s | 126s |
+| 40 | 16–32s | 17–111s |
+
+Thirteen minutes of queueing when the queue is busy, against sixteen seconds when it
+is quiet. That delay is paid by whichever run you are actually waiting on.
+
+**The dominant cost is the merge chain, not any single run.** Because branch
+protection requires branches to be up to date, the moment one PR merges every other
+open PR is out of date and must be updated and re-run. So landing N pull requests
+costs **N sequential CI cycles**, no matter how many are open at once. Opening them
+all early does not shorten that chain; it just adds runs that compete with it.
+
+**Do not reason about the cost from the check count.** The workflow is a DAG
+(`prepare` → tests and builds → scans → manifest → `ci-pass`), so the demand at any
+instant is the width of the layer currently executing, not the total number of
+checks. The measurements above are plainly non-linear for that reason, and a
+calculation of the form "N checks against M concurrent slots" will mislead you.
+
+What follows from this, in rough order of how much it saves:
+
+- **Reduce N — put related small changes in one pull request.** Collapsing a dozen
+  small fixes into five PRs removes seven whole CI cycles, and it is the only lever
+  that shortens the chain itself rather than trimming around it.
+- **Bundle by risk, not by size.** A bundle fails as a unit, so one flaky E2E shard
+  stalls everything in it. Group documentation and low-risk changes together freely;
+  keep anything touching the run lifecycle, the policy or scanning gates, or a
+  migration on its own.
+- **Don't start a run whose verdict will be thrown away.** In particular, do not
+  update a PR's branch until it is genuinely the next one you intend to merge:
+  updating early starts a full run that is invalidated the moment anything else
+  lands, while competing for the queue with the run you are waiting on.
+- **Never leave a persistently failing PR open.** It is re-run on every rebase for
+  every other merge and never progresses, which is strictly worse than any choice
+  about how many PRs to have in flight.
+- **A documentation-only change skips its own CI, but it is NOT free of the chain.**
+  It still advances the base branch, so it still puts every other open pull request
+  out of date and invalidates whatever they had in flight. Land one when nothing is
+  waiting, or batch it with the other documentation you are about to land — not in
+  the middle of driving a queue, which is how a "free" merge throws away two runs.
+
+Stacked PRs are not the answer here, for the reasons already given: a stacked PR
+shows a reviewer the wrong baseline and breaks when its base merges.
+
 ## Every minor release reviews the platform-tool versions
 
 `opa`, `trivy` and `checkov` are not baked into Terrapod's images — they are
@@ -783,14 +878,30 @@ pulled through the binary cache, and their versions are Helm values in
 for operators instead of a Terrapod release, which is the whole point; the
 trade is that **nothing bumps them but us**.
 
-So **every minor release checks and updates those three defaults in
-`values.yaml`**. It takes a minute:
+So **every minor release checks and updates those defaults in `values.yaml`**.
+It takes a minute:
 
 ```sh
 gh api repos/open-policy-agent/opa/releases/latest --jq .tag_name
 gh api repos/aquasecurity/trivy/releases/latest    --jq .tag_name
 gh api repos/bridgecrewio/checkov/releases/latest  --jq .tag_name
+# ansible-core is a PyPI package, not a GitHub release, so ask PyPI
+curl -s https://pypi.org/pypi/ansible-core/json | jq -r .info.version
 ```
+
+**`ansible-core` belongs to the same review and is in neither of the same
+places.** Its default is `api.config.default_ansible_version`, not an entry
+under `registry.platform_tools`, because a fleet does not move to a new ansible
+in one step — one workspace's playbooks are ready before another's — so a
+workspace overrides it in `ansible_version`, exactly as it overrides
+`default_terraform_version` in `engine_version`. Bumping the default therefore
+moves every workspace that has not pinned one and leaves the pinned ones alone,
+which is the opposite of a platform-tool bump: those move everybody.
+
+It is also not acquired the same way. `ansible-core` publishes no release
+binary, so it is pip-installed into a virtualenv from the PyPI pull-through
+proxy rather than unpacked from an archive — hence no `*_mirror_url` sibling,
+and no entry in `PLATFORM_TOOLS`.
 
 This is now the mechanism that clears a whole class of finding. Before #1208
 these tools' vendored modules were reported against Terrapod's own artifacts and
@@ -953,6 +1064,102 @@ process on a schedule. Code scanning alerts are visible only to write-access
 users, which is the right audience. **On a public repository, Actions logs and
 artifacts are world-readable too** — which is why the Semgrep step emits SARIF
 and is never uploaded as an artifact.
+
+## A security fix never costs a supported line its functionality (hard requirement)
+
+A fix shipped to a supported release line closes the hole **without removing
+anything an operator was legitimately doing with it**. The whole promise of a
+patch is that taking it is safe, so a patch that silently withdraws a capability
+is worse than useless: operators learn to delay security updates, which is the
+opposite of what the release exists to achieve.
+
+That does not mean preserving the bug. Sort each fix into one of three tiers and
+the answer follows.
+
+**Tier 1 — only an attacker can reach the behaviour.** Fix it outright, no
+switch. A request that only a forged or replayed credential could make; a code
+path reachable solely by skipping a check the surface already applies elsewhere;
+an input no honest client would ever send. Nothing legitimate depends on any of
+it, so a switch would exist only to re-enable a vulnerability. Do not add one.
+
+**Tier 2 — the behaviour is real but implausibly relied upon.** Fix it *by
+default*, and provide a switch for the rare operator who genuinely wants it
+back. Judge plausibility honestly rather than defensively — "somebody might
+conceivably" is not reliance. Where the capability remains available at a
+different level, point at that instead of adding a new knob: a per-request value
+that escapes an administrator's ceiling is a bypass, and the administrator's own
+setting is where "unlimited" belongs.
+
+**Tier 3 — the behaviour is plausibly relied upon.** The fix still ships, behind
+a switch that **defaults to existing behaviour on the supported lines** and to
+the secure value on the next major. Anything the product deliberately offers is
+tier 3 by definition — if a surface was designed to allow something, withdrawing
+it is a feature removal however good the reason.
+
+### One implementation, two defaults
+
+A tier 2 or tier 3 fix is written **once**. The release line and the development
+line carry the same code and the same switch; only the default differs. Never
+write two behaviours, and never leave a release line with no path to the fix at
+all.
+
+This matters for three reasons. The carry is a one-line default change rather
+than a divergent reimplementation, so the lines cannot drift. The advisory gets
+an honest answer for operators who cannot take a major upgrade today — *fixed by
+default in the next major, available now by setting this* — instead of telling
+them to wait. And the decision is recorded in a values file, where the operator
+who relaxed it and the auditor who reads it later can both see it.
+
+The switch is a config key or Helm value, which is explicitly patch material
+when its default changes nothing. It still needs all three legs of the
+config-channel contract and a documented default per line.
+
+### A credential that cannot be narrowed has no safe default
+
+Tiers 2 and 3 both assume a middle setting exists — that the fix can hand over
+*less* rather than nothing. Where the exposure is a credential we mint, that
+holds: ask the provider for a narrower one, scoped to the repositories and
+permissions the caller actually needs, and nothing is withdrawn.
+
+Where the credential is a **static secret an operator pasted in**, it does not.
+There is no operation that produces a narrower copy of a stored access token.
+The only choices are handing it over whole or not handing it over, so
+"preserve existing behaviour" and "stop disclosing the credential" are flatly
+incompatible and no default can satisfy both.
+
+So this is its own tier, and the rule is about the **default**, not about
+whether a switch exists: a non-attenuable credential disclosure is **off by
+default on every line, including the supported ones**. A switch may keep the
+capability available — an operator with a private runner fleet and a
+single-project token may be entirely content with the trade — but it is an
+informed opt-in, never the state someone inherits by upgrading.
+
+That is what separates this from tier 3. There, the supported line keeps its
+existing default because the behaviour is something operators legitimately
+built on. Here the existing default *is* the disclosure, so preserving it would
+be preserving the vulnerability; and unlike tier 3 there is no partial setting
+to land on, because the credential has no narrower form.
+
+The switch therefore carries the warning, not just the key: what is handed over,
+to whom, and what cannot be narrowed about it. An operator turning this on is
+accepting a specific disclosure and must be able to read what it is at the point
+of turning it on.
+
+Prefer removing the need for the judgement in the first place: where a surface
+can take either a mintable credential or a stored one, make the mintable path
+the supported one and put the stored path behind this kind of switch, rather
+than offering both as equals and explaining the difference in a footnote.
+
+### What a tier 3 default does not excuse
+
+Shipping the insecure default is a mitigation, not a fix, and the release notes
+and advisory must say exactly that — naming the key, its default on this line,
+and what remains exposed until it is set. A reader must never have to infer from
+a version number whether they are protected.
+
+Where a default is merely generous rather than unsafe, leave it alone in the
+patch and revisit it on the next major: a default change is the one thing a
+patch cannot carry quietly.
 
 ## Content hygiene (hard requirements)
 

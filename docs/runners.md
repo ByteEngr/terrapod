@@ -169,6 +169,36 @@ This is a straight pass-through to the pod's `hostAliases`, so it takes the shap
 
 ---
 
+## Where runner Jobs run
+
+Runner Jobs are created in `listener.runnerNamespace`, which **defaults to the
+release namespace** — the same namespace as the API, the listener and the web
+pod.
+
+**Give them a namespace of their own.** Runner Jobs execute arbitrary
+Terraform/Tofu, and while they share the release namespace the listener's
+`jobs: create` and `secrets: create` grants cover every Secret the control plane
+holds, and (with NetworkPolicies off) runner code can reach Postgres and Redis
+directly. `namespace.createRunner: true` has the chart create the namespace;
+everything else the topology needs — the listener's `Role` and `RoleBinding`, the
+runner `ServiceAccount`, the runner `NetworkPolicy` — already renders there.
+
+The full rationale, the exact values, and what you must create yourself if you do
+not let the chart do it are in
+[Security hardening → Separate the runner namespace](security-hardening.md#separate-the-runner-namespace).
+
+Two details worth knowing if you are debugging a separated deployment:
+
+- The runner's `TP_API_URL` is the **fully qualified** in-cluster Service name
+  (`<release>-api.<release-namespace>.svc.cluster.local:8000`) rather than a bare
+  one, because a bare name resolves only from the release namespace. Override it
+  with `runners.serverUrl` (or `listener.apiUrl`) if runners reach the API by
+  some other route.
+- With NetworkPolicies on, the API policy admits runners via a
+  `namespaceSelector` on the runner namespace. If you hand-write that policy,
+  remember that a bare `podSelector` matches only pods in the policy's own
+  namespace.
+
 ## Job Configuration
 
 All runner Jobs inherit the following settings from `runners.*` in Helm values:
@@ -378,6 +408,14 @@ Things worth knowing before you turn it on:
   workspace admin can ask for a debug pod, but only the deployment operator
   decides how long one may survive, and `runners.debugLingerSeconds: 0` refuses
   the request outright no matter what any workspace is set to.
+
+  **The token in a held pod is still live, and the terminal-state revocation
+  does not change that** — the hold is precisely the window in which the run has
+  *not* reached a terminal state, so there is nothing to revoke yet. What the
+  phase binding does change is its reach: a held plan pod's token is a
+  plan-phase token, so it cannot write state or post an apply result for that
+  run. It is still the full plan-phase credential until the pod is deleted,
+  which is the point of `debugLingerSeconds` being bounded and opt-in.
 - **It does not catch an OOM, deliberately.** An OOMKill is a SIGKILL from the
   kernel — nothing in the runner gets to run, so nothing could hold the
   container. It does not need to: an OOM is already answerable from the run page
@@ -509,7 +547,23 @@ tprun-<run-short-id>-plan-auth     # plan-phase Job consumes this
 tprun-<run-short-id>-apply-auth    # apply-phase Job consumes this
 ```
 
-The Job's pod spec references the token via `secretKeyRef` and exposes it as `TP_AUTH_TOKEN` — the raw token never appears in the Job spec, the listener logs, or `kubectl describe` output. The token is scoped to a single `run_id` and the matching phase, so a leaked apply token can't be replayed against an unrelated run or used to download a different workspace's state.
+The Job's pod spec references the token via `secretKeyRef` and exposes it as `TP_AUTH_TOKEN` — the raw token never appears in the Job spec, the listener logs, or `kubectl describe` output.
+
+**The token is scoped to one `run_id`, to one phase of that run, and to the time that run is live** (GHSA-xmrf-hxq9-m59m, from 2.0):
+
+```
+runtok:{run_id}:{phase}:{ttl}:{timestamp}:{signature}
+```
+
+- **Run.** A leaked token cannot be replayed against an unrelated run or used to download a different workspace's state. This has always held.
+- **Phase.** `phase` is `plan` or `apply`, it is inside the signed message so the holder cannot edit it, and each endpoint that belongs to one phase checks it. So a plan-phase token can no longer post an apply result, upload an apply log, write state, or fetch the saved plan — and an apply-phase token cannot post a plan result or a policy/scan result. The four endpoints both phases genuinely use (config download, state download, Pulumi deployment read, resource profile) are not phase-checked, and say so at the call site.
+- **Lifetime.** The run's tokens are revoked when it reaches a terminal state, so a token sitting in a finished Job — or in a [debug-linger](#debug-mode-inspecting-a-failed-runner-pod) pod — stops working at that moment rather than at the end of its TTL. The auth path also refuses a token whose run is terminal or gone, which is what covers a token whose revocation was never recorded.
+
+`runners.tokenTTLSeconds` (default 1h, clamped by `runners.maxTokenTTLSeconds`) remains the outer bound.
+
+**Version skew.** The phase claim is additive on the wire in both directions. A listener older than it sends no `phase` when it asks for a token, gets the four-field unphased form, and works exactly as before — an absent claim is read as "no claim" and the phase check is skipped, never as a mismatch. A listener newer than its API sends a `phase` the API ignores, and gets an unphased token. **The run-lifetime check is server-side only, so it applies whatever the runner and listener images are.** Upgrade the API first, then the listeners, to get the phase binding; neither order breaks a run.
+
+Earlier text here claimed the phase binding before it existed. The per-phase Secret naming above is still collision avoidance between overlapping Jobs; it is now matched by a real per-phase scope.
 
 ### Per-phase vars Secret
 
@@ -522,10 +576,10 @@ tprun-<run-short-id>-apply-vars    # apply-phase Job consumes this
 
 It holds:
 
-- a `terraform.tfvars.json` blob — every terraform-category variable (sensitive and not), with its `hcl` flag. The Secret is **mounted read-only** at `/var/run/terrapod/vars`; before `init` the runner renders a `terrapod.auto.tfvars` from it (`hcl=true` → raw HCL expression, otherwise → quoted string). A `.auto.tfvars` file parses **identically on terraform and tofu** for any variable type — which is why the runner uses a file rather than `TF_VAR_*` env (the env form diverges across engines for untyped complex values).
+- a `terraform.tfvars.json` blob — every native-category variable (sensitive and not), with its `hcl`/`structured` and `sensitive` flags. The Secret is **mounted read-only** at `/var/run/terrapod/vars`, and the runner dispatches its delivery on the workspace's engine: a Terraform run renders a `terrapod.auto.tfvars` from it before `init` (`hcl=true` → raw HCL expression, otherwise → quoted string), while a Pulumi run sets each key with `pulumi config set` on the selected stack (`sensitive` → `--secret`, `structured` → `--path`) and renders no file at all. One blob for every engine, because they carry one role; only the delivery differs. A `.auto.tfvars` file parses **identically on terraform and tofu** for any variable type — which is why the Terraform delivery uses a file rather than `TF_VAR_*` env (the env form diverges across engines for untyped complex values). The key keeps its Terraform name because a runner up to N-2 minors behind reads exactly this one.
 - one key per env-category variable, each injected into the Job container via `secretKeyRef`.
 
-No variable value — sensitive or not — ever appears in the Job spec, the listener logs, or `kubectl describe` output. Sensitive terraform vars are protected by living only in this short-lived, cascade-GC'd Secret (mounted as the tfvars file), not by masking.
+No variable value — sensitive or not — ever appears in the Job spec, the listener logs, or `kubectl describe` output. Sensitive variables are protected by living only in this short-lived, cascade-GC'd Secret, not by masking.
 
 ---
 
@@ -549,6 +603,16 @@ On startup each pod runs the same flow:
 4. If the join token is exhausted (`401`/`403`) before this pod gets a chance, the pod backs off (1, 2, 4, ... up to 30s, ~3 min total budget) and re-reads the Secret. As soon as a peer pod's bootstrap completes, the loser adopts that identity. This is why the default `max_uses: 2` is enough even for large replica counts — only the first two pods ever consume token uses, the rest discover the Secret.
 
 The default join token policy (`api.config.agent_pools.default_join_token_*`) creates tokens with `max_uses: 2` and a 1h expiry. Set either field to `null` via the API for unlimited uses or no expiry. Setting `max_uses: 1` is also fine for single-replica deployments — the bootstrap-race retry only matters when you scale up before the first pod completes.
+
+**A token seeded by the bootstrap Job is bounded too** — one use and 24 hours, via
+`bootstrap.poolTokenMaxUses` / `poolTokenTTLSeconds`. Step 1 above is why one use
+is enough: the credentials Secret survives pod replacement, so only a listener
+with no Secret to read ever presents the join token. The case for raising it to 2
+is the same one the API's default exists for — the winning pod dying between
+step 2 and step 3, with no use left for another to take over. An expired or spent
+bootstrap token is not re-armed by a later `helm upgrade`; issue a replacement
+through the API. See
+[Security hardening → Bootstrap join tokens expire](security-hardening.md#bootstrap-join-tokens-expire).
 
 ### Renewal
 
@@ -592,6 +656,7 @@ For Tilt local development, `values-local.yaml` overrides `listener_cert_ttl_sec
 
 - **Manual identity reset.** Delete the credentials Secret to force a fresh join on the next pod start: `kubectl -n terrapod delete secret {release-fullname}-listener-credentials` (find the exact name with `kubectl get secret -l app.kubernetes.io/component=listener`). This invalidates all running pods' certs on the next renewal. Rotate the join token first if the old one is no longer trusted.
 - **Listener rename.** Because the Secret name follows the Deployment, changing `listener.name` rolls the API-registered identity but keeps the same Secret — the new identity simply overwrites it on next renewal. The old listener record in the API ages out of Redis when its heartbeats stop.
+- **A listener name cannot move between pools.** Names live in one global namespace, so a join under a name already registered to a **different** pool is refused with `409` rather than moving the listener. Re-joining the *same* pool is unaffected — that is what the re-join path is for — and so is a rename, which takes a new name with it. What this stops is the Helm-driven way of moving a listener between pools: swapping the join token while keeping `listener.name` now fails permanently. Delete the old registration first (`DELETE /api/terrapod/v1/listeners/{id}`, which needs admin on the pool currently holding the name — plausibly another team's), or give the listener a new name. A listener image older than v1.9.0 has never seen a `409` on join and will most likely retry rather than surface it, so check the listener's own logs if a move seems not to take.
 - **RBAC scope.** The listener ServiceAccount has `create` on Secrets in its own namespace and `get/list/watch/patch/update/delete` scoped by `resourceNames` to just the credentials Secret. The runner-namespace RBAC (Jobs, Pods, run-token Secrets) is separate.
 
 ---
@@ -606,3 +671,31 @@ For Tilt local development, `values-local.yaml` overrides `listener_cert_ttl_sec
 - [Cloud Credentials](cloud-credentials.md) -- workload identity setup
 - [Deployment](deployment.md) -- full Helm configuration reference
 - [Agent Pools](api-reference.md) -- pool and listener management
+
+## Listener request signing
+
+A listener's certificate is public material and is sent on every request, so the
+certificate alone cannot prove who is calling — a captured header would be
+replayable until it expired. Each listener request is therefore also signed with
+the private key the CA issues at join:
+
+| header | contents |
+|---|---|
+| `X-Terrapod-Client-Cert` | the certificate, base64 PEM (unchanged) |
+| `X-Terrapod-Listener-Timestamp` | unix seconds, accepted within 60s of the API's clock |
+| `X-Terrapod-Listener-Nonce` | single-use random value, remembered for 120s |
+| `X-Terrapod-Listener-Signature` | Ed25519 over `v1\n<METHOD>\n<path>\n<timestamp>\n<nonce>` |
+
+The signature binds the request to one method and one path, so a captured
+signature cannot be pointed at a different endpoint, and the nonce means it
+cannot be presented twice. Each retry re-signs, because the nonce is spent by the
+first attempt.
+
+The request body is deliberately not part of the signature. The weakness being
+closed is replay of a credential rather than tampering with a payload — TLS
+already covers integrity — and hashing bodies would mean buffering pod-log
+uploads in an async handler.
+
+Controlled by `api.config.agent_pools.require_listener_proof_of_possession`,
+on by default. Turn it off only while a pool still runs pre-2.0 listeners, which
+do not sign; see [upgrading to 2.0](upgrading-to-2.0.md).

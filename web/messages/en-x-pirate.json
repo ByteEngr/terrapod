@@ -27,6 +27,7 @@
     "account": "Account",
     "apiTokens": "API Doubloons",
     "sessions": "Sessions",
+    "slackLinks": "Slack lines",
     "logOut": "Abandon ship",
     "menu": "Menu",
     "openMenu": "Open th'' menu",
@@ -70,7 +71,6 @@
       "agentPool": "Agent Crew",
       "none": "None",
       "autoApply": "Auto Apply",
-      "autoApplyModeHint": "never: always await a livin'' soul. always: apply every plan that sails true. create / create/update: apply only plans holdin'' to those deeds — never a scuttlin'' nor a swappin''.",
       "enabled": "Enabled",
       "workingDirectory": "Workin'' Directory",
       "workingDirectoryPlaceholder": "e.g. environments/dev",
@@ -372,6 +372,22 @@
         "load": "Failed t'' load sessions",
         "revoke": "Failed t'' revoke sessions ({status})",
         "revokeGeneric": "Failed t'' revoke sessions"
+      }
+    },
+    "slackLinks": {
+      "title": "Slack lines",
+      "description": "Slack hands that may sail under yer colours. A tied Slack hand can approve an' scuttle runs wi' yer own authority, so cut loose any ye don't know, matey.",
+      "empty": "Nay a Slack hand be tied to ye.",
+      "revoke": "Cut loose",
+      "confirmRevoke": "Cut loose the line for Slack hand {user}? That hand shall nay sail under yer colours from Slack again.",
+      "columns": {
+        "slackUser": "Slack hand",
+        "team": "Slack crew",
+        "linkedAt": "Tied"
+      },
+      "errors": {
+        "load": "Could nay haul in yer Slack lines.",
+        "revoke": "Could nay cut loose that Slack line."
       }
     }
   },
@@ -761,7 +777,9 @@
       "setAssignmentStatus": "Failed t'' set assignment ({status})",
       "deleteAssignment": "Failed t'' send assignment t'' Davy Jones",
       "conflictingLabelKeys": "{keys} be given more than one value. A marking rule holds one value per key, so the last would quietly replace them afore it. Matching several values for one key be supported by the API but cannot yet be set here."
-    }
+    },
+    "pinnedToSubject": "Belayed",
+    "pinnedToSubjectTitle": "Belayed to th'' IdP subject {subject}"
   },
   "adminVcs": {
     "title": "VCS Moorin''s",
@@ -774,6 +792,23 @@
       "delete": "Send t'' Davy Jones"
     },
     "confirmDelete": "Send this VCS connection t'' Davy Jones? Work-decks usin'' it will lose VCS integration. This cannot be undone.",
+    "access": {
+      "heading": "Who be allowed to sail this connection",
+      "intro": "These three settin''s decide which workspaces be allowed to point at this connection, matey. Th'' credential itself stays write-only, locked in th'' hold.",
+      "ownerEmail": "Cap''n''s email",
+      "ownerEmailHint": "Th'' cap''n may always sail this connection. Leave it bare to leave th'' connection without a cap''n.",
+      "labels": "Boardin'' labels",
+      "labelsHint": "A role whose articles match these labels may point a workspace at this connection.",
+      "allowedRepositories": "Permitted repositories",
+      "allowedRepositoriesHint": "Glob patterns matched against th'' repository a workspace be askin'' to plunder.",
+      "addPattern": "Hoist a pattern",
+      "anyRepositoryWarning": "Nary a pattern be listed, so this connection may be pointed at ANY repository on th'' seven seas.",
+      "restricted": "{count, plural, one {# pattern be listed} other {# patterns be listed}}, so a repository matchin'' none o'' them be turned away.",
+      "ownedBy": "Owned by {email}, aye",
+      "unowned": "Nary an owner be set",
+      "anyRepositorySummary": "Any repository be permitted",
+      "repositoryCount": "Held to {count, plural, one {# repository} other {# repositories}}, no more"
+    },
     "form": {
       "name": "Name",
       "namePattern": "Letters, numbers, hyphens, an'' underscores only, matey. Must start with a letter or number.",
@@ -922,7 +957,6 @@
       "varKey": "Key",
       "varValue": "Value",
       "varCategory": "Category",
-      "categoryTerraform": "Terraform",
       "categoryEnv": "Environment",
       "sensitive": "Sensitive",
       "sensAbbr": "Sens.",
@@ -988,7 +1022,9 @@
       "valueSource": "Value source",
       "valueSourceStatic": "Enter a value",
       "valueSourceVault": "Fetch from OpenBao/Vault",
-      "vaultHint": "Terrapod fetches the secret from OpenBao (or HashiCorp Vault, if ye must) when the voyage sails. Naught be stowed here."
+      "vaultHint": "Terrapod fetches the secret from OpenBao (or HashiCorp Vault, if ye must) when the voyage sails. Naught be stowed here.",
+      "categoryNative": "Ship''s own",
+      "structured": "Rigged"
     }
   },
   "adminAutodiscovery": {
@@ -1076,7 +1112,10 @@
       "terragruntVersion": "Terragrunt version",
       "noExpiry": "No expiry, matey",
       "addDriftIgnoreRule": "Add a rule",
-      "debugModeHint": "Keep failed runner pods open on the work-decks this rule creates. Off by default — a held pod keeps that work-deck''s credentials."
+      "debugModeHint": "Keep failed runner pods open on the work-decks this rule creates. Off by default — a held pod keeps that work-deck''s credentials.",
+      "allowForkPrPlansHint": "Applies t'' every work-deck this rule creates. Off by default: a pull request from a fork gets no speculative plan, fer it would run its author''s code with the work-deck''s credentials.",
+      "oidcAudiences": "Voyage colours audiences (inherited by created work-decks)",
+      "oidcAudiencesHint": "Audience overrides lashed onto every work-deck this rule creates, keyed on th'' provider riggin'' a token be fer — aws, or aws.west fer a riggin'' wi'' an alias. Leave it empty an'' those work-decks take th'' deployment''s own riggin''."
     },
     "table": {
       "name": "Name",
@@ -1270,7 +1309,8 @@
       "cancel": "Belay",
       "working": "Workin''...",
       "previewDryRun": "Preview (dry run)",
-      "applyChanges": "Apply changes"
+      "applyChanges": "Apply changes",
+      "setOidcAudiences": "Set OIDC voyage colours audiences (replaces th'' map on every matched work-deck)"
     },
     "diff": {
       "colWorkspace": "Work-deck",
@@ -1919,12 +1959,24 @@
       "always": "allus",
       "create": "hoist",
       "createUpdate": "hoist/mend"
+    },
+    "oidcAudiences": {
+      "addProvider": "Add a provider riggin''",
+      "audiences": "Audiences",
+      "badgeInherited": "Deployment''s own",
+      "badgeOwned": "Work-deck",
+      "issuerDisabled": "This deployment hoists no OpenID Connect issuer, so naught rigged here can ever bite.",
+      "override": "Override",
+      "overrideAria": "Override th'' {provider} audiences fer this work-deck",
+      "providerDuplicate": "That provider riggin'' be already on th'' books.",
+      "providerInvalid": "A provider name bears no spaces an'' one dot at most — aws, or aws.west.",
+      "providerPlaceholder": "aws, or aws.west",
+      "removeProviderAria": "Remove th'' {provider} provider riggin''"
     }
   },
   "planSummary": {
     "aiGenerated": "AI conjured",
     "heading": {
-      "planSummary": "Plan summary",
       "failureAnalysis": "Failure analysis"
     },
     "errors": {
@@ -1933,13 +1985,11 @@
     "regenerate": {
       "label": "Conjure anew",
       "queueing": "In th'' queue…",
-      "tooltip": "Re-run th'' AI summary against th'' same plan inputs",
       "ariaLabel": "Conjure th'' AI summary anew",
       "confirm": "Conjure th'' AI analysis anew? This runs th'' model again.",
       "error": "Could nay conjure anew: <mono>{detail}</mono>"
     },
     "pending": {
-      "summarisingPlan": "Summarizin'' plan…",
       "analysingFailure": "Analysin'' th'' failure…"
     },
     "skipped": {
@@ -1963,7 +2013,6 @@
     "badges": {
       "noChanges": "Nay changes",
       "noChangesLower": "nay changes",
-      "noChangesTitle": "Plan reported nay resource changes",
       "toAdd": "{count, plural, one {# t'' add} other {# t'' add}}",
       "toChange": "{count, plural, one {# t'' change} other {# t'' change}}",
       "toDestroy": "{count, plural, one {# t'' send t'' Davy Jones} other {# t'' send t'' Davy Jones}}",
@@ -1973,7 +2022,6 @@
     "chat": {
       "heading": "Follow-up",
       "sharedThreadNote": "One shared thread, visible t'' any matey with work-deck read.",
-      "placeholder": "Ask a follow-up question about this plan… (⌘/Ctrl + Enter t'' send)",
       "send": "Send",
       "thinking": "Ponderin''…",
       "you": "Ye",
@@ -1997,7 +2045,6 @@
     "workspaceFallback": "work-deck",
     "backTo": "Back t'' {name}",
     "errorHeading": "Squall",
-    "discardedHeading": "Discarded — re-plan required, matey",
     "common": {
       "yes": "Aye",
       "no": "Nay"
@@ -2051,14 +2098,13 @@
     },
     "badge": {
       "destroy": "send t'' Davy Jones",
-      "planOnly": "plan only"
+      "savedPlan": "stowed chart",
+      "savedPlanHint": "Boardin' delayed: this voyage be not claimin' the harbour till the stowed chart be run."
     },
     "actions": {
       "retryShort": "Try again",
       "retryFull": "Try Run Again",
       "retrying": "Tryin'' again…",
-      "confirmShort": "Apply",
-      "confirmFull": "Confirm & Apply",
       "confirming": "Confirmin''…",
       "discard": "Discard",
       "discarding": "Discardin''…",
@@ -2068,8 +2114,6 @@
       "queuing": "Loggin…"
     },
     "confirm": {
-      "apply": "Apply this run? This applies th'' plan and changes yer infrastructure.",
-      "discard": "Discard this plan?",
       "cancel": "Cancel this run?",
       "retry": "Try this run again?"
     },
@@ -2092,20 +2136,19 @@
       "impactFull": "Impact graph",
       "cost": "Cost",
       "costFull": "Cost estimate",
-      "planLabel": "Plan<log>Ship''s Log</log>",
-      "applyLabel": "Apply<log>Ship''s Log</log>",
-      "planFull": "Plan ship''s log",
-      "applyFull": "Apply ship''s log",
       "details": "Details",
       "security": "Security",
       "securityFull": "Security scan"
     },
     "banner": {
       "destroy": "This be a <strong>send t'' Davy Jones</strong> run — all managed resources will be sent t'' th'' depths when applied.",
-      "planOnlyCli": "This be a <strong>plan-only</strong> run started from th'' CLI on a VCS-connected work-deck. Apply be nay available fer CLI-uploaded code — only VCS-managed code can be applied.",
       "moduleOverridesPrefix": "This run uses <strong>module overrides</strong>",
       "moduleOverridesFromPr": "from PR #{number}",
       "moduleOverridesSuffix": "will be fetched from th'' PR branch instead o'' th'' published registry version."
+    },
+    "bindPlan": {
+      "bound": "Lashed t'' this preview: th'' update hoists exactly th'' plan shown here, an'' anythin'' that shifted since scuttles th'' update instead o'' bein'' applied.",
+      "unbound": "Not lashed t'' this preview: th'' update charts its own course when she sails, as a plain pulumi up does, so what she applies may differ from what be shown here."
     },
     "cards": {
       "changes": "Changes",
@@ -2117,7 +2160,6 @@
     },
     "changes": {
       "noChanges": "Nay changes",
-      "planning": "Plannin''…",
       "toAdd": "t'' add",
       "toChange": "t'' change",
       "toDestroy": "t'' send t'' Davy Jones",
@@ -2154,7 +2196,6 @@
       "executionBackend": "Execution Backend",
       "source": "Source",
       "autoApply": "Auto Apply",
-      "planOnly": "Plan Only",
       "triggeredBy": "Triggered By",
       "created": "Created",
       "commit": "Commit",
@@ -2170,11 +2211,7 @@
     "timeline": {
       "heading": "Timeline",
       "queued": "Queued",
-      "planningStarted": "Plannin'' started",
-      "planComplete": "Plan complete",
       "confirmed": "Confirmed",
-      "applyingStarted": "Applyin'' started",
-      "applied": "Applied",
       "errored": "Squalled",
       "canceled": "Canceled",
       "discarded": "Discarded"
@@ -2198,12 +2235,8 @@
       "followOffTitle": "Follow th'' live tail",
       "end": "End",
       "endTitle": "Jump t'' th'' end o'' th'' ship''s log",
-      "planEmpty": "Nay plan output available yet.",
-      "applyEmpty": "Nay apply output available yet.",
       "index": {
         "label": "Set sail fer",
-        "title": "Set sail fer a change in the cargo, or fer the charted tally",
-        "summary": "Charted tally",
         "action": {
           "create": "build",
           "update": "mend",
@@ -2215,13 +2248,11 @@
           "error": "scuttled",
           "warning": "squall ahead"
         }
-      },
-      "applySkippedNoChanges": "No apply were run: the chart had no changes, so there be nothin'' to apply."
+      }
     },
     "policyPanel": {
       "heading": "Policy Checks",
       "passedCount": "{passed}/{total} passed",
-      "blockedMessage": "This run be <strong>blocked by a mandatory policy set</strong>. It will nay apply until th'' failure be resolved or an admin overrides it.",
       "overriding": "Overridin''...",
       "overrideContinue": "Override & Continue",
       "overrideFailed": "Override foundered",
@@ -2261,7 +2292,6 @@
       "unpricedHint": "Nothing in the pricing data matched these — an unmapped type, a resource with no direct cost, or a provider not yet covered.",
       "indicative": "Estimates are indicative; actual cost depends on usage, region, commitments, and discounts.",
       "asOfState": "as o' state v{serial}",
-      "noState": "No booty yet — appears after th' first apply.",
       "usageBand": "{dimension}: {typical} {unit} be usual (twixt {low}–{high})",
       "usageBandCost": "{dimension}: {costTypical}/mo be usual — {costLow}–{costHigh} twixt {low}–{high} {unit}"
     },
@@ -2348,7 +2378,6 @@
       "passed": "No articles o'' the code were broken, matey.",
       "overriding": "Overridin''...",
       "overrideContinue": "Override & Continue",
-      "overrideConfirm": "Override the AI articles gate an'' let this run be applied despite the ruling?",
       "overrideFailed": "Override foundered",
       "overrideFailedStatus": "Override foundered ({status})",
       "overriddenBy": "overridden by {by}"
@@ -2407,9 +2436,6 @@
       "translatedNote": "Translated from th'' original on view."
     },
     "drift": {
-      "remediate": "Chart + commit",
-      "remediateTitle": "Queue a chart + commit voyage to bring the works back in line with the articles",
-      "remediateConfirm": "Queue a chart + commit voyage for this berth?",
       "remediateMessage": "Logged from a drift watch",
       "remediateFailed": "Could not queue the mendin'' voyage"
     }
@@ -2469,6 +2495,7 @@
       "architecture": "Architecture",
       "insights": "Insights",
       "automation": "Automation",
+      "inventory": "Ship''s Manifest",
       "access": "Boarding"
     },
     "lifecycle": {
@@ -2501,6 +2528,9 @@
       "version": "Version",
       "versionPlaceholder": "e.g. 1.11 or 1.11.5",
       "versionTitle": "Version in X.Y or X.Y.Z format (e.g. 1.11 or 1.11.5)",
+      "ansibleVersion": "Ansible Mark",
+      "ansibleVersionPlaceholder": "e.g. 2.21.5",
+      "ansibleVersionTitle": "The ansible-core mark fer this work-deck. Leave it empty an'' she''ll follow the deployment default, arr.",
       "terragruntEnabledAgent": "Enabled (agent mode)",
       "terragruntEnabledVersion": "Enabled (v{version})",
       "terragruntVersionPlaceholder": "e.g. 1.0",
@@ -2541,12 +2571,16 @@
       "engineTerraform": "Terraform",
       "nameTitlePulumi": "Two parts split by '::' — project::stack, matey. Letters, numbers, hyphens and underscores only; each part must start with a letter or number.",
       "bindPlan": "Lash the update to the approved preview",
-      "bindPlanHelp": "When she be on, the update hoists exactly the plan the preview stowed away, so anythin'' that shifted since the preview scuttles the update instead o'' bein'' applied. This rests on Pulumi update plans, which be still experimental. When she be off, the update charts its own course, as a plain pulumi up does. <docs>How Pulumi voyages work</docs>"
+      "bindPlanHelp": "When she be on, the update hoists exactly the plan the preview stowed away, so anythin'' that shifted since the preview scuttles the update instead o'' bein'' applied. This rests on Pulumi update plans, which be still experimental. When she be off, the update charts its own course, as a plain pulumi up does. <docs>How Pulumi voyages work</docs>",
+      "oidcAudiences": "Voyage colours audiences",
+      "oidcAudiencesAdd": "Add an audience",
+      "oidcAudiencesHint": "Terrapod strikes a short-lived OpenID Connect token fer every provider riggin'' a voyage uses an'' scrawls it t'' a file th'' voyage can read. Key an entry on th'' provider as yer riggin'' names it — aws, or aws.west fer a riggin'' wi'' an alias — an'' list th'' audiences that port will accept. Every entry overrides th'' deployment''s own riggin'' fer that provider; strike it off an'' that provider falls back t'' th'' deployment''s audiences. An audience be an opaque string th'' federation port chose, so it be stowed exactly as ye typed it.",
+      "oidcAudiencesLoading": "Checkin'' th'' audiences th'' deployment has rigged …",
+      "oidcAudiencesNone": "None (voyages sail under th'' Agent Crew''s own colours)",
+      "oidcAudiencesPlaceholder": "e.g. sts.amazonaws.com"
     },
     "vcsWorkflowWarning": {
       "title": "Authorization handed o''er t'' yer VCS repository.",
-      "rbac": "Any scallywag who can merge th'' PR can apply. Branch protection rules (required reviews, status checks, code owner approval) become th'' gate. Terrapod role/label RBAC does<em>not</em> apply t'' comment-driven actions in this mode.",
-      "recommended": "<strong>Recommended:</strong> require linear history (rebase/squash afore merge) so th'' commit ye apply be th'' commit that lands.",
       "credit": "Credit: this workflow be modelled on <atlantis>Atlantis</atlantis>. Atlantis remains th'' right tool fer crews who only want PR-comment-driven applies an'' no platform UI."
     },
     "vcsPolling": {
@@ -2562,7 +2596,6 @@
     },
     "lock": {
       "title": "Lock Status",
-      "lockedDesc": "This work-deck be locked. No plans or applies can set sail.",
       "unlockedDesc": "This work-deck be unlocked an'' ready fer voyages.",
       "lock": "Lock",
       "unlock": "Unlock",
@@ -2584,7 +2617,6 @@
       "dismissTitle": "Clear th'' reported drift state. Th'' next scheduled check will repopulate it from reality.",
       "lastChecked": "Last Checked",
       "checkNow": "Check Now",
-      "checkNowTitle": "Queue a plan-only voyage t'' check fer drift",
       "checkNowTitleDisabled": "Enable drift detection first, matey"
     },
     "intervals": {
@@ -2598,13 +2630,10 @@
       "7days": "7 days"
     },
     "planExpiry": {
-      "title": "Plan Expiry",
-      "description": "Auto-discard an unconfirmed plan once it be older than this, so a stale plan can''t be applied against a moved world. Off by default; th'' plan must then be re-run. (Applies t'' apply-capable voyages only.)",
       "expireAfter": "Expire after"
     },
     "aiSummary": {
       "title": "AI Plan Summary",
-      "description": "Automatic LLM-generated change summary, risk assessment, an'' squall analysis on every plan-phase outcome fer this work-deck.",
       "mode": "Mode",
       "modeDefault": "Follow deployment default",
       "modeEnabled": "Always summarize",
@@ -2619,7 +2648,6 @@
     },
     "slack": {
       "title": "Slack notifications",
-      "description": "Opt this work-deck into Slack voyage notifications — approval requests, applies, squalls, an'' drift. Leave th'' channel empty an'' this work-deck stays silent (there be no deployment-wide fan-out). Requires th'' Slack app t'' be enabled by an administrator.",
       "channel": "Channel",
       "channelPlaceholder": "#deploys or a channel ID (e.g. C0123ABCD)",
       "notSet": "Not set — silent.",
@@ -2694,20 +2722,18 @@
       "vaultFileEncoding": "Encodin''",
       "vaultFileEncodingNone": "As it be stowed in the OpenBao/Vault",
       "vaultFileEncodingBase64": "Base64-decode, arr",
-      "vaultFileEncodingHint": "Decodes the field afore it be written. What comes out must be text; binary scrolls be not supported."
+      "vaultFileEncodingHint": "Decodes the field afore it be written. What comes out must be text; binary scrolls be not supported.",
+      "categoryNative": "Ship''s own",
+      "structured": "Rigged",
+      "categoryTerraform": "Terraform",
+      "categoryPulumiConfig": "Pulumi riggin''"
     },
     "runs": {
       "options": "Options",
       "hideOptions": "Hide Options",
       "queueDestroy": "Scuttle",
-      "queueDestroyTitle": "Queue a destroy plan",
       "destroyAllConfirm": "Destroy all resources?",
       "confirmDestroy": "Confirm Destroy",
-      "queuePlan": "Chart",
-      "queueRun": "Chart + commit",
-      "queuePlanConfirm": "Queue a speculative plan fer this work-deck?",
-      "queueApplyConfirm": "Queue a plan + apply voyage? This can change yer infrastructure.",
-      "planOptions": "Plan Options",
       "targetResources": "Target resources",
       "replaceResources": "Replace resources",
       "commaSeparated": "(comma-separated)",
@@ -2718,7 +2744,6 @@
       "branch": "Branch",
       "tag": "Tag",
       "defaultBranch": "Default ({branch})",
-      "nonDefaultRefNote": "Non-default ref selected — voyage will be plan-only",
       "empty": "No voyages yet fer this work-deck.",
       "runId": "Voyage ID",
       "status": "Status",
@@ -2729,13 +2754,11 @@
       "created": "Created",
       "needsConfirm": "needs confirm",
       "typeDestroy": "send t'' Davy Jones",
-      "typePlanOnly": "plan only",
-      "typePlanApply": "plan + apply",
       "sourceModuleTest": "module test",
       "sourceModulePublish": "module publish",
-      "queueApplyTitle": "Queue a chart + commit voyage",
-      "queueApplyRefBlocked": "No committin while a branch, tag or commit be chosen — them voyages be chartin only",
-      "awaitingDecision": "awaitin'' the cap''n''s word"
+      "awaitingDecision": "awaitin'' the cap''n''s word",
+      "typeSavedPlan": "stowed chart",
+      "typeSavedPlanHint": "Boardin' delayed: this voyage be not claimin' the harbour till the stowed chart be run."
     },
     "state": {
       "deleteConfirm": "Send state version #{serial} t'' Davy Jones? This cannot be undone.",
@@ -2752,12 +2775,18 @@
       "runner": "runner",
       "latest": "latest"
     },
+    "stateOutputs": {
+      "title": "Spoils",
+      "fromSerial": "Serial #{serial}",
+      "empty": "This state declares nay outputs.",
+      "sensitive": "Sensitive",
+      "loadFailed": "Could not haul in th'' outputs fer this work-deck."
+    },
     "configurations": {
       "description": "Uploaded source archives fer this work-deck, newest first. Pick two rows t'' compare.",
       "selectedCount": "{count}/2 selected",
       "compare": "Compare",
       "comparing": "Comparin''…",
-      "empty": "No configuration versions yet. They appear here as soon as a `terraform plan` uploads or a VCS push triggers a voyage.",
       "id": "ID",
       "source": "Source",
       "status": "Status",
@@ -2819,7 +2848,6 @@
     },
     "runTriggers": {
       "title": "Voyage Triggers",
-      "description": "When a source work-deck completes an apply, downstream work-decks get a new voyage queued automatically. Up t'' 20 source work-decks per destination.",
       "inboundHeading": "Source work-decks that trigger voyages here",
       "inboundEmpty": "No source work-decks trigger voyages on this work-deck.",
       "pickerPlaceholder": "Search work-decks t'' add as a source…",
@@ -2827,6 +2855,173 @@
       "outboundEmpty": "This work-deck does not trigger voyages on any other work-deck.",
       "destinationNote": "(destination; remove from there)",
       "removeConfirm": "Remove this voyage trigger?"
+    },
+    "inventory": {
+      "scope": {
+        "heading": "Manifest",
+        "body": "Th'' hands an'' crews this work-deck holds, an'' what ansible musters ''em to. Every line be yours to change here; settin'' a playbook upon ''em be not ready yet."
+      },
+      "nav": {
+        "label": "Quarters o'' th'' manifest",
+        "hosts": "Hands",
+        "groups": "Crews",
+        "vars": "Riggin''",
+        "resolved": "Mustered",
+        "settings": "Orders"
+      },
+      "actions": {
+        "save": "Stow",
+        "saving": "Stowin''…",
+        "cancel": "Belay",
+        "edit": "Alter",
+        "delete": "Scuttle",
+        "remove": "Put ashore",
+        "add": "Sign on",
+        "adding": "Signin'' on…",
+        "rename": "Rechristen"
+      },
+      "hosts": {
+        "heading": "Hands",
+        "body": "One line per hand. Open a hand to alter its riggin'' an'' th'' crews it answers to.",
+        "empty": "No hands yet.",
+        "colName": "Hand",
+        "colGroups": "Crews",
+        "colVars": "Riggin''",
+        "newLabel": "Name o'' th'' new hand",
+        "newPlaceholder": "web-1",
+        "add": "Sign on a hand",
+        "confirmDelete": "Scuttle th'' hand {name}? Its riggin'' an'' its crew papers go down with it.",
+        "renameLabel": "Hand''s name"
+      },
+      "groups": {
+        "heading": "Crews",
+        "body": "One line per crew. Open a crew to alter its riggin'', th'' hands aboard an'' th'' crews berthed inside it.",
+        "empty": "No crews yet.",
+        "colName": "Crew",
+        "colMembers": "Hands",
+        "colChildren": "Young crews",
+        "colVars": "Riggin''",
+        "newLabel": "Name o'' th'' new crew",
+        "newPlaceholder": "web",
+        "add": "Muster a crew",
+        "confirmDelete": "Scuttle th'' crew {name}? Its riggin'' an'' its papers go down with it; th'' hands themselves keep their berths.",
+        "renameLabel": "Crew''s name"
+      },
+      "vars": {
+        "actions": "Deeds",
+        "key": "Name",
+        "keyPlaceholder": "ansible_user",
+        "value": "Settin''",
+        "structured": "Built",
+        "sensitive": "Sealed",
+        "structuredHelp": "A list, a number or an object be a built settin'': mark it Built an'' write th'' plain source in th'' settin''. A sealed settin'' be never read back — th'' box shows ye a mask instead.",
+        "structuredBadge": "built",
+        "sensitiveKeep": "Leave this bare to keep th'' settin'' already stowed.",
+        "empty": "No riggin'' here.",
+        "add": "Sign on riggin''",
+        "confirmDelete": "Scuttle th'' riggin'' {key}?"
+      },
+      "hostDetail": {
+        "heading": "Hand {name}",
+        "body": "All that this one hand carries.",
+        "back": "Back to th'' hands",
+        "gone": "That hand sails no more.",
+        "vars": "Hand''s riggin''",
+        "varsBody": "Riggin'' that holds for this hand alone. It beats a crew''s riggin'' o'' th'' same name.",
+        "memberships": "Crews",
+        "membershipsBody": "Th'' crews this hand answers to. A crew paper be but a line, so tearin'' one up here leaves both th'' hand an'' th'' crew where they were.",
+        "membershipsEmpty": "This hand answers to no crew, so ansible berths it in ungrouped.",
+        "addGroup": "Sign on to a crew",
+        "addGroupLabel": "Pick a crew",
+        "removeGroupAria": "Put this hand ashore from {name}",
+        "confirmRemoveGroup": "Put this hand ashore from {name}?"
+      },
+      "groupDetail": {
+        "heading": "Crew {name}",
+        "body": "All that this one crew carries.",
+        "back": "Back to th'' crews",
+        "gone": "That crew sails no more.",
+        "vars": "Crew''s riggin''",
+        "varsBody": "Riggin'' that holds for every hand in this crew, aboard or by way o'' a berthed crew.",
+        "members": "Hands aboard",
+        "membersBody": "Th'' hands aboard this crew outright. A hand reached only by way o'' a berthed crew be not named here.",
+        "membersEmpty": "No hands aboard this crew outright.",
+        "addHost": "Sign on a hand",
+        "addHostLabel": "Pick a hand",
+        "removeHostAria": "Put {name} ashore from this crew",
+        "confirmRemoveHost": "Put {name} ashore from this crew?",
+        "children": "Young crews",
+        "childrenBody": "Crews berthed inside this one. Their hands sail under this crew too, an'' this crew''s riggin'' reaches ''em.",
+        "childrenEmpty": "No crew be berthed inside this one.",
+        "addChild": "Berth a young crew",
+        "addChildLabel": "Pick a crew to berth",
+        "removeChildAria": "Put {name} out o'' this crew''s young",
+        "confirmRemoveChild": "Stop berthin'' {name} inside this crew?",
+        "parents": "Elder crews",
+        "parentsBody": "Th'' crews this one be berthed inside. A crew may answer to several elders.",
+        "parentsEmpty": "This crew be berthed inside naught.",
+        "addParent": "Berth under an elder crew",
+        "addParentLabel": "Pick an elder crew",
+        "removeParentAria": "Put this crew out o'' {name}",
+        "confirmRemoveParent": "Stop berthin'' this crew inside {name}?"
+      },
+      "globalVars": {
+        "heading": "Manifest riggin''",
+        "body": "Riggin'' that holds for every hand — ansible''s group_vars/all. A crew''s or a hand''s riggin'' o'' th'' same name beats aught set here."
+      },
+      "resolved": {
+        "heading": "Mustered hands",
+        "body": "What ansible makes o'' th'' lines: every hand with th'' riggin'' it ends up wearin'', after th'' mergin'' an'' th'' order o'' precedence.",
+        "hosts": "Hands",
+        "groups": "Crews",
+        "liveNote": "This be livin''. Every wellspring here stands still, so th'' readin'' musters th'' lines to answer itself — there be naught to refresh.",
+        "noHosts": "Naught mustered to a hand.",
+        "noVars": "no riggin''",
+        "groupsHeading": "Who sails with whom",
+        "directOnly": "Only th'' hands aboard outright, exactly as ansible reports ''em: a crew whose hands all arrive by way o'' a berthed crew names none o'' its own. Th'' berthin'' be below.",
+        "noGroups": "No crews mustered.",
+        "noDirectMembers": "no hands aboard outright",
+        "nestingHeading": "Crews berthed in crews",
+        "nestingBody": "Which crews lie inside which. A limit laid on an elder reaches every hand beneath it.",
+        "noNesting": "No crew be berthed in another.",
+        "limitHeading": "What would a limit strike?",
+        "limitBody": "Unfurl an ansible --limit pattern against this manifest an'' see exactly which hands it picks afore aught sets sail. Ansible does th'' unfurlin'', so a crew, an exclusion an'' a ~regex all behave as they will when th'' guns run out.",
+        "limitLabel": "Limit pattern",
+        "limitPlaceholder": "web:!web-2",
+        "limitApply": "Lay th'' limit on",
+        "limitClear": "Strike it",
+        "limitApplied": "Held to {limit}. All below be what that pattern strikes."
+      },
+      "settings": {
+        "heading": "Orders",
+        "body": "Whether th'' lines kept here count, an'' th'' port a manifest be also read from.",
+        "absent": "No orders, which be th'' usual: th'' hands an'' crews kept here be th'' whole manifest.",
+        "includePlatform": "Use th'' hands an'' crews kept here",
+        "includePlatformHelp": "On unless ye say otherwise. Strike it to muster from th'' port alone, leavin'' these lines where they lie but out o'' th'' answer.",
+        "included": "aye",
+        "excluded": "nay",
+        "vcsConnection": "VCS mooring",
+        "vcsNone": "None",
+        "field": {
+          "repo-url": "Port",
+          "branch": "Branch",
+          "working-directory": "Quarters"
+        },
+        "branchHelp": "Leave it bare to follow th'' port''s own default branch.",
+        "ignorePaths": "Waters passed by",
+        "ignorePathsHelp": "One glob a line. Aught that matches be left out o'' th'' manifest read from th'' port.",
+        "unset": "not set",
+        "create": "Write orders",
+        "clear": "Tear up th'' orders",
+        "confirmClear": "Tear up these orders? Th'' port mooring goes with ''em; th'' hands an'' crews kept here keep their berths."
+      },
+      "errors": {
+        "load": "Could not fetch th'' manifest",
+        "save": "Could not stow it",
+        "delete": "Could not scuttle it",
+        "resolved": "Could not muster th'' manifest",
+        "settings": "Could not stow th'' manifest orders"
+      }
     },
     "sharing": {
       "title": "Remote State Sharin''",
@@ -2896,8 +3091,6 @@
       "addVariableStatus": "Failed t'' add variable ({status})",
       "deleteVariable": "Failed t'' send variable t'' Davy Jones",
       "updateVariable": "Failed t'' update variable",
-      "queuePlan": "Failed t'' queue th'' plan",
-      "queuePlanStatus": "Failed t'' queue th'' plan ({status})",
       "queueDestroy": "Failed t'' queue th'' destroy",
       "queueDestroyStatus": "Failed t'' queue th'' destroy ({status})",
       "createNotification": "Failed t'' create notification",
@@ -2914,7 +3107,8 @@
       "uploadState": "Failed t'' hoist th'' state aboard",
       "uploadStateFile": "Failed t'' hoist th'' state file aboard",
       "updateSecurityScan": "Failed to update the security sweep",
-      "updateDebugMode": "Failed t'' update debuggin'' mode"
+      "updateDebugMode": "Failed t'' update debuggin'' mode",
+      "updateForkPlans": "Failed t'' update fork pull request plans"
     },
     "subtabs": {
       "state": "State",
@@ -2967,6 +3161,14 @@
       "bannerTitle": "Debuggin'' mode be on fer this work-deck",
       "bannerBody": "A failed voyage''s pod be held open fer inspection instead o'' endin'', an'' it keeps this work-deck''s credentials an'' decrypted variables while it be held. Douse debuggin'' mode once ye be done huntin'' the fault.",
       "confirmEnable": "Hoist debuggin'' mode? A failed voyage''s pod will be held open carryin'' this work-deck''s credentials an'' decrypted variables until the window runs out or ye delete the pod."
+    },
+    "allowForkPrPlans": {
+      "title": "Plans fer pull requests from foreign forks",
+      "description": "Whether a pull request hoisted from a fork gets a speculative plan. Off by default, fer that plan runs the fork author''s code with this work-deck''s credentials.",
+      "label": "Plan pull requests from forks",
+      "hint": "A voyage receives this work-deck''s environment variables, sensitive values, any Vault-resolved secrets an'' the job''s cloud colours. A soul openin'' a pull request from a fork has no write access an'' cannot merge, so a speculative plan be the only way their code reaches them credentials. Hoist this fer a work-deck that holds nothin'' worth plunderin'' — a public module repository takin'' in contributions from the crew, say. Pull requests from branches in the repository itself be unaffected an'' always plan.",
+      "activeBadge": "Hoisted",
+      "confirmEnable": "Plan pull requests hoisted from forks? Their authors'' code will run with this work-deck''s credentials an'' decrypted variables, without a soul approvin'' it first."
     }
   },
   "graphs": {
@@ -3189,11 +3391,14 @@
     "unknown": "unknown t'' me",
     "confirm": {
       "prompt": "Link this Slack account t'' <em>yer</em> Terrapod identity? Every future Slack action (approve/discard) will run as this Terrapod user with their permissions.",
+      "slackName": "Slack colours",
       "slackUser": "Slack user",
       "slackTeam": "Slack crew",
       "terrapodAccount": "Terrapod account",
       "warning": "Only continue if ye just started this link from Slack yerself. If ye didn''t, close this tab an'' don''t link — this binds th'' Slack account above t'' <em>yer</em> Terrapod identity.",
-      "button": "Confirm & link"
+      "button": "Confirm & link",
+      "namesUnavailable": "Terrapod could nay spy the name o' this Slack hand. Squint at the marks above, an' only sail on if ye hoisted this line from Slack yerself, matey.",
+      "nameIsSelfChosen": "The handle be unique in this Slack crew; the name below it be chosen by its own owner, so judge by the handle, matey."
     },
     "success": {
       "message": "Yer Slack account be now linked t'' Terrapod.",
@@ -3416,7 +3621,77 @@
       },
       "status": {
         "planning": "Plannin''",
-        "applying": "Applyin''"
+        "applying": "Applyin''",
+        "planned": "Planned",
+        "applied": "Applied"
+      },
+      "words": {
+        "actionConfirmFull": "Confirm & Apply",
+        "actionConfirmShort": "Apply",
+        "activityApplied": "Apply complete",
+        "activityConfirmed": "Startin'' apply",
+        "activityDiscarded": "Plan discarded",
+        "activityPlannedComplete": "Plan complete",
+        "activityPlannedConfirmable": "Waitin'' fer ye t'' confirm & apply",
+        "activityPlannedSpeculative": "Speculative plan complete",
+        "aiPolicyOverrideConfirm": "Override the AI articles gate an'' let this run be applied despite the ruling?",
+        "aiSummaryDescription": "Automatic LLM-generated change summary, risk assessment, an'' squall analysis on every plan-phase outcome fer this work-deck.",
+        "aiSummaryTitle": "AI Plan Summary",
+        "badgePlanOnly": "plan only",
+        "bannerPlanOnlyCli": "This be a <strong>plan-only</strong> run started from th'' CLI on a VCS-connected work-deck. Apply be nay available fer CLI-uploaded code — only VCS-managed code can be applied.",
+        "changesPlanning": "Plannin''…",
+        "configurationsEmpty": "No configuration versions yet. They appear here as soon as a `terraform plan` uploads or a VCS push triggers a voyage.",
+        "confirmApply": "Apply this run? This applies th'' plan and changes yer infrastructure.",
+        "confirmDiscard": "Discard this plan?",
+        "costNoState": "No booty yet — appears after th' first apply.",
+        "detailsPlanOnly": "Plan Only",
+        "discardedHeading": "Discarded — re-plan required, matey",
+        "driftCheckNowTitle": "Queue a plan-only voyage t'' check fer drift",
+        "driftRemediate": "Chart + commit",
+        "driftRemediateConfirm": "Queue a chart + commit voyage for this berth?",
+        "driftRemediateTitle": "Queue a chart + commit voyage to bring the works back in line with the articles",
+        "errorsQueuePlan": "Failed t'' queue th'' plan",
+        "errorsQueuePlanStatus": "Failed t'' queue th'' plan ({status})",
+        "fieldsAutoMerge": "Auto-merge after apply",
+        "formAutoApplyModeHint": "never: always await a livin'' soul. always: apply every plan that sails true. create / create/update: apply only plans holdin'' to those deeds — never a scuttlin'' nor a swappin''.",
+        "lockLockedDesc": "This work-deck be locked. No plans or applies can set sail.",
+        "logApplyEmpty": "Nay apply output available yet.",
+        "logApplySkipped": "No apply were run: the chart had no changes, so there be nothin'' to apply.",
+        "logIndexSummary": "Charted tally",
+        "logIndexTitle": "Set sail fer a change in the cargo, or fer the charted tally",
+        "logPlanEmpty": "Nay plan output available yet.",
+        "nonDefaultRefNote": "Non-default ref selected — voyage will be plan-only",
+        "planExpiryDescription": "Auto-discard an unconfirmed plan once it be older than this, so a stale plan can''t be applied against a moved world. Off by default; th'' plan must then be re-run. (Applies t'' apply-capable voyages only.)",
+        "planExpiryTitle": "Plan Expiry",
+        "planOptions": "Plan Options",
+        "planSummaryChatPlaceholder": "Ask a follow-up question about this plan… (⌘/Ctrl + Enter t'' send)",
+        "planSummaryHeading": "Plan summary",
+        "planSummaryNoChangesTitle": "Plan reported nay resource changes",
+        "planSummaryRegenerateTooltip": "Re-run th'' AI summary against th'' same plan inputs",
+        "planSummarySummarising": "Summarizin'' plan…",
+        "policyBlockedMessage": "This run be <strong>blocked by a mandatory policy set</strong>. It will nay apply until th'' failure be resolved or an admin overrides it.",
+        "queueApplyConfirm": "Queue a plan + apply voyage? This can change yer infrastructure.",
+        "queueApplyRefBlocked": "No committin while a branch, tag or commit be chosen — them voyages be chartin only",
+        "queueApplyTitle": "Queue a chart + commit voyage",
+        "queueDestroyTitle": "Queue a destroy plan",
+        "queuePlan": "Chart",
+        "queuePlanConfirm": "Queue a speculative plan fer this work-deck?",
+        "queueRun": "Chart + commit",
+        "replacePlaceholder": "e.g. aws_instance.web",
+        "runTriggersDescription": "When a source work-deck completes an apply, downstream work-decks get a new voyage queued automatically. Up t'' 20 source work-decks per destination.",
+        "tabApplyFull": "Apply ship''s log",
+        "tabApplyLabel": "Apply<log>Ship''s Log</log>",
+        "tabPlanFull": "Plan ship''s log",
+        "tabPlanLabel": "Plan<log>Ship''s Log</log>",
+        "targetPlaceholder": "e.g. aws_instance.web, aws_s3_bucket.data",
+        "timelineApplied": "Applied",
+        "timelineApplyingStarted": "Applyin'' started",
+        "timelinePlanComplete": "Plan complete",
+        "timelinePlanningStarted": "Plannin'' started",
+        "typePlanApply": "plan + apply",
+        "vcsWorkflowWarningRbac": "Any scallywag who can merge th'' PR can apply. Branch protection rules (required reviews, status checks, code owner approval) become th'' gate. Terrapod role/label RBAC does<em>not</em> apply t'' comment-driven actions in this mode.",
+        "vcsWorkflowWarningRecommended": "<strong>Recommended:</strong> require linear history (rebase/squash afore merge) so th'' commit ye apply be th'' commit that lands.",
+        "slackDescription": "Opt this work-deck into Slack voyage notifications — approval requests, applies, squalls, an'' drift. Leave th'' channel empty an'' this work-deck stays silent (there be no deployment-wide fan-out). Requires th'' Slack app t'' be enabled by an administrator."
       }
     },
     "pulumi": {
@@ -3425,14 +3700,84 @@
         "applying": "Runnin'' pulumi up"
       },
       "runStatus": {
-        "planning": "Previewnin''",
-        "planned": "Previewned",
-        "applying": "Upin''",
-        "applied": "Applied"
+        "planning": "Previewin''",
+        "planned": "Previewed",
+        "applying": "Updatin''",
+        "applied": "Updated"
       },
       "status": {
-        "planning": "Previewnin''",
-        "applying": "Upin''"
+        "planning": "Previewin''",
+        "applying": "Updatin''",
+        "planned": "Previewed",
+        "applied": "Updated"
+      },
+      "words": {
+        "actionConfirmFull": "Confirm & Update",
+        "actionConfirmShort": "Update",
+        "activityApplied": "Update complete",
+        "activityConfirmed": "Startin'' update",
+        "activityDiscarded": "Preview discarded",
+        "activityPlannedComplete": "Preview complete",
+        "activityPlannedConfirmable": "Waitin'' fer ye t'' confirm & update",
+        "activityPlannedSpeculative": "Speculative preview complete",
+        "aiPolicyOverrideConfirm": "Override the AI articles gate an'' let this run be updated despite the ruling?",
+        "aiSummaryDescription": "Automatic LLM-generated change summary, risk assessment, an'' squall analysis on every preview-phase outcome fer this work-deck.",
+        "aiSummaryTitle": "AI Preview Summary",
+        "badgePlanOnly": "preview only",
+        "bannerPlanOnlyCli": "This be a <strong>preview-only</strong> run started from th'' CLI on a VCS-connected work-deck. Update be nay available fer CLI-uploaded code — only VCS-managed code can be updated.",
+        "changesPlanning": "Previewin''…",
+        "configurationsEmpty": "No configuration versions yet. They appear here as soon as a VCS push triggers a voyage.",
+        "confirmApply": "Update this run? This updates th'' preview and changes yer infrastructure.",
+        "confirmDiscard": "Discard this preview?",
+        "costNoState": "No booty yet — appears after th' first update.",
+        "detailsPlanOnly": "Preview Only",
+        "discardedHeading": "Discarded — re-preview required, matey",
+        "driftCheckNowTitle": "Queue a preview-only voyage t'' check fer drift",
+        "driftRemediate": "Scry + refit",
+        "driftRemediateConfirm": "Queue a scry + refit voyage for this berth?",
+        "driftRemediateTitle": "Queue a scry + refit voyage to bring the works back in line with the articles",
+        "errorsQueuePlan": "Failed t'' queue th'' preview",
+        "errorsQueuePlanStatus": "Failed t'' queue th'' preview ({status})",
+        "fieldsAutoMerge": "Auto-merge after update",
+        "formAutoApplyModeHint": "never: always await a livin'' soul. always: update every preview that sails true. create / create/update: update only previews holdin'' to those deeds — never a scuttlin'' nor a swappin''.",
+        "lockLockedDesc": "This work-deck be locked. No previews or updates can set sail.",
+        "logApplyEmpty": "Nay update output available yet.",
+        "logApplySkipped": "No update were run: the scry had no changes, so there be nothin'' to update.",
+        "logIndexSummary": "Scryed tally",
+        "logIndexTitle": "Set sail fer a change in the cargo, or fer the scryed tally",
+        "logPlanEmpty": "Nay preview output available yet.",
+        "nonDefaultRefNote": "Non-default ref selected — voyage will be preview-only",
+        "planExpiryDescription": "Auto-discard an unconfirmed preview once it be older than this, so a stale preview can''t be carried out against a moved world. Off by default; th'' preview must then be re-run. (Applies t'' update-capable voyages only.)",
+        "planExpiryTitle": "Preview Expiry",
+        "planOptions": "Preview Options",
+        "planSummaryChatPlaceholder": "Ask a follow-up question about this preview… (⌘/Ctrl + Enter t'' send)",
+        "planSummaryHeading": "Preview summary",
+        "planSummaryNoChangesTitle": "Preview reported nay resource changes",
+        "planSummaryRegenerateTooltip": "Re-run th'' AI summary against th'' same preview inputs",
+        "planSummarySummarising": "Summarizin'' preview…",
+        "policyBlockedMessage": "This run be <strong>blocked by a mandatory policy set</strong>. It will nay update until th'' failure be resolved or an admin overrides it.",
+        "queueApplyConfirm": "Queue a preview + update voyage? This can change yer infrastructure.",
+        "queueApplyRefBlocked": "No refittin while a branch, tag or commit be chosen — them voyages be scryin only",
+        "queueApplyTitle": "Queue a scry + refit voyage",
+        "queueDestroyTitle": "Queue a destroy preview",
+        "queuePlan": "Scry",
+        "queuePlanConfirm": "Queue a speculative preview fer this work-deck?",
+        "queueRun": "Scry + refit",
+        "replacePlaceholder": "e.g. urn:pulumi:dev::shop::aws:ec2/instance:Instance::web",
+        "runTriggersDescription": "When a source work-deck completes an update, downstream work-decks get a new voyage queued automatically. Up t'' 20 source work-decks per destination.",
+        "tabApplyFull": "Update ship''s log",
+        "tabApplyLabel": "Update<log>Ship''s Log</log>",
+        "tabPlanFull": "Preview ship''s log",
+        "tabPlanLabel": "Preview<log>Ship''s Log</log>",
+        "targetPlaceholder": "e.g. urn:pulumi:dev::shop::aws:s3/bucket:Bucket::assets",
+        "timelineApplied": "Updated",
+        "timelineApplyingStarted": "Updatin'' started",
+        "timelinePlanComplete": "Preview complete",
+        "timelinePlanningStarted": "Previewin'' started",
+        "typePlanApply": "preview + update",
+        "vcsWorkflowWarningRbac": "Any scallywag who can merge th'' PR can update. Branch protection rules (required reviews, status checks, code owner approval) become th'' gate. Terrapod role/label RBAC does<em>not</em> apply t'' comment-driven actions in this mode.",
+        "vcsWorkflowWarningRecommended": "<strong>Recommended:</strong> require linear history (rebase/squash afore merge) so th'' commit ye update be th'' commit that lands.",
+        "slackDescription": "Opt this work-deck into Slack voyage notifications — approval requests, refits, squalls, an'' drift. Leave th'' channel empty an'' this work-deck stays silent (there be no deployment-wide fan-out). Requires th'' Slack app t'' be enabled by an administrator."
       }
     }
   },

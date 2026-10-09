@@ -31,8 +31,12 @@ otherwise click through in the web UI or call over the API, expressed as HCL:
 | Governance | `terrapod_policy_set`, `terrapod_policy`, `terrapod_run_task`, `terrapod_run_trigger`, `terrapod_notification_configuration`, `terrapod_execution_hook`, `terrapod_execution_hook_workspace` |
 | Registry | `terrapod_registry_module`, `terrapod_module_autodiscovery_rule`, `terrapod_registry_provider`, `terrapod_gpg_key` |
 | Service catalog | `terrapod_catalog_item`, `terrapod_catalog_instance`, `terrapod_provider_template` |
+| [Ansible inventory](ansible-inventory.md) | `terrapod_inventory_settings`, `terrapod_inventory_host`, `terrapod_inventory_group`, `terrapod_inventory_host_group`, `terrapod_inventory_group_child`, `terrapod_inventory_host_var`, `terrapod_inventory_group_var`, `terrapod_inventory_global_var` |
 
-**Data sources** (`terrapod_*`): `terrapod_workspace`, `terrapod_workspaces`,
+**Data sources** (`terrapod_*`): `terrapod_workspace`, `terrapod_workspaces`
+(each entry reports its `engine`, and an optional `engine` argument returns only
+that engine's workspaces — narrow with it before feeding the list to anything
+that assumes one engine),
 `terrapod_workspace_cost`, `terrapod_architecture_critique`,
 `terrapod_agent_pool`, `terrapod_role`, `terrapod_user`,
 `terrapod_vcs_connection`, `terrapod_catalog_instances`,
@@ -41,7 +45,30 @@ a catalog item resolves to, with a computed `interface_error` that is non-null
 when the module could not be parsed), `terrapod_module_autodiscovery_rule_repositories`
 (the repositories a module autodiscovery rule looks at, each with its status,
 origin and candidates; kept out of the rule resource so polls never change its
-state).
+state), `terrapod_oidc_audience_defaults` (the deployment-wide cloud-identity
+audience catalogue a workspace's `oidc_audiences` merges over — what a workspace
+would INHERIT if it overrode nothing), `terrapod_inventory_resolved` (what a
+workspace's [ansible inventory](ansible-inventory.md) resolves to — every host
+with its merged variables, each group's **direct** membership, and the nesting
+carried separately, with an optional `limit` that ansible itself expands through
+that nesting; a data source rather than an attribute on a resource for the same
+reason as `oidc_audiences` below, since a data source has no round-trip
+requirement and a derived value belongs there).
+
+**`terrapod_workspace.oidc_audiences` holds what you set, not the effective
+map**, and that pairing is deliberate. The API returns the merged result, so the
+resource reconciles only the keys your configuration declares and ignores the
+rest — exactly as `aws_instance.tags` round-trips what you wrote while the
+provider's `default_tags` are merged in beneath it. Without that, a plan would
+disagree with its own apply the moment the deployment catalogue contained a key
+the workspace did not override. Read the effective map off the
+`terrapod_workspace` **data source**, which has no round-trip requirement and so
+carries it, and the catalogue off `terrapod_oidc_audience_defaults`.
+
+The one case neither can distinguish is an override whose value happens to equal
+the catalogue's: it reads as inherited. Nothing changes if you drop it, because
+it falls back to the identical default — the same fidelity loss `tags` and
+`default_tags` have lived with for years.
 
 A `terrapod_module_autodiscovery_rule`'s `repo_url` may name one repository,
 an org or group, or a repository-name pattern such as

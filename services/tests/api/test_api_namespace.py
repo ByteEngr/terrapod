@@ -57,18 +57,66 @@ class TestOpenAPIVisibility:
             "/api/tfe/v2/varsets/{varset_id}",
         ):
             assert path in schema["paths"], f"CLI surface path {path} missing from OpenAPI"
-        # These are CLI-surface paths; they must not also appear on the native
-        # surface. Checked at the canonical prefix, since that is what the schema
-        # documents post-#1529.
+        # CLI-surface paths do not appear on the native surface unless Terrapod's
+        # own consumers need them for a workspace the TFE surface cannot serve.
+        #
+        # `/api/v1/runs` is such an exception (#1572). The TFE surface correctly
+        # 404s a non-Terraform workspace, so with runs mounted only there the UI
+        # could not list or create a run for a Pulumi workspace at all. The two
+        # paths are NOT the same endpoint documented twice — they answer
+        # differently by design, one scoped to Terraform and one not — which is
+        # why both are in the schema rather than one being hidden.
+        #
+        # The two below stay forbidden and for different reasons: a varset is
+        # reached through an `organizations/default/` collection, which the
+        # native surface must never carry (architecture principle 9); the
+        # registry paths are the CLI download protocol, which has no native
+        # consumer at all.
         for path in (
-            "/api/v1/runs",
             "/api/v1/varsets/{varset_id}",
             "/api/v1/registry/modules/{namespace}/{name}/{provider}/versions",
         ):
             assert path not in schema["paths"], f"{path} should not exist"
 
+        # The exception is deliberate, so pin it: if runs stop being served
+        # natively, the Pulumi UI breaks and this says so rather than the
+        # workspace page going blank.
+        assert "/api/v1/runs" in schema["paths"], (
+            "runs must stay on the native surface — the TFE surface 404s a "
+            "Pulumi workspace, so this is the only door its runs have"
+        )
+
 
 class TestRouteTopology:
+    def test_no_native_route_anywhere_carries_an_org_segment(self) -> None:
+        """The general form of the rule below, which lists paths and so can only
+        catch the mistakes someone thought of.
+
+        Worth having because the cheapest way to give the native surface a route
+        is to mount a TFE router there, and a TFE router may carry
+        `organizations/default/` quite legitimately — so the violation arrives
+        as a side effect of a mount rather than as a path anyone wrote. That is
+        exactly how it happened: mounting the whole variables router natively to
+        reach one field put `/api/v1/organizations/default/varsets` on the
+        native surface (#1898).
+        """
+        # Pulumi's service-backend routes are exempt: `organizations/{org}` is
+        # a segment of *Pulumi's* wire protocol, which we implement, not a
+        # Terrapod org. The same distinction the TFE surface's
+        # `organizations/default/` rests on — a foreign protocol's shape is not
+        # ours to flatten. Narrow on purpose, so anything else still trips.
+        offenders = sorted(
+            path
+            for r in app.routes
+            if (path := getattr(r, "path", "")).startswith(("/api/v1/", "/api/terrapod/v1/"))
+            and "/organizations/" in path
+            and "/pulumi/" not in path
+        )
+        assert not offenders, (
+            "the Terrapod-native surface is single-organization by design "
+            f"(architecture principle 9), but these carry an org segment: {offenders}"
+        )
+
     def test_terrapod_native_paths_have_no_org_segment(self) -> None:
         """Per CLAUDE.md rule #9, the Terrapod-native surface must never
         carry an `organizations/default/` segment.

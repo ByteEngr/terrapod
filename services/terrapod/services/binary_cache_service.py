@@ -6,6 +6,7 @@ stores it in object storage, and returns a presigned download URL.
 Subsequent requests serve from cache.
 """
 
+import re
 from datetime import UTC, datetime
 
 import httpx
@@ -16,7 +17,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from terrapod.api.metrics import BINARY_CACHE_REQUESTS
 from terrapod.config import settings
 from terrapod.db.models import CachedBinary
-from terrapod.engines import engine_enabled
 from terrapod.http_retry import arequest_with_retry
 from terrapod.logging_config import get_logger
 from terrapod.services.artifact_verification import VerificationError, verify_binary
@@ -54,12 +54,6 @@ logger = get_logger(__name__)
 # its upstream facts live (services/platform_tools.py still owns its asset
 # layout) and in having no signature to check. See CHECKSUM_ONLY_TOOLS.
 CLI_TOOLS = {"terraform", "tofu", "terragrunt", "pulumi", "node", "go", "dotnet"}
-
-#: Tools that exist only to serve the Pulumi engine, and are refused when it is
-#: off (#1429). `node` is here because `pulumi-language-nodejs` shells out to it:
-#: it is the runtime a TypeScript program needs, not something Terrapod offers
-#: in its own right (#1566).
-_PULUMI_ONLY_TOOLS = {"pulumi", "node", "go", "dotnet"}
 
 #: Tools whose publisher signs nothing, so the strongest check available is the
 #: artifact's SHA-256 against a checksum the publisher published. Verification
@@ -109,6 +103,47 @@ def _parse_stability(version: str) -> str:
 def _is_version_allowed(version: str, policy: str) -> bool:
     """True if `version` satisfies the pre-release `policy`."""
     return _STABILITY_RANK[_parse_stability(version)] >= _POLICY_FLOOR.get(
+        policy, _STABILITY_RANK["stable"]
+    )
+
+
+#: PEP 440 spells a pre-release WITHOUT the hyphen the CLI tools use -- `2.21.5rc1`,
+#: not `2.21.5-rc1` -- and allows several spellings per tier. `_parse_stability`
+#: above looks for `-rc`/`-beta`/`-alpha`/`-dev`, so handed a PyPI version it
+#: returns "stable" for every one of them and the policy silently never fires.
+#: That is why this exists rather than reusing it; the TIERS are shared, so a
+#: deployment's `allow_prerelease` means the same thing for both.
+#:
+#: `.postN` is deliberately absent: a post-release is a packaging fix on top of a
+#: release, so it is at least as stable as the release it follows.
+_PEP440_STABILITY = (
+    (re.compile(r"\.dev\d*$", re.I), "dev"),
+    (re.compile(r"(a|alpha)\d*$", re.I), "alpha"),
+    (re.compile(r"(b|beta)\d*$", re.I), "beta"),
+    (re.compile(r"(rc|c|pre|preview)\d*$", re.I), "rc"),
+)
+
+
+def pep440_stability(version: str) -> str:
+    """The stability tier of a PyPI version string, in `_STABILITY_RANK`'s terms."""
+    v = (version or "").strip()
+    for pattern, tier in _PEP440_STABILITY:
+        if pattern.search(v):
+            return tier
+    return "stable"
+
+
+def is_pypi_version_allowed(version: str, policy: str | None = None) -> bool:
+    """Whether a PyPI version satisfies this deployment's pre-release policy.
+
+    The same policy that gates a CLI tool's version (`allow_prerelease`), applied
+    to a package version. A deployment set to GA only must not end up running an
+    ansible-core release candidate just because PyPI spells "rc" differently from
+    GitHub.
+    """
+    if policy is None:
+        policy = settings.registry.binary_cache.allow_prerelease
+    return _STABILITY_RANK[pep440_stability(version)] >= _POLICY_FLOOR.get(
         policy, _STABILITY_RANK["stable"]
     )
 
@@ -508,16 +543,6 @@ async def list_available_versions(tool: str) -> list[str]:
     """
     if tool not in VALID_TOOLS:
         raise ValueError(f"Invalid tool: {tool}. Must be one of {VALID_TOOLS}")
-    # Engine gating (#1429). Listing reaches an upstream index, and a deployment
-    # that has not switched Pulumi on should neither make requests on its behalf
-    # nor offer its versions in a picker. The route stays mounted -- it is the
-    # binary cache, which is what Terrapod is and is never gateable -- so this
-    # refuses the tool value, exactly as `strategy_for` refuses a disabled
-    # engine. Deliberately NOT applied to get_or_cache_binary or purge_binary:
-    # gating hides and halts, never destroys, and an operator must still be able
-    # to purge a Pulumi binary cached before the engine was switched off.
-    if tool in _PULUMI_ONLY_TOOLS and not engine_enabled("pulumi"):
-        raise ValueError(f"{tool} is only served for the pulumi engine, which is not enabled")
 
     # A platform tool has exactly one version: the one this deployment pins
     # (#1208). There is no menu to offer and no upstream index to consult.

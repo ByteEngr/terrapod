@@ -262,7 +262,9 @@ export async function createWorkspace(
  * (#1705). The lock is held by the identity behind `token`.
  */
 export async function lockWorkspace(token: string, wsId: string, reason?: string): Promise<void> {
-  const res = await fetch(`${API_URL}/api/v2/workspaces/${wsId}/actions/lock`, {
+  // Natively, so it works for every engine. The TFE-compatible route serves
+  // Terraform alone, so it 404s a Pulumi workspace (#1911).
+  const res = await fetch(`${API_URL}/api/v1/workspaces/${wsId}/actions/lock`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/vnd.api+json',
@@ -360,9 +362,13 @@ export async function seedRun(
   token: string,
   workspaceId: string,
   planOnly = true,
+  // Which API surface to seed through. `/api/v2` is the TFE compatibility
+  // surface and serves Terraform alone (#1905), so a Pulumi workspace has to be
+  // seeded on the native surface — see `seedPulumiRun`.
+  prefix: '/api/v2' | '/api/v1' = '/api/v2',
 ): Promise<string> {
   const cvRes = await fetch(
-    `${API_URL}/api/v2/workspaces/${workspaceId}/configuration-versions`,
+    `${API_URL}${prefix}/workspaces/${workspaceId}/configuration-versions`,
     {
       method: 'POST',
       headers: {
@@ -396,7 +402,7 @@ export async function seedRun(
     throw new Error(`Config version upload failed: ${upRes.status}`);
   }
 
-  const runRes = await fetch(`${API_URL}/api/v2/runs`, {
+  const runRes = await fetch(`${API_URL}${prefix}/runs`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/vnd.api+json',
@@ -416,6 +422,21 @@ export async function seedRun(
     throw new Error(`Create run failed: ${runRes.status} ${await runRes.text()}`);
   }
   return (await runRes.json()).data.id as string;
+}
+
+/**
+ * Seed a run on a Pulumi workspace.
+ *
+ * Identical to `seedRun` but on the native surface: the TFE surface refuses a
+ * Pulumi workspace outright, so seeding through it 404s rather than producing a
+ * run (#1905).
+ */
+export async function seedPulumiRun(
+  token: string,
+  workspaceId: string,
+  planOnly = true,
+): Promise<string> {
+  return seedRun(token, workspaceId, planOnly, '/api/v1');
 }
 
 /** Seed a workspace Terraform variable. Returns the variable id. */
@@ -588,6 +609,179 @@ export async function seedStateVersionWithContent(
     throw new Error(`Upload state content failed: ${res.status} ${await res.text()}`);
   }
   return svId;
+}
+
+/**
+ * Inventory seeding (#1967, #1968, #1969).
+ *
+ * The inventory is eight structures, each its own resource, so seeding one is
+ * several small calls rather than one nested payload: a host, a group, the link
+ * between them, the link between two groups, and a variable at one of three
+ * scopes. That shape is the point of the model — a spec seeds exactly the rows
+ * the behaviour under test needs.
+ *
+ * Any ONE of a host, a group or the settings row flips the Inventory tab's data
+ * gate from absent to present, so a spec asserting the tab is HIDDEN must call
+ * none of these.
+ */
+
+async function inventoryPost(
+  token: string,
+  path: string,
+  body: unknown,
+  what: string,
+): Promise<string> {
+  const res = await fetch(`${API_URL}${path}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    throw new Error(`${what} failed: ${res.status} ${await res.text()}`);
+  }
+  return (await res.json()).data.id as string;
+}
+
+/** Declare a host. Returns its `invhost-…` id. */
+export async function seedInventoryHost(
+  token: string,
+  workspaceId: string,
+  name: string,
+): Promise<string> {
+  return inventoryPost(
+    token,
+    `/api/v1/workspaces/${workspaceId}/inventory/hosts`,
+    { data: { type: 'inventory-hosts', attributes: { name } } },
+    `Declare inventory host ${name}`,
+  );
+}
+
+/** Declare a group. Returns its `invgroup-…` id. */
+export async function seedInventoryGroup(
+  token: string,
+  workspaceId: string,
+  name: string,
+): Promise<string> {
+  return inventoryPost(
+    token,
+    `/api/v1/workspaces/${workspaceId}/inventory/groups`,
+    { data: { type: 'inventory-groups', attributes: { name } } },
+    `Declare inventory group ${name}`,
+  );
+}
+
+/**
+ * Put a host in a group. Returns the `invhg-…` id of the LINK, which is what
+ * the remove action addresses — the membership is a resource in its own right,
+ * not a field on either end.
+ */
+export async function seedInventoryMembership(
+  token: string,
+  groupId: string,
+  hostId: string,
+): Promise<string> {
+  return inventoryPost(
+    token,
+    `/api/v1/inventory-groups/${groupId}/hosts`,
+    { data: { relationships: { host: { data: { id: hostId, type: 'inventory-hosts' } } } } },
+    `Add ${hostId} to ${groupId}`,
+  );
+}
+
+/** Nest one group inside another — `[parent:children]`. Returns the `invgc-…` link id. */
+export async function seedInventoryNesting(
+  token: string,
+  parentGroupId: string,
+  childGroupId: string,
+): Promise<string> {
+  return inventoryPost(
+    token,
+    `/api/v1/inventory-groups/${parentGroupId}/children`,
+    {
+      data: {
+        relationships: {
+          'child-group': { data: { id: childGroupId, type: 'inventory-groups' } },
+        },
+      },
+    },
+    `Nest ${childGroupId} in ${parentGroupId}`,
+  );
+}
+
+/**
+ * A variable at one of the three scopes. `scope` picks the collection:
+ * a host's own, a group's, or the workspace's `group_vars/all`.
+ *
+ * `sensitive` is a display flag — the value is encrypted at rest either way,
+ * and a sensitive one reads back as a mask rather than as itself.
+ */
+export async function seedInventoryVar(
+  token: string,
+  scope: { host: string } | { group: string } | { workspace: string },
+  key: string,
+  value: string,
+  opts: { structured?: boolean; sensitive?: boolean } = {},
+): Promise<string> {
+  const path =
+    'host' in scope
+      ? `/api/v1/inventory-hosts/${scope.host}/vars`
+      : 'group' in scope
+        ? `/api/v1/inventory-groups/${scope.group}/vars`
+        : `/api/v1/workspaces/${scope.workspace}/inventory/vars`;
+  return inventoryPost(
+    token,
+    path,
+    {
+      data: {
+        attributes: {
+          key,
+          value,
+          structured: opts.structured ?? false,
+          sensitive: opts.sensitive ?? false,
+        },
+      },
+    },
+    `Set inventory variable ${key}`,
+  );
+}
+
+/**
+ * Wait until the API can RESOLVE this workspace's inventory, and fail loudly
+ * naming its own reason if it cannot.
+ *
+ * Resolution runs `ansible-inventory`, and the API image does not carry
+ * ansible-core — it installs it on first use through Terrapod's own PyPI
+ * pull-through cache. So the very first resolution in a fresh stack is slow,
+ * and in a stack with no route to the cache's upstream it answers 503 for ever.
+ *
+ * Both of those would otherwise surface as a Playwright timeout on an assertion
+ * about host counts, which says nothing about the cause. This turns the first
+ * into a wait and the second into a named failure carrying the API's message.
+ */
+export async function waitForInventoryResolution(
+  token: string,
+  workspaceId: string,
+  timeoutMs = 180_000,
+): Promise<void> {
+  const url = `${API_URL}/api/v1/workspaces/${workspaceId}/inventory/resolved`;
+  const start = Date.now();
+  let last = '';
+  while (Date.now() - start < timeoutMs) {
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    if (res.ok) return;
+    last = `${res.status} ${await res.text()}`;
+    // 422 is a refusal the operator has to act on, not something a wait fixes.
+    if (res.status === 422) break;
+    await new Promise((r) => setTimeout(r, 3000));
+  }
+  throw new Error(
+    `The API could not resolve the inventory for ${workspaceId}. ` +
+      `It obtains ansible-core through its own PyPI cache on first use, so this ` +
+      `is usually no route to that cache's upstream. Last response: ${last}`,
+  );
 }
 
 /**

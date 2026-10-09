@@ -26,11 +26,56 @@ api:
       enabled: true          # default; set false to disable (endpoints then 404)
       # prices_url: ...       # override the upstream pricesheet (e.g. an internal mirror)
       # default_region: us-east-1   # fallback only — region is resolved per-resource
+      # prices_sha256: ...    # pin the sheet's digest (see "Trusting the pricesheet")
 ```
 
 - **Region is resolved per resource** — from the resource's own attributes (`region`/`location`), then its provider config, and only then the `default_region` fallback.
 - The pricesheet is a **pull-through cache**: it is mirrored into object storage on first use (no schedule, no extra Helm wiring), and a stale copy is served if a refresh fails so a transient upstream outage never breaks a run.
 - **Air-gapped / restricted-network** deployments pre-seed the cached object or point `cost_estimation.prices_url` at an internal mirror of the self-generated pricesheet (`prices.yaml.gz`).
+
+## Trusting the pricesheet
+
+The sheet is data, not code — it is parsed with a safe YAML loader and
+parameterised inserts, so there is no execution path through it. What a tampered
+sheet *can* do is skew every cost number, and anything reading those numbers:
+a policy or AI gate that keys on cost would be ruling on fiction.
+
+Three things guard it, and they are not equally strong. Say which one you are
+relying on:
+
+| | What it catches | What it does not |
+|---|---|---|
+| **Size caps** (always on) | A decompression bomb or runaway upstream filling the ephemeral PVC | Nothing about the sheet's *content* |
+| **The sibling `.sha256`** (automatic) | Corruption in transit, and an asset swapped on its own | Anyone who can rewrite the sheet *and* the file beside it |
+| **`prices_sha256`** (you set it) | All of the above, including a compromise of wherever the sheet is published | A sheet that was already wrong when you pinned it |
+
+Only the third is a real integrity guarantee, because it is the only one whose
+value lives in your deployment rather than next to the artifact. To use it,
+verify the release's build attestation once and then pin what it attests:
+
+```sh
+curl -fLO https://github.com/mattrobinsonsre/terrapod/releases/download/pricesheet/prices.yaml.gz
+# Sigstore-backed, and tied to the workflow run that produced these exact bytes.
+gh attestation verify prices.yaml.gz --repo mattrobinsonsre/terrapod
+sha256sum prices.yaml.gz          # -> api.config.cost_estimation.prices_sha256
+```
+
+A pinned sheet does not auto-update: the weekly publish will then fail its digest
+check and the cached sheet keeps serving, which is the trade you are making. Re-pin
+when you want the newer prices. A refusal is logged as `cost_pricesheet_rejected`
+and never replaces the cached copy, so a bad refresh degrades to stale numbers
+rather than wrong ones.
+
+Leaving `prices_sha256` empty is a reasonable default — Terrapod still fetches
+`<prices_url>.sha256` and refuses a mismatch — but it is weaker than it looks, so
+it is stated here rather than implied. An **air-gapped mirror that serves only the
+sheet** is unaffected: a missing or unparseable sibling digest is not fatal, by
+design, or every mirror predating this would have broken.
+
+The caps are `prices_max_compressed_bytes` (256 MiB) and
+`prices_max_decompressed_bytes` (2 GiB). The real sheet is ~2 MB and ~20 MB
+respectively, so neither is a limit you will meet; they exist so that a hostile
+sheet cannot spend your PVC. Both are enforced while streaming, not after.
 
 ## How it works
 
@@ -39,6 +84,17 @@ api:
 3. The **workspace** Cost tab prices the latest state version server-side (`GET /api/v1/workspaces/{id}/cost-estimate`), gated on `state:read`.
 
 Full request/response shapes are in the [API reference](api-reference.md#cost-estimation).
+
+## Pulumi
+
+A Pulumi run is costed too, through the same engine and into the same Cost tab. A preview has no `show -json`, so its engine event log is translated into the shape the engine reads: each resource's Pulumi token is mapped to the Terraform type the pricesheet knows it by (`aws:ec2/instance:Instance` → `aws_instance`), its properties are renamed from the bridge's camelCase back to Terraform's spelling (`instanceType` → `instance_type`), and each step's operation decides whether the resource counts as added, removed, or unchanged — a replacement exists before and after, so it moves the total by nothing, exactly as it does on a Terraform plan.
+
+Two limits worth knowing, both deliberate:
+
+- **The type map covers bridged providers only, and only types the pricesheet can price.** A bridged provider (`pulumi-aws`, `pulumi-azure`, `pulumi-gcp`) wraps the Terraform provider, so its resource has the same properties under renamed keys — which is what makes a mapping meaningful. `pulumi-azure-native` is generated from the Azure ARM specification instead and shares no property shape with `azurerm`, so it is **not** mapped. Anything unmapped is reported in the estimate's **unpriced** bucket under its own Pulumi token, never guessed at: a wrongly-priced resource is worse than an unpriced one, because nothing about it looks wrong.
+- **AWS resources are priced in the fallback region** (`cost_estimation.default_region`) unless they carry a region of their own. A Pulumi AWS resource does not — the provider holds it, and the provider is not in the event log. Azure and GCP resources carry `location` / `region` / `zone` as ordinary inputs, so they are priced where they are.
+
+A preview that did not finish reporting is not priced at all, rather than priced partially: an estimate over a truncated walk of the stack understates the bill, and nothing about the number would look incomplete.
 
 ## Where cost shows up
 

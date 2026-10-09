@@ -72,6 +72,7 @@ class TestAutodiscoveryRule:
             execution_backend="tofu",
             agent_pool_id=pool,
             engine_version="1.12",
+            ansible_version="2.21.5",
             resource_cpu="1",
             parallelism=10,
             resource_memory="2Gi",
@@ -91,6 +92,7 @@ class TestAutodiscoveryRule:
             security_scan_severity_threshold="high",
             security_scan_skip_rules=[],
             debug_mode=False,
+            allow_fork_pr_plans=False,
             ai_policy_mode="default",
             ai_summary_mode="default",
             ai_summary_context="",
@@ -104,6 +106,7 @@ class TestAutodiscoveryRule:
             drift_ignore_rules=[],
             plan_expiry_seconds=None,
             slack_channel="",
+            oidc_audiences=[],
             created_at=None,
             updated_at=None,
         )

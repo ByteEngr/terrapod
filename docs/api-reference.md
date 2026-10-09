@@ -394,6 +394,59 @@ Create accepts the same settings `PATCH` does, including `vcs-workflow`, `auto-m
 
 **Required permission:** Any authenticated user can create workspaces (creator becomes owner).
 
+<a id="workspace-write-refusals"></a>
+
+#### Refusals on create and update
+
+Create is open to any authenticated user and the creator becomes owner, so two
+things a caller chooses in the body are grants rather than preferences. Both are
+checked on **create** and on **`PATCH`**, and both answer **403**.
+
+| Refusal | When | What to do |
+|---|---|---|
+| Not authorized to use VCS connection `vcs-…` | The body names a connection the caller has no claim to. Checked on create, and on update only when the connection actually **changes**. Both the `vcs-connection-id` attribute and the `vcs-connection` relationship are covered. | Ask a platform admin to set the connection's `owner-email` or `labels`, or create the workspace under someone who already has a claim. See [Authorization and repository scope](#connection-authorization-attributes). |
+| Connection `vcs-…` is restricted to specific repositories and `…` is not one of them | The named connection has a non-empty `allowed-repositories` that `vcs-repo-url` does not match. Re-checked on **every** update that leaves a connection attached, since `vcs-repo-url` is separately settable. | Use a repository inside the connection's scope, or ask a platform admin to widen `allowed-repositories`. |
+| This change would make the workspace match the assignment rule of variable set `…` | The attributes being set would pull in a **rule-assigned** variable set **that carries a sensitive or broker-resolved value** and is not already reaching this workspace, and the caller is not a platform admin. A rule-assigned set of plain configuration joins freely — the refusal is scoped to the reported impact, because refusing every match would close the documented self-service workflow as well as the finding. | Ask a platform admin to make the change, or to assign the set to the workspace explicitly. See [Assignment Rules](#assignment-rules). |
+
+The variable-set refusal compares the rule-assigned sets reaching the workspace
+**before and after** the pending change, so:
+
+- **shrinking is allowed** — dropping a label that was pulling a set in is a
+  de-escalation and needs no admin;
+- an **unrelated edit** to a workspace that already matches is allowed; the test
+  is growth, not membership;
+- **global** and **explicitly-assigned** sets never count. A global set already
+  reaches every workspace, and an explicit assignment was an admin's deliberate
+  act on this workspace;
+- a refusal is **atomic**: the change is rolled back, so a refused create leaves
+  no workspace behind.
+
+The refusal names the variable sets it would have pulled in — the names are not
+secret, the values are.
+### `ansible-version`
+
+The ansible-core version this workspace's **configure** operations use — a
+deployment default that a workspace may override, exactly as it overrides its
+engine version. Collection compatibility is a per-workspace concern, so one
+version for the whole deployment would be the wrong shape.
+
+| | |
+|---|---|
+| **Type** | string |
+| **Default** | `api.config.default_ansible_version` at the time the workspace was created. Raising that value moves only workspaces created afterwards — existing ones keep what they carry, exactly as the engine version does. Use bulk update to move a fleet. |
+| **Empty means** | inherit the deployment default. A row predating this attribute reads back empty; a workspace created normally carries a concrete version. |
+| **Accepted** | any non-empty string. The only write-time rule is the deployment's pre-release policy, so `binary_cache.allow_prerelease: none` 422s `2.21.5rc1` and allows `2.21.5`. There is deliberately **no format rule** — `engine-version` has none either, and pip's own message about a version PyPI does not publish beats a regex of ours guessing at what it does. |
+| **Not resolved** | a partial such as `2.18` is **not** expanded to the newest matching release, unlike `engine-version`: nothing resolves it, so the value reaches pip as written and fails at install time. Pin an exact version. `latest` likewise. |
+
+**A read returns the workspace's own value.** The deployment default is not
+substituted in for an empty one, because a client that wrote a read straight
+back would then pin every workspace to whatever the default happened to be at
+read time — the same reason `oidc_audiences` reconciles only the keys a
+practitioner declared.
+
+Settable on workspace create, workspace update, bulk update, and as an
+autodiscovery rule template field.
+
 ### `engine-version`, and its older name `terraform-version`
 
 A workspace pins the version of whichever engine it runs — OpenTofu, Terraform
@@ -481,6 +534,11 @@ Same body format as create. Only include attributes to change. Both routes run t
 
 **Required permission:** `admin` on the workspace.
 
+**403 refusals:** a changed `vcs-connection-id`/`vcs-connection` the caller has no
+claim to, a `vcs-repo-url` outside the connection's `allowed-repositories`, and a
+change that would pull in a rule-assigned variable set. All three are shared with
+create — see [Refusals on create and update](#refusals-on-create-and-update).
+
 **Self-lockout protection:** If the request changes `labels` and the new labels would reduce the caller's own access level, the API returns **409 Conflict** with a descriptive error. Re-submit with `"force": true` in the attributes to confirm the change. Platform admins and workspace owners are immune (their access doesn't depend on labels).
 
 ### Workspace Permissions Block
@@ -505,6 +563,7 @@ All workspace responses (show and list) include a `permissions` object reflectin
     "can-read-settings": true
   }
 }
+```
 
 ### Delete Workspace
 
@@ -530,9 +589,12 @@ old id needs repointing — it is a salvage operation, not an undo.
 
 ```
 POST /api/tfe/v2/workspaces/{id}/actions/lock
+POST /api/v1/workspaces/{id}/actions/lock
 ```
 
 **Required permission:** `plan` on the workspace.
+
+> **Also on the native surface.** `POST /api/v1/workspaces/{id}/actions/lock`, `/actions/unlock` and `/actions/force-unlock` do the same thing for **any** engine. The `/api/tfe/v2` paths are unchanged and still Terraform-only — a workspace on another engine 404s there, as it does everywhere on that surface.
 
 A manual lock is the CLI/UI state lock **and** an operator gate on applies: while a workspace is locked, apply-capable (plan+apply) runs **will not start** and a confirm (`POST /api/tfe/v2/runs/{id}/actions/apply`) returns **409 Conflict**. Auto-apply runs settle in `planned` and wait for an unlock rather than applying. **Plan-only runs (speculative plans, drift checks) are not blocked** — they never mutate state. Returns 409 if the workspace is already locked; the existing lock, its reason and its holder are left untouched.
 
@@ -563,6 +625,7 @@ Both attributes appear on every workspace response, and are `null` whenever `loc
 
 ```
 POST /api/tfe/v2/workspaces/{id}/actions/unlock
+POST /api/v1/workspaces/{id}/actions/unlock
 ```
 
 **Required permission:** `plan` on the workspace (own locks only).
@@ -599,6 +662,18 @@ Workspaces support the following drift detection attributes (settable on create 
 | Attribute | Type | Default | Description |
 |---|---|---|---|
 | `debug-mode` | boolean | `false` | Hold this workspace's **failed** runner pods open so an operator can `kubectl exec` into one (#1764). The run is reported as failed first and is final from Terrapod's side; only then does the container stay up, for at most `runners.debugLingerSeconds`. Successful runs are unaffected. See [runners.md → Debug mode](runners.md#debug-mode-inspecting-a-failed-runner-pod) for what a held pod exposes and who can reach it |
+
+### Pull Requests From Forks
+
+| Attribute | Type | Default | Description |
+|---|---|---|---|
+| `allow-fork-pr-plans` | boolean | `false` | Whether a pull request opened **from a fork** gets a speculative plan ([GHSA-gp5w-76rw-c452](https://github.com/mattrobinsonsre/terrapod/security/advisories/GHSA-gp5w-76rw-c452)). Off by default: that plan runs the pull request author's code with the workspace's full credential set — `env`-category variables, sensitive values, OpenBao/Vault-resolved values, minted git credentials and the Job's cloud workload identity — and a fork author has neither write access nor the ability to merge, so the plan is the only path by which their code reaches any of it. **Pull requests from a branch in the repository itself are unaffected and always plan.** It gates [module-impact](registry.md#module-impact-analysis) runs the same way, per consuming workspace. See [vcs-integration.md → Pull requests from forks](vcs-integration.md#pull-requests-from-forks) |
+
+### Cloud Identity Attributes
+
+| Attribute | Type | Default | Description |
+|---|---|---|---|
+| `oidc-audiences` | object | `{}` | The workspace's **override** of the deployment's cloud-identity audience catalogue, and its half of the opt-in for [per-workspace cloud identity](cloud-identity.md). A map keyed on the provider configuration a token is for — the bare provider type as a `provider` block writes it (`aws`, `azurerm`, `vault`), optionally with an alias (`aws.west`, where the alias is part of the key). Each value is **always a list**, even for one entry. One token is minted per key: a token audienced for two targets is replayable between them, and AWS refuses a multi-valued `aud` outright. Lookup is specific-then-general, so `vault.eu` is answered by an entry for `vault.eu` if there is one and by `vault` otherwise. **Merged over** `api.config.auth.oidc_issuer.audiences` per key, replacing that key's whole list — so an empty map is valid and common, and means "take the catalogue as it stands"; removing a key is the defined way to stop overriding it, and an explicitly empty list for a key is **refused** because it is neither. **This attribute returns the MERGED map, not the stored override** — so an entry the workspace does not override still appears, and a client that writes the read straight back would promote it into one. Subtract the catalogue (`GET /api/terrapod/v1/oidc/audience-defaults`) and send only what the workspace owns; the Terraform provider reconciles only the keys the practitioner declared, for exactly this reason. At most 10 keys, 10 audiences per key, 255 characters per audience and 128 per key; a key carries no whitespace and at most one `.`; a blank or duplicate audience is **refused**, not dropped. Stored byte-for-byte and never normalised: an audience is an opaque string the federation target chose. Terrapod attaches no meaning to any of them — any provider may be mapped to any audience, and the cloud's own trust policy is the only gate. Inert unless the deployment also sets `api.config.auth.oidc_issuer.enabled`. Settable on create and update, in the autodiscovery rule template, and via [bulk update](#bulk-workspace-operations). See [Per-Workspace Cloud Identity](#per-workspace-cloud-identity-oidc-federation) for the endpoints |
 
 ### Terragrunt Attributes
 
@@ -671,6 +746,41 @@ Workspaces also expose a read-only `state-diverged` boolean. It is set to `true`
 "state-diverged": false
 ```
 
+### Health Conditions
+
+Every workspace response carries a read-only `health-conditions` array,
+recomputed on every request rather than stored, so a condition disappears as
+soon as whatever caused it does. An empty array means
+nothing is wrong. The UI renders it as banners on the workspace detail page and
+as badges on the workspace list.
+
+```json
+"health-conditions": [
+  {
+    "code": "state_diverged",
+    "severity": "error",
+    "title": "State may not match reality",
+    "detail": "The last apply completed but the state upload failed …"
+  }
+]
+```
+
+`code` is the stable identifier to match on; `title` and `detail` are prose for
+a person and may be reworded. `severity` is `error` or `warning`.
+
+| Code | Severity | Raised when |
+|---|---|---|
+| `state_diverged` | `error` | The last apply completed but the state upload failed, so the stored state may not match reality. Mirrors the `state-diverged` flag above |
+| `no_agent_pool` | `warning` | The workspace is in agent execution mode with no agent pool assigned, so runs queue indefinitely |
+| `no_live_agent_pool` | `error` | The workspace is in agent execution mode and none of its assigned pools currently has a listener sending heartbeats. Skipped rather than guessed when liveness cannot be determined — a false "no runner" banner is worse than a missing one |
+| `vcs_error` | `error` | The most recent VCS poll failed; `detail` is the error itself. Cleared by the next successful poll — see [VCS Polling Health Attributes](#vcs-polling-health-attributes) |
+| `drifted` | `warning` | Drift detection is enabled and the last drift run found changes between the stored state and the real infrastructure |
+| `drift_errored` | `warning` | Drift detection is enabled and the last drift run failed |
+
+New codes are added as new conditions are detected, so treat the list as open:
+match the codes you handle and pass anything else through with its `title` and
+`detail`.
+
 ### List VCS Refs (Terrapod Extension)
 
 ```
@@ -705,14 +815,20 @@ Returns 422 if the workspace is not VCS-connected or the VCS connection is inact
 
 ```
 GET /api/tfe/v2/workspaces/{id}/state-versions
+GET /api/v1/workspaces/{id}/state-versions
 ```
 
 **Required permission:** `read` on the workspace.
+
+> **State reads answer on both surfaces.** Every engine Terrapod runs has state, so `GET /api/v1/workspaces/{id}/state-versions`, `/current-state-version`, `GET /api/v1/state-versions/{id}` and `/download` serve a workspace on any engine. The `/api/tfe/v2` paths stay Terraform-only.
+>
+> The state *write* pair (`POST .../state-versions` then `PUT /state-versions/{id}/content`) is the `go-tfe` upload protocol and remains TFE-only. A Pulumi stack's state is published by its own update-complete path, or uploaded by hand with `POST /api/v1/workspaces/{id}/state-versions/actions/upload`, which takes `pulumi stack export` output.
 
 ### Current State Version
 
 ```
 GET /api/tfe/v2/workspaces/{id}/current-state-version
+GET /api/v1/workspaces/{id}/current-state-version
 ```
 
 **Required permission:** `read` on the workspace.
@@ -745,12 +861,14 @@ POST /api/tfe/v2/workspaces/{id}/state-versions
 
 ```
 GET /api/tfe/v2/state-versions/{id}
+GET /api/v1/state-versions/{id}
 ```
 
 ### Download State
 
 ```
 GET /api/tfe/v2/state-versions/{id}/download
+GET /api/v1/state-versions/{id}/download
 ```
 
 Returns a redirect to a presigned URL for the raw state file.
@@ -941,8 +1059,50 @@ The CLI plan/apply flow always supplies a CV (it uploads one first), so it's una
 | `replace-addrs` | array of strings | `[]` | Resource addresses to force replacement (equivalent to `-replace` CLI flag, plan phase only) |
 | `refresh-only` | boolean | `false` | Refresh-only plan — reconcile state without planning changes (equivalent to `-refresh-only`) |
 | `refresh` | boolean | `true` | Whether to refresh state before planning. Set to `false` to skip refresh (equivalent to `-refresh=false`) |
-| `allow-empty-apply` | boolean | `false` | Allow apply even when the plan has no changes (equivalent to `-allow-empty-apply`) |
+| `allow-empty-apply` | boolean | `false` | Allow apply even when the plan has no changes (equivalent to `-allow-empty-apply`). **Terraform/OpenTofu only** — `pulumi up` carries out whatever the preview produced, empty or not, so setting it `true` on a Pulumi workspace is refused with 422 rather than stored and ignored. The other run options are not engine-specific: Pulumi reads `target-addrs`/`replace-addrs` as `--target`/`--replace` URNs and `refresh-only`/`refresh` as `pulumi refresh` / `--refresh=false`. |
 | `vcs-ref` | string | `""` | Branch, tag, or SHA to fetch code from instead of the workspace's tracked branch. Only valid on VCS-connected workspaces. **Runs with a non-default ref are always plan-only** — the server enforces this regardless of the `plan-only` attribute value |
+| `save-plan` | boolean | `false` | A saved-plan run — `terraform plan -out=FILE`. See below |
+
+### Saved-plan runs (`terraform plan -out=FILE`)
+
+`save-plan: true` creates a run that is apply-capable but whose apply is
+**deferred**. That is the one thing it does differently, and it is the whole
+feature: an ordinary run awaiting confirmation holds its workspace from the
+moment it plans, so nothing else can plan behind it. A saved-plan run does not.
+It plans immediately, holds nothing, and takes the workspace's single apply slot
+only when someone confirms it — which is what makes keeping a plan file around
+for a while meaningful rather than an outage.
+
+Terrapod has no separate "workspace lock" for this to skip. `workspace.locked`
+is the CLI/manual state lock and is never set by run activity; the lock a run
+takes is its place in the per-workspace serialization, and that is what a
+saved-plan run defers.
+
+What follows from the deferral:
+
+- **A newer run does not discard it.** Ordinarily a newer apply-capable run
+  supersedes older unapplied ones. A saved plan is exempt: someone is holding
+  that file, and a colleague queueing a run must not silently invalidate it.
+- **It still goes stale.** Exemption from supersede is why the state check
+  matters more, not less. Confirming a saved plan whose workspace state has
+  moved since it planned is refused and the run discarded, exactly as for any
+  other plan — so a deferred apply can never apply against state it did not see.
+- **Confirming is refused while another run holds the workspace**, with a 409
+  naming the run in the way. Not queued (`terraform apply FILE` would block with
+  no way to say why) and not superseding (that would discard someone else's
+  planned run to make room for a plan made before theirs).
+
+Refused with a 422 in three cases, rather than accepted and quietly turned into
+something else:
+
+| Combination | Why |
+|---|---|
+| `save-plan` + `plan-only` | A plan-only run can never be applied, so the file would promise nothing |
+| `save-plan` + a speculative configuration version | Speculative configurations force plan-only — the same contradiction by another door |
+| `save-plan` on a VCS-connected **agent** workspace | Applying the saved plan would be a CLI apply, which those workspaces reserve for the VCS integration and the UI. Refused at plan time rather than after the operator holds a file they can never apply |
+
+The attribute round-trips on the run, so a client reading a run back sees what
+it asked for.
 
 ### Run Response Attributes (Drift Detection)
 
@@ -1083,9 +1243,20 @@ The stream sends `: keepalive` comments every ~1 second. Events are JSON-encoded
 GET /api/v1/workspace-events
 ```
 
-Server-Sent Events stream for the workspace list page. Emits events whenever any workspace changes (run status, lock, settings, state). The web UI uses this to refresh the workspace list without polling.
+Server-Sent Events stream for the workspace list page. Emits events whenever a workspace changes (run status, lock, settings, state). The web UI uses this to refresh the workspace list without polling.
 
-**Required permission:** Any authenticated user.
+**Required permission:** any authenticated user to subscribe — but **each event is
+filtered against the subscriber's own `workspace:read`**, so a stream only carries
+workspaces that principal can see.
+
+The filter is new in 2.0 (GHSA-mc7f-xmq4-jgvw). This is one global channel
+carrying every workspace's id and coarse status, so before it any authenticated
+user learned of the existence and state of every workspace in the deployment.
+A decision is cached per connection for 30 seconds, so a role change is felt
+within that window rather than at the next reconnect; an unresolvable workspace
+(deleted, or a transient database error) is treated as unreadable. The web UI is
+unaffected — it reloads the list on any event and ignores the payload, so a
+dropped event is a reload that would have found nothing changed.
 
 ### Plan Details
 
@@ -1119,6 +1290,40 @@ GET /api/tfe/v2/plans/{plan_id}/json-output
 Returns the structured JSON representation of the plan, as produced by `terraform show -json tfplan`. Useful for downstream tooling that wants to consume the resource changes without parsing the human-readable log. Responds **302** to a presigned object-storage URL.
 
 The endpoint is mounted at `/api/tfe/v2/` because `go-tfe` and Terraform's `cloud` block expect it there. Returns **404** if the runner never uploaded the JSON output (older runs, runs that errored before the plan completed).
+
+**Required permission: `state:read` on the workspace — the `plan` tier, the same
+as downloading raw state.** The structured plan is a far richer artifact than the
+human-readable log it sits beside: it carries each resource's **resolved
+attribute values**, the root `variables` with their values (sensitive ones
+included), and `prior_state.values` — the whole state in cleartext, resource
+secrets and all. Terraform marks sensitive values in the plan rather than
+removing them, and Terrapod stores and serves the plan as the engine produced it.
+
+**Changed in 2.0 (GHSA-gwwq-5v7q-h3f4).** This endpoint used to need only
+`run:read`, so it sat in the `read` preset — which handed a read-only principal
+exactly what the `state:read` gate and the sensitive-variable masking exist to
+withhold. If you rely on a `read`-only principal fetching plan JSON (a downstream
+tool, a dashboard), raise that principal to `plan` before upgrading; a `read`-tier
+caller now gets **403**. TFE does not grant structured plan output at its read
+tier either.
+
+Two things that remain true whatever tier you grant:
+
+- **The `plan` tier is still a real grant.** On a workspace whose plans carry
+  secrets, the label-based role that grants `state:read` is the control. There is
+  no separate switch for this endpoint, and there is no redacted variant: a
+  second, weaker-but-plausible plan artifact would be one more thing to keep
+  correct for ever. (The AI channel does redact, because a third party receives
+  the document there — a different reason that does not generalise.)
+- **Keep secrets out of resource arguments.** What puts a value in the plan is
+  its being an argument of a resource, not which variable category delivered it.
+  A credential a provider reads from its own environment variable never becomes a
+  resource attribute, so it never reaches the plan; the same secret interpolated
+  into a resource argument does, whichever category carried it.
+
+The run page's **Impact graph** (`GET /api/v1/runs/{run_id}/impact-graph`) stays
+at `run:read`: it is derived server-side and carries resource addresses, types,
+planned actions and dependency edges — no attribute values.
 
 ### Impact Graph
 
@@ -1216,16 +1421,34 @@ Returns the **single-workspace resource dependency graph** behind the [State Res
 
 **Required permission:** `state:read` on the workspace (the graph is derived from the secret-bearing state blob, so it requires the same access as downloading raw state).
 
+**Engine-aware (#1568).** A Pulumi workspace's graph is built from its deployment: one node per resource, addressed by URN, carrying the resource `type`, its package as `provider`, and `mode` of `managed` (a provider resource) or `component` (a grouping the program declares). Edges come from each resource's `dependencies`, plus its `parent` where that parent is a real resource — the root `pulumi:pulumi:Stack` is neither drawn nor linked, being the stack itself rather than infrastructure and the parent of everything in it. The response shape is identical for both engines.
+
+### State Outputs
+
+```
+GET /api/v1/workspaces/{workspace_id}/state-outputs
+```
+
+Returns the workspace's **current state outputs**, for either engine: a Pulumi stack's live on the root `pulumi:pulumi:Stack` resource inside its deployment, a Terraform state's at the top level.
+
+**Sensitive values are masked**, arriving as the literal string `"(sensitive)"` — the reader learns the output exists without this becoming a way to read secrets. Pulumi's are recognised by its own ciphertext envelope; Terraform's by the `sensitive` flag the state records.
+
+A workspace with no state yet, a version whose content was never uploaded, or a state declaring no outputs returns `{"outputs": {}}` — not an error.
+
+**Response:** `{"data": {"type": "state-outputs", "attributes": {"outputs": {"<name>": <value>}, "state_version": "sv-...", "serial": N}}}`
+
+**Required permission:** `state:read` on the workspace, the same trust as the state graph and for the same reason.
+
 ### AI Architecture Critique (Terrapod Extension)
 
-State-based, whole-system critique (#1036 Part 2). Reviews the workspace's deployed system **as it exists** — inferred from its current Terraform state (+ the resource graph, the deterministic cost estimate, and the deterministic security-scan findings) and critiqued across resilience / security / cost / well-architected. Distinct from the per-run [Plan Summary](#plan-summary), which reviews a *change*. Enabled by the independent `ai_architecture` config (off by default).
+State-based, whole-system critique (#1036 Part 2). Reviews the workspace's deployed system **as it exists** — inferred from its current Terraform state (+ the resource graph, the deterministic cost estimate, and the deterministic security-scan findings) and critiqued across resilience / security / cost / well-architected. Distinct from the per-run [Plan Summary](#plan-summary), which reviews a *change*. Enabled by the independent `ai_architecture` config, which is **off by default** — the surface self-gates to 404 until an operator turns it on. It is deliberately a separate switch from `ai_summary`: the critic reads whole-workspace **state**, so enabling it sends resource attributes to the configured model endpoint.
 
 ```
 GET  /api/v1/workspaces/{workspace_id}/architecture-critique
 POST /api/v1/workspaces/{workspace_id}/architecture-critique/regenerate
 ```
 
-`GET` returns the critique for the workspace's current state version: `{"data": {"type": "architecture-critiques", "attributes": {"status": "ready|pending|skipped|errored", "risk-level": "low|medium|high|critical", "architecture": {...}, "findings": [{"severity", "category", "title", "detail", "resource-address"|"resource_address", "recommendation", "grounded_in"}], "deferred": [...], "state-serial": N, ...}}}`. Returns **404** when the feature is disabled, the workspace has no state, or no critique has been generated for the current state yet. `POST .../regenerate` queues a fresh critique (202) and mutates no infrastructure.
+`GET` returns the critique for the workspace's current state version: `{"data": {"type": "architecture-critiques", "attributes": {"status": "ready|pending|skipped|errored", "risk-level": "low|medium|high|critical", "architecture": {...}, "findings": [{"severity", "category", "title", "detail", "resource-address"|"resource_address", "recommendation", "grounded_in"}], "deferred": [...], "state-serial": N, ...}}}`. Returns **404** when the feature is disabled, the workspace has no state, the workspace runs an engine the critic does not read (it reads Terraform state — see [AI Architecture Critique](architecture-critique.md)), or no critique has been generated for the current state yet. `POST .../regenerate` queues a fresh critique (202) and mutates no infrastructure.
 
 **Required permission:** `state:read` on the workspace (the critique reasons over the secret-bearing state, so it requires the same access as downloading raw state).
 
@@ -1515,7 +1738,16 @@ POST /api/v1/workspaces/{id}/run-triggers
 }
 ```
 
-**Required permission:** `admin` on the destination workspace.
+**Required permission:** `admin` on the destination workspace, **and `read` on
+the source workspace**.
+
+The source-side check is new in 2.0 (GHSA-mc7f-xmq4-jgvw). Without it the
+destination grant bounded nothing about which workspaces could be named as a
+source, so a user holding `admin` on one workspace of their own could post
+arbitrary ids and read the answer — an existence-and-name oracle over the whole
+fleet. A source the caller cannot read is reported as **404 Workspace not
+found**, identical to an id that does not exist: a 403 would confirm the
+workspace is there, which is the thing being withheld.
 
 **Validation:**
 - Source and destination must be different workspaces
@@ -1843,17 +2075,40 @@ POST /api/tfe/v2/workspaces/{id}/vars
 }
 ```
 
-`category` is one of `terraform`, `env`, `git_http_auth`, or `git_ssh_auth`. In agent mode all are delivered to the runner Job via a per-run Kubernetes Secret (never plaintext in the Job spec): `terraform` vars are rendered into a generated `terrapod.auto.tfvars` from a Secret-mounted blob (honouring `structured`), and `env` vars are injected via `secretKeyRef`. (In local execution mode the CLI handles variables itself.) The two `git_*_auth` categories carry credentials for private git module sources — the `key` is a host/URL pattern and the `value` a JSON credential; they are always forced `sensitive` and consumed by the runner's git-auth phase before `init` (see [Module Source Auth](module-auth.md)), not by terraform/tofu directly.
+`category` is one of `terraform`, `env`, `git_http_auth`, or `git_ssh_auth`. In agent mode all are delivered to the runner Job via a per-run Kubernetes Secret (never plaintext in the Job spec), and the runner dispatches the delivery on the workspace's engine. (In local execution mode the CLI handles variables itself.)
 
-`structured` marks a value as a typed expression rather than a plain string — for a
-`terraform` variable, a raw HCL expression (list, object, number, bool) rather than a
-quoted string. **`hcl` is the same flag under its original name and is accepted and
+`terraform` is **the engine's own parameter channel**, not Terraform's alone. Every engine has exactly one — Terraform's input variables, Pulumi's stack config, Ansible's extra vars — and they are the same role, so they are the same category; only the delivery differs. A Terraform run renders the values into a generated `terrapod.auto.tfvars` (honouring `structured`); a Pulumi run sets each with `pulumi config set` against the run's stack, after the stack is selected and before the `pre_plan` hook, with the key passed through **verbatim** — an unqualified `region` is namespaced to the project by the CLI, and an explicit `aws:region` is left alone. On Pulumi, `sensitive` makes it a real secret (`--secret`), so the stack's secrets provider encrypts it and the engine renders it as `[secret]` in the preview, the event log and any state it reaches; `structured` becomes `--path`, so `outer.inner` sets a nested value. It overwrites a committed `Pulumi.<stack>.yaml` key of the same name, leaves keys it does not set alone, and a key that cannot be set **fails the run**. See [Pulumi → Stack configuration](pulumi.md#stack-configuration).
+
+**Two names, one category.** It is stored as `native` — the honest name for a channel that is not Terraform's alone — and the surface you ask decides how it comes back. The TFE-compatible surface (`/api/tfe/v2` and its `/api/v2` alias) returns `terraform` and always will, because `tfci` and `go-tfe` hold that as a constant; `/api/v1` returns `native`. On input, `terraform`, `native` and `pulumi_config` are all accepted anywhere and mean the same thing, so a request written against any of them keeps working. This is the arrangement `structured` already has with `hcl`.
+
+The consumers accept both too, so which name you hold never has to depend on which prefix you read. `go-terrapod` exposes `SameCategory` and uses it wherever a category is compared — `GetVariableByKey` finds the same row whether you ask for `terraform` or `native`. The `terrapod_variable` and `terrapod_variable_set_variable` provider resources accept either and keep the spelling you wrote, so a configuration saying `native` does not drift against a server answering `terraform` (which, on an attribute that forces replacement, would propose destroying and recreating the variable on every plan). Only a genuine change of category — to `env`, say — is reported as drift.
+
+The **UI** names it in the words of the engine you are looking at: a Terraform or OpenTofu workspace shows **Terraform**, a Pulumi workspace shows **Pulumi config**, and a variable set — which is org-scoped and reaches workspaces of either kind — shows **Native**, because there is no single engine whose word would be right. The stored value is the same in all three.
+
+`env` vars are injected via `secretKeyRef`. The two `git_*_auth` categories carry credentials for private git module sources — the `key` is a host/URL pattern and the `value` a JSON credential; they are always forced `sensitive` and consumed by the runner's git-auth phase before `init` (see [Module Source Auth](module-auth.md)), not by terraform/tofu directly.
+
+`structured` marks a value as a typed expression rather than a plain string. What that
+means is the engine's: for a Terraform run a raw HCL expression (list, object, number,
+bool) rather than a quoted string; for a Pulumi run a nested config path. **`hcl` is the same flag under its original name and is accepted and
 returned indefinitely**, because `tfci` and `go-tfe` send and read it; responses carry
 both keys and they always agree. Supplying both with *different* values is a `422`
 rather than a silent precedence rule — a client that disagrees with itself about
 whether a value is typed has a bug worth surfacing.
 
 **Required permission:** `write` on the workspace.
+
+### One category, whatever the engine
+
+There is no engine-specific variable category, and there used to be. `terraform`
+(stored as `native`) is every engine's parameter channel; `env` and the two
+`git_*_auth` categories apply whatever engine runs. So a variable cannot sit in
+a category its workspace's engine will never read, and the two signals that
+reported that state — a variable's `applies-to-engine` attribute and the
+workspace's `variables_not_consumed` health condition — are **gone**. Both were
+consolation for a shape that should not have existed.
+
+Nothing reports config that a program was handed and never read: no engine
+offers that signal.
 
 ### Update Variable
 
@@ -2098,6 +2353,39 @@ A rule that no longer parses matches **nothing** rather than everything, so a
 filter dimension removed in a later version cannot silently widen a scoped
 credential set to the whole estate.
 
+<a id="labels-are-not-a-credential-trust-boundary"></a>
+
+#### Labels are not a credential trust boundary
+
+**An assignment rule selects on attributes a workspace's own owner controls.**
+Labels, name, execution mode, engine version, agent pool, VCS connection and the
+rest are all settable by whoever has `admin` on the workspace — and workspace
+creation is open, with the creator becoming owner. So a rule is a convenient way
+to describe a fleet; it is **not** an authorization check, and a variable set has
+no per-set permissions for one to appeal to.
+
+Treat a rule-scoped set exactly as widely trusted as the attribute it selects on.
+Specifically:
+
+- **Do not** rely on a label to keep a credential away from someone who can
+  create or administer a workspace. If the set holds something only one team may
+  have, assign it to that team's workspaces **explicitly**, or keep it in those
+  workspaces' own variables.
+- **Review the rule, not just the membership**, when you add a credential to an
+  existing set. The blast radius is "every workspace that can be made to match",
+  which is larger than "every workspace that matches today".
+
+Terrapod enforces the one invariant it can without an entitlement to consult: a
+caller who is **not** a platform admin may not make a workspace match a
+rule-assigned set **that holds a sensitive or broker-resolved value** and that it
+does not already match. A rule-assigned set of plain configuration joins freely. That covers workspace create and
+workspace `PATCH` — the paths where the attributes are chosen — and is a **403**;
+see [Refusals on create and update](#refusals-on-create-and-update). It is a
+behaviour change: a non-admin who previously created workspaces that joined a
+rule-scoped set now needs an admin to make the change, or an explicit assignment.
+Shrinking is always allowed, as is any edit to a workspace that already matches.
+(GHSA-49q6-pm68-3xgw)
+
 ### Association Views
 
 Read-only views of which workspaces a set reaches, and which sets reach a
@@ -2142,6 +2430,13 @@ DELETE /api/v1/registry-modules/private/default/{name}/{provider}/versions/{vers
 
 **Autodiscovery.** To find the modules in a repository — the root and any submodules — and register them in bulk, use [Module Autodiscovery Rules](#module-autodiscovery-rules).
 
+**Naming a VCS connection is authorized.** Module creation is open to any
+authenticated user, and a VCS-sourced module names a connection plus an arbitrary
+`vcs-repo-url` that the registry poller then clones with that connection's
+credential. So create, `PATCH …/{name}/{provider}` and `PATCH …/{name}/{provider}/vcs`
+all check the caller's claim to the connection and answer **403** without one, on
+the same four claims the workspace paths use — see
+[Authorization and repository scope](#connection-authorization-attributes).
 ### Module Version Interface
 
 ```
@@ -2189,6 +2484,20 @@ succeeded and a short reason when it did not — and triggers impact runs on any
 section below).
 
 **Required permission:** `write` on the module (the owner has `admin`).
+
+**A published version is immutable, and the server enforces that** (new in 2.0,
+GHSA-mhhr-896g-4p33). Re-uploading a version that already holds bytes answers
+**409 Conflict** and stores nothing. It used to upsert and replace them in place
+— and module consumers do not hash-lock, so every workspace pinned to that
+version silently picked up different source on its next init. Publish a new
+version instead; if a published one genuinely has to go, delete it first (that is
+`registry:admin`, and audited).
+
+Completing a version whose first attempt failed is still allowed: a row that
+never reached `uploaded` is a resumed publish, not an overwrite, so a failed
+upload does not strand the version number. The VCS tag poller has its own path
+and is unaffected — a **moved tag** deliberately updates its version in place,
+because there the tag rather than the version is the author's statement.
 
 **Tooling:** the [`terrapod-publish`](registry-publishing.md) CLI packages
 the source directory and performs this upload.
@@ -2478,21 +2787,31 @@ Generates a short-lived HMAC-signed runner token scoped to the specified run. Ca
 **Request body (optional):**
 ```json
 {
-  "ttl": 3600
+  "ttl": 3600,
+  "phase": "plan"
 }
 ```
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `ttl` | integer | `runners.tokenTTLSeconds` (default 3600) | Requested token lifetime in seconds. Clamped to `runners.maxTokenTTLSeconds` (default 7200) |
+| `phase` | string | — | The Job's phase, `plan` or `apply`. Bound into the token so it cannot drive the other phase's endpoints (GHSA-xmrf-hxq9-m59m, new in 2.0). Omitted or unrecognised mints an unphased token |
 
 **Response:**
 ```json
 {
-  "token": "runtok:{run_id}:{ttl}:{timestamp}:{hmac_sig}",
-  "expires_in": 3600
+  "token": "runtok:{run_id}:{phase}:{ttl}:{timestamp}:{hmac_sig}",
+  "expires_in": 3600,
+  "phase": "plan"
 }
 ```
+
+A request that sends no `phase` gets the older four-field token
+(`runtok:{run_id}:{ttl}:{timestamp}:{hmac_sig}`) and `"phase": null` — which is
+what a listener image older than the claim produces, and it keeps working: an
+absent claim is read as "no claim", so the phase checks are skipped rather than
+failing. Both parts of the wire are additive, so neither upgrade order breaks a
+run.
 
 **Auth:** Listener certificate.
 
@@ -2564,6 +2883,44 @@ POST /api/v1/vcs-connections
 
 **Required permission:** Platform `admin`.
 
+<a id="connection-authorization-attributes"></a>
+
+#### Authorization and repository scope
+
+Read-write, on every connection in the create, update, list and show responses.
+They decide **who** may point a workspace or registry module at this connection
+and **where** it may be pointed. None of the three is a secret — the credential
+is, and that is still write-only. (GHSA-v8g7-pqrj-8mcm)
+
+| Attribute | Type | Description |
+|---|---|---|
+| `owner-email` | string | The connection's owner, who may name it. `""` when unset. |
+| `labels` | object | Key-value labels. A caller whose roles reach them may name the connection — the same allow/deny evaluation every labelled resource gets. Validated on create as well as update, so a reserved label key cannot be accepted on one path and then trap the connection on the other. |
+| `allowed-repositories` | array of strings | Glob patterns this connection may be pointed at. **Empty means any repository the credential can reach** — narrowing is opt-in, so an upgraded deployment is unchanged until an operator sets it. |
+
+A connection may be named by a platform admin, by its `owner-email`, by a caller
+whose roles reach its `labels`, or by a caller who already owns a workspace using
+it. Anything else is **403**. Patterns in `allowed-repositories` are matched
+against both the full URL as stored and the `owner/name` path with any `.git`
+suffix removed, so `platform-team/*` and
+`https://github.example.com/platform-team/*` both work; `*` crosses `/`, and
+patterns are case-sensitive. Full semantics, including every point the
+allowlist is enforced at, are in
+[VCS integration → Naming a VCS connection is authorized](vcs-integration.md#naming-a-vcs-connection-is-authorized).
+
+On `PATCH` each of the three is applied only when its key is **present**:
+omitting one leaves it alone, and an explicitly empty value clears it — so
+`"allowed-repositories": []` means "allow any repository again".
+
+A `labels` value that is not an object, and an `allowed-repositories` that is not
+a list of strings, are both rejected with `422`. So is a **reserved** label key,
+and so is an `allowed-repositories` whose entries are all blank — that one matters
+because blanks are stripped, and an empty list means *any* repository, so silently
+dropping them would answer `200` having made the connection **wider** than it was.
+Send `[]` when you mean "any". Reserved keys are listed under
+[RBAC → Reserved Label Keys](rbac.md#reserved-label-keys) and there is no reason
+to send one.
+
 ### Show Connection
 
 ```
@@ -2610,7 +2967,7 @@ Partial update — only the attributes you include are changed. Notes:
 
 - `provider` is **immutable**. A different provider is a different connection; delete and recreate to change it (sending a different `provider` returns `422`).
 - Credentials (`private-key` for GitHub, `token` for GitLab) are **write-only**: they are never returned, and are only rotated when you send a non-empty value. Omit them to change the name/server-url/status without touching the stored credential.
-- Editable: `name`, `server-url`, `status` (`active`/`disabled`), and the GitHub App identifiers (`github-app-id`, `github-installation-id`, `github-account-login`, `github-account-type`). Changing `github-installation-id` to one already used by another connection returns `422`.
+- Editable: `name`, `server-url`, `status` (`active`/`disabled`), the GitHub App identifiers (`github-app-id`, `github-installation-id`, `github-account-login`, `github-account-type`), and the three authorization attributes `owner-email`, `labels` and `allowed-repositories` (see [Authorization and repository scope](#connection-authorization-attributes)). Changing `github-installation-id` to one already used by another connection returns `422`.
 
 ```json
 {
@@ -2667,7 +3024,7 @@ POST /api/v1/autodiscovery-rules
       "execution-mode": "agent",
       "execution-backend": "tofu",
       "agent-pool-id": "apool-019e01db-...",
-      "engine-version": "1.12",
+      "engine-version": "1.13",
       "resource-cpu": "1",
       "resource-memory": "2Gi",
       "auto-apply": false,
@@ -2740,6 +3097,7 @@ These are editable in the UI under **Admin → Autodiscovery**, alongside the ru
 - `ai-policy-mode` — the AI **policy gate** per-workspace override for every created workspace. `disabled` opts out of an advisory verdict only, and a mandatory deployment-wide gate ignores it; `enabled` is a synonym for `default` and has no effect (#1766).
 - `terragrunt-enabled` / `terragrunt-version`, `vcs-workflow`, `auto-merge` / `auto-merge-strategy`, `drift-detection-enabled` / `drift-detection-interval-seconds`, `drift-ignore-rules`, `plan-expiry-seconds` and `slack-channel` — the remaining per-workspace settings (#1763). `drift-detection-enabled` defaults **true** here, unlike the workspace column, because every autodiscovered workspace is VCS-connected.
 - `debug-mode` — hold failed runner pods open for every created workspace (#1764). Defaults **false**, as on a workspace: a rule can materialise hundreds of workspaces, and this one is worth turning on deliberately.
+- `allow-fork-pr-plans` — let a pull request opened from a fork plan on every created workspace. Defaults **false**, matching the workspace column rather than overriding it the way `drift-detection-enabled` does: an operator who decides fork pull requests should plan has to say so, and a rule is how they say it once for every directory the repository grows later. Without it, enabling the setting in bulk holds only until autodiscovery creates the next workspace — which reads as the setting not working. See [vcs-integration.md → Pull requests from forks](vcs-integration.md#pull-requests-from-forks).
 
 These use the **identical spec shape** as the bulk-update endpoint, so a run task defined once can be applied to existing workspaces (bulk-update) *and* auto-applied to future ones (this template). The same pairing holds for the scan and AI-summary settings, and their values are validated by the same rules the workspace endpoint uses — so a rule cannot template a setting the workspace API would reject.
 
@@ -2979,7 +3337,7 @@ Apply `update` to every workspace matching `filter`, in a **single all-or-nothin
 ```json
 { "filter": { "labels": {"team": "foundations"} },
   "update": {
-    "engine-version": "1.12",
+    "engine-version": "1.13",
     "execution-backend": "tofu",
     "auto-apply": false,
     "agent-pool-id": "apool-...",
@@ -3389,6 +3747,25 @@ DELETE /api/v1/authentication-tokens/{id}
 
 Authenticated endpoints for runner Jobs to download inputs and upload outputs. All endpoints require a runner token (`Authorization: Bearer runtok:...`) scoped to the specified `run_id`.
 
+Since 2.0 (GHSA-xmrf-hxq9-m59m) a token is also scoped to its **phase** and to
+the time its run is **live**:
+
+- An endpoint that belongs to one phase refuses a token from the other with
+  **403**. Plan phase: `PUT plan-log`, `PUT plan-file`, `PUT lock-file`,
+  `PUT plan-json-output`, `PUT plan-artifacts`, `PUT cost-estimate`, the
+  `onboarding-*` uploads, `POST plan-result`, and the policy + security-scan
+  runner protocol. Apply phase: `GET plan-file`, `GET lock-file`,
+  `GET plan-artifacts`, `PUT apply-log`, `PUT state`, `PUT pulumi-deployment`,
+  `POST state-diverged`, `POST apply-result`. Both: `GET config`, `GET state`,
+  `GET pulumi-deployment`, `POST resource-profile`.
+- A token whose run has reached a terminal state — or has been deleted — fails
+  **authentication** (401), on every runner-reachable surface including the
+  binary cache, the provider mirror, the package-cache proxy and the container
+  registry.
+- A token carrying no phase claim passes every phase, because that is what a
+  listener older than the claim mints. See
+  [Listener Runner Token](#listener-runner-token).
+
 ### Download Config Archive
 
 ```
@@ -3627,6 +4004,271 @@ same status shape as above. **409** when encryption is disabled.
 > Rotation propagates to all API replicas within ~30s via the
 > `encryption_key_refresh` background task (no restart needed); see the
 > [rotation notes](encryption-at-rest.md#key-rotation).
+
+---
+
+## Per-Workspace Cloud Identity (OIDC Federation)
+
+Terrapod can publish an OIDC discovery document and JWKS so a cloud federates to
+it as an identity provider, and mint a short-lived RS256 JWT per run describing
+the workspace and phase. Off by default
+(`api.config.auth.oidc_issuer.enabled`); when off, the two `/.well-known`
+routes below are **not mounted at all** rather than mounted and refusing.
+
+Configuration is two levels, merged per key: the deployment's catalogue in
+`api.config.auth.oidc_issuer.audiences`, and a workspace's own
+[`oidc-audiences`](#cloud-identity-attributes) override over it. A workspace
+mints nothing when the **resolved** map is empty, and its runs then authenticate
+with the agent pool's own identity exactly as before.
+
+**One token is minted per provider configuration**, each carrying only that
+target's audiences, and the runner writes each to its own path
+(`/var/run/terrapod/oidc/<target>/token`). A token audienced for several targets
+is replayable between them, and AWS refuses a multi-valued `aud` outright — at
+the cloud's token exchange, not at configuration time.
+
+See [cloud-identity.md](cloud-identity.md) for the per-provider configuration,
+which is the operator's own: Terrapod mints a token and writes it to a file, and
+holds nothing cloud-specific.
+
+### Discovery Document
+
+```
+GET /.well-known/openid-configuration
+```
+
+**Unauthenticated**, by necessity: a cloud fetches this anonymously, before any
+token exists, to decide whether to trust one. Publishes only the issuer's own URL
+and the claim names. Deliberately minimal — there is no authorization endpoint,
+no token endpoint and no client registration, because the only consumer is a
+target validating a token Terrapod already minted.
+
+`issuer` is resolved from `api.config.auth.oidc_issuer.public_url`, falling back
+to the public webhook URL and then `external_url`. OIDC issuer matching is
+**exact**, so this value must equal what the cloud is configured with, trailing
+slash included.
+
+**Cacheable**: `Cache-Control: public, max-age=300`. Modest, because the document
+carries no key material but a corrected issuer URL should take effect in minutes.
+
+### JWKS
+
+```
+GET /.well-known/jwks.json
+```
+
+**Unauthenticated**, same reason. Public key material only. Returns a key *set*,
+not one key: a rotation publishes the incoming key before it starts signing and
+keeps the retired one until the tokens it signed expire. A cloud selects by the
+token's `kid`, which is an RFC 7638 thumbprint of the key itself.
+
+**Cacheable, and the lifetime is derived rather than configured**:
+`Cache-Control: public, max-age=<key_propagation_seconds / 2>`, with a floor of
+60 seconds. The propagation window exists *because* the clouds cache this
+document, so advertising a longer lifetime would mean a cloud still holding the
+old key set at the moment we begin signing with the new one; half rather than all
+of it avoids a clock-skew race at the boundary.
+
+Both issuer documents also have **their own rate-limit bucket**, at
+`authenticated_requests_per_minute` rather than the anonymous per-IP limit. A
+`429` on the JWKS would fail token verification for every federated run at once,
+including runs whose own traffic had nothing to do with filling the bucket.
+
+### Mint Run Identity Tokens
+
+```
+POST /api/terrapod/v1/runs/{run_id}/cloud-identity-tokens
+```
+
+**Runner token, scoped to that run.** One request per run, **after `init`** —
+discovery asks the engine, which cannot answer before the providers are
+installed. The body carries what the runner discovered:
+
+```json
+{
+  "providers": ["aws", "vault.eu"],
+  "discovery": "ok",
+  "discovery-detail": ""
+}
+```
+
+`providers` are audience-map keys: `aws`, or `provider.alias` for one aliased
+configuration. Each is resolved **specific-then-general**, so `vault.eu` is
+answered by an entry for `vault.eu` if there is one and by `vault` otherwise —
+which is what lets an operator alias a provider five times without naming every
+alias in the catalogue. An empty list is meaningful: a configuration may declare
+no provider.
+
+`discovery` is how much the runner trusts its own list — `ok`, `failed` (the
+graph command errored or timed out) or `unparsed` (it ran and named provider
+nodes, none of which could be read). The field exists because `failed` and
+`unparsed` both arrive as an empty list, which is indistinguishable from a
+provider-less configuration; taking them at face value would be a silent
+fall-through to the agent pool's broader identity. The body accepts no other
+field — `extra` is forbidden — and in particular **it cannot name a phase**,
+which comes from the presented runner token.
+
+**An engine that cannot discover its provider configurations is minted
+everything its workspace resolves**, and `providers` and `discovery` are both
+ignored for it. Pulumi is the case: a program is arbitrary code whose provider
+instances are built at runtime, so nothing can be enumerated before the program
+runs, and the thing that would run it needs the credentials. Which engines these
+are is read from the **workspace row**, never from this body — the runner image
+does not ship the engine registry, and a runner's claim about its own engine
+would be the runner's rather than the platform's. Its runner sends an empty list
+with `discovery: "ok"`, because nothing failed; there was no graph to read.
+
+For such an engine the target limit is enforced rather than applied by
+truncation: a workspace resolving more than **100** targets is answered `409`,
+because a shortened token set looks complete and is not.
+
+| Status | Meaning | What the runner does |
+|---|---|---|
+| **200** | `{"tokens": [{"target", "token", "audiences"}], "phase", "expires_in"}` | Writes each to `/var/run/terrapod/oidc/<target>/token` (mode `0600`) and exports `TERRAPOD_OIDC_TOKEN_DIR`, `TERRAPOD_RUN_PHASE` and `TF_VAR_terrapod_run_phase` |
+| **204** | The workspace maps nothing; the issuer is not enabled deployment-wide; the configuration declares no provider; or nothing it uses is mapped | Takes no action. The run authenticates with the agent pool's identity, exactly as before |
+| **404** | This API does not serve the route | Read as "nothing to do" — an API older than the runner image, which in agent mode upgrades independently |
+| **409** | The resolved audiences changed since the run was created; discovery was not `ok` for a workspace that maps targets **and** whose engine discovers; or a non-discovering engine's workspace resolves more than 100 targets | **Fails the run**, carrying the reason |
+| **422** | A stored audience-map key is not a usable provider configuration name (reachable only for a key written before the write-side guard existed) | **Fails the run**, naming the key to correct |
+| **Other 4xx / 5xx** | Credentials were asked for and could not be had | **Fails the run.** Continuing would mean silently running under broader permissions than the operator chose |
+
+The `204` is load-bearing: "not opted in" has to be distinguishable from
+"broken", because those require opposite behaviour from the runner, and the
+fall-through to the pool's identity is permanent and supported rather than a
+migration step.
+
+**The order of the checks is part of the contract.** A workspace that maps
+nothing is answered `204` *before* `discovery` is examined, so a graph failure
+can never fail a run that was not using the feature. Only then is a bad outcome
+refused, and only then is the intersection computed.
+
+**The `409` compares the run's snapshot against live configuration.**
+`Run.oidc_audiences` is the mapping resolved when the run was created; this
+endpoint re-resolves each requested target and refuses when the two disagree,
+order included, naming the targets that moved. Minting from the snapshot alone
+would hand an apply a token matching the reviewed plan while the cloud had moved
+on, and the rejection would land inside the engine, possibly after a partial
+apply.
+
+The same comparison runs **at confirm time** as well, beside the state-drift and
+plan-expiry staleness guards, so an apply is refused before a Job is scheduled —
+scoped to the targets the run actually minted for, so one edit to the deployment
+catalogue does not refuse every pending apply in the fleet. See
+[cloud-identity.md](cloud-identity.md#when-the-configuration-moves-between-plan-and-apply).
+
+**Response** (200):
+
+| Field | Type | Meaning |
+|---|---|---|
+| `token` | string | The signed JWT |
+| `expires_in` | int | `api.config.auth.oidc_issuer.token_ttl_seconds` |
+| `phase` | string \| null | `plan` or `apply`, taken from the presented runner token. `null` when the token made no phase claim |
+| `target` | string | Echoed, so the runner writes the file under the name it asked for |
+| `audiences` | array&lt;string&gt; | **This target's** audiences, verbatim and in order |
+
+**The phase comes from the presented runner token, never from the request body.**
+A plan-phase runner asking for the apply identity is what this guards: put write
+permissions behind a trust condition on `phase: apply` and a speculative
+pull-request plan structurally cannot assume that role, because every PR-driven
+run is plan-only.
+
+**Claims:** `iss`, `sub` (`workspace:<name>:phase:<plan|apply>`), `aud` (this
+target's audiences only), `workspace`, `workspace_id`, `phase` (absent when the
+runner token made no phase claim), `run_id`, `terrapod_organization` (always the
+literal `default`), plus `iat`, `nbf`, `exp`, `jti`. The header carries `kid`. `sub` carries the phase
+as well as the discrete `phase` claim because Azure federated identity
+credentials match on issuer, subject and audience only, with no access to
+arbitrary claims — so `sub` is the one place a phase condition can be expressed
+there. Targets that can read arbitrary claims should condition on the discrete
+ones, which needs no wildcard. See
+[the claim set](cloud-identity.md#the-claim-set).
+
+### Audience Defaults
+
+```
+GET /api/terrapod/v1/oidc/audience-defaults
+```
+
+**Any authenticated user** — not platform admin. The deployment-wide audience
+catalogue (`api.config.auth.oidc_issuer.audiences`) that a workspace's own
+`oidc-audiences` map merges over, plus whether the issuer is published at all.
+
+It exists because the two-level merge is otherwise hard to observe: a workspace
+read returns the **merged** map, so it says what the workspace will actually
+mint for but not which of those entries the workspace itself owns. Reading the catalogue beside it is what makes
+the effective mapping visible.
+
+**Response:**
+
+```json
+{"data": {"type": "oidc-audience-defaults", "id": "default",
+  "attributes": {"audiences": {"aws": ["sts.amazonaws.com"]}, "issuer-enabled": true}}}
+```
+
+| Attribute | Type | Meaning |
+|---|---|---|
+| `audiences` | object | The catalogue: provider configuration → its audiences. `{}` by default, which is not an error |
+| `issuer-enabled` | bool | `api.config.auth.oidc_issuer.enabled`. Reported separately because an empty catalogue and a disabled issuer are different states with the same symptom, and only one is fixed by adding audiences |
+
+The gate is reasoned rather than lax: a workspace read already discloses that
+workspace's audiences to anyone who can read it, so this adds only the entries a
+workspace does not override — and requiring admin would put it out of reach of
+exactly the person it is for, a workspace owner deciding whether to override a
+key. Knowing an audience grants nothing on its own: the federation target's own
+trust policy is the gate, and minting needs a phase-bound runner token scoped to
+a run on that workspace.
+
+Note what the runner-facing surface does **not** return: the catalogue. [Mint
+Run Identity Tokens](#mint-run-identity-tokens) echoes the audiences for the
+targets that run actually uses, because the runner asked for exactly those — but
+it never enumerates the rest. The set of audiences names the roles this
+deployment can ask to assume, so the whole of it stays on the authenticated
+surface a person reads rather than on the one a Job holds a token for.
+
+### List Signing Keys
+
+```
+GET /api/terrapod/v1/oidc/signing-keys
+```
+
+Platform `admin`. **Public key material only** — the private half never leaves
+the API.
+
+**Response attributes** (`data[].type` = `oidc-signing-keys`, `id` = `kid`):
+
+| Attribute | Type | Meaning |
+|---|---|---|
+| `kid` | string | RFC 7638 JWK thumbprint — the same value a cloud sees in a token header |
+| `created-at` | string | RFC3339 |
+| `activates-at` | string | When this key starts signing. A rotated-in key is published immediately but signs only from here |
+| `retired-at` | string \| null | When it stopped signing. It stays published for `retired_key_grace_seconds` after this |
+| `signing` | bool | Whether this is the key currently signing |
+
+`meta.signing-kid` repeats the signing key's `kid`, or is `null` when nothing is
+loaded.
+
+### Rotate Signing Key
+
+```
+POST /api/terrapod/v1/oidc/signing-keys/actions/rotate
+```
+
+Platform `admin`. Adds a key and retires the one currently signing. **201** with
+the new key in the same shape as above, and a `meta.note`.
+
+A published trust root cannot be swapped atomically, because the clouds fetch the
+JWKS on their own schedule and cache it. So the new key is published immediately
+and starts signing only after `key_propagation_seconds`, with the **retired key
+signing across that window** — it is already in the published JWKS, so its
+tokens verify. The retired key then stays published for
+`retired_key_grace_seconds`, which must exceed both `token_ttl_seconds` and
+`key_propagation_seconds`.
+
+**409** on a deployment that supplies its own key
+(`api.oidcSigningKey.existingSecret`): the key is the operator's and so is
+rotating it — replace the Secret and restart the API.
+
+See [runbooks.md → Rotating the OIDC issuer signing
+key](runbooks.md#rotating-the-oidc-issuer-signing-key).
 
 ---
 
@@ -3919,12 +4561,25 @@ POST /api/v1/slack/link/preview
 ```
 
 Body `{"state": "<signed-state>"}`. Requires an authenticated Terrapod user.
-Describes **which** Slack identity the signed state would bind — returns
-`{data: {slack-team-id, slack-user-id, email}}` (the caller's email) — **without
+Describes **which** Slack identity the signed state would bind, **without
 consuming** the single-use state, so the browser can show an explicit confirm
-screen before binding (the confused-deputy defence). `422` if the state is
-missing, `400` if it is invalid/expired/already used. Binding still happens only
-on `POST /slack/link`.
+screen before binding. `422` if the state is missing, `400` if it is
+invalid/expired/already used. Binding still happens only on `POST /slack/link`.
+
+Returns `{data: {slack-team-id, slack-user-id, email, user-name, user-real-name,
+team-name, resolved}}` — `email` is the caller's, and the three name fields are the
+confused-deputy defence (`GHSA-5899-fm2p-88x3`). It used to return the ids alone,
+which nobody can recognise as not their own, so the confirm screen asked a question
+the reader could not answer. **`user-name` is the handle and is the one to judge
+by**: it is unique in the workspace, where `user-real-name` is set by its owner and
+can be made to match anyone.
+
+`resolved` is `"true"`/`"false"` and is explicit so a client can distinguish an
+absent display name from a failed lookup. The lookup needs the bot `users:read` and
+`team:read` scopes and is **best-effort** — without them, or during a Slack outage,
+the fields come back empty with `resolved: "false"` and linking still works. An app
+installed from a manifest predating those scopes must be reinstalled to grant them,
+or the screen falls back to ids.
 
 ### Link account
 
@@ -3952,6 +4607,11 @@ DELETE /api/v1/slack/links/{link_id}
 ```
 
 Removes one of the current user's own links (`404` if it isn't theirs).
+
+Both creating and removing a link write an audit entry (`slack.link.create` /
+`slack.link.revoke`) naming the actor and the Slack identity. A binding is a
+standing ability to act as that account from Slack, and it previously left no record
+at all, so "who attached that Slack account" had no answer.
 
 ## Execution Hooks
 
@@ -4828,6 +5488,274 @@ DELETE /api/v1/catalog-instances/{wsId}?orphan=true
 Deletes the catalog instance's workspace record **without** destroying its infrastructure — the provisioned resources keep running, untracked. This is the explicit, **discouraged** escape hatch; the recommended teardown is `POST .../destroy`, which reclaims the infrastructure. The `orphan=true` flag is **required** — without it the call returns **409** and points at destroy, so an instance can never be orphaned by accident. The plain `DELETE /workspaces/{id}` also returns **409** for a catalog-managed workspace. **Required permission:** catalog `admin`. Audit-logged. Returns `204`.
 
 ---
+
+## Ansible Inventory
+
+A workspace carries **one inventory**, made of the structures ansible's inventory has: hosts, groups, the memberships between them, the nestings between groups, and variables on a host, on a group or inventory-wide. Each is its own addressable resource. Terrapod stores and renders them; **`ansible-inventory` performs the merge**, the precedence, the group DAG, the derivation of `all` and `ungrouped`, and the expansion of `--limit`. See [Ansible Inventory](ansible-inventory.md) for the model, the two sources and the declaration patterns.
+
+**Native surface only** — nothing here is on the TFE-compatible prefix, because no `terraform`, `tofu` or `tfci` invocation consumes it. The canonical prefix is `/api/v1`; `/api/terrapod/v1` is the deprecated alias and serves every route below.
+
+Two capabilities gate it, both in the workspace axis: **`inventory:read`** (read tier) for every read, and **`inventory:write`** (write tier — deliberately not admin, because the Terraform that declares a host runs under an apply) for every write. A **runner token** is handled separately: it may manage the inventory of **its own run's workspace** and nothing else, reads unphased and writes bound to the **apply** phase.
+
+**Configure operations do not exist yet.** These endpoints build an inventory and make it observable; they do not run playbooks.
+
+Typed id prefixes: `invhost-` (host), `invgroup-` (group), `invhg-` (host membership), `invgc-` (group nesting), `invhvar-` (host variable), `invgvar-` (group variable), `invvar-` (inventory variable). The settings are identified by the **workspace id**, because one inventory per workspace means there is no surrogate id to carry.
+
+Common statuses across every write here: **409** on a duplicate (a second host of the same name in the workspace, a second variable with the same key on the same parent, a membership or nesting that already exists) — which is what makes a Terraform import the next step; **422** on a parent that is absent or in another workspace, on a name ansible cannot use, and on a ceiling, with the limit named in the message.
+
+### Show / Replace / Update / Delete Inventory Settings
+
+```
+GET    /api/v1/workspaces/{id}/inventory/settings
+PUT    /api/v1/workspaces/{id}/inventory/settings
+PATCH  /api/v1/workspaces/{id}/inventory/settings
+DELETE /api/v1/workspaces/{id}/inventory/settings
+```
+
+`GET` requires `inventory:read`; the rest require `inventory:write` (apply phase for a runner token). `DELETE` returns `204` and clears the VCS binding without touching a single row.
+
+**`GET` answers `404` when there are none, and that is the default** — not an error. It means no VCS source is bound and the declared rows are the whole inventory.
+
+`PUT` is a full replace, because the route is a singleton: the body is the complete intended state, so an attribute left out takes its default rather than keeping the stored value. `PATCH` changes only what it names, so a caller does not have to read the row to change one field.
+
+On a `PATCH`, **an omitted `vcs-connection` relationship means "leave it alone" and an explicit `{"data": null}` means "remove it"** — the distinction a partial update depends on, since collapsing the two would make a binding impossible to clear without a full `PUT`. Clearing it while leaving a `repo-url` behind is the same incoherent row as setting both at once, so the check runs against the **merged** state and refuses it with `422`.
+
+```json
+{
+  "data": {
+    "type": "inventory-settings",
+    "attributes": {
+      "include-platform": true,
+      "repo-url": "https://github.com/acme/ansible",
+      "branch": "main",
+      "working-directory": "inventory"
+    },
+    "relationships": {
+      "vcs-connection": {"data": {"id": "vcs-...", "type": "vcs-connections"}}
+    }
+  }
+}
+```
+
+| Attribute | Meaning |
+|---|---|
+| `include-platform` | Whether the declared rows take part in resolution. Default `true`. `false` resolves the repository alone, which is how a committed inventory is moved in before anything is declared |
+| `repo-url` | The repository holding the inventory. **A repository needs a VCS connection to fetch it with** — `repo-url` with no `vcs-connection` relationship is a `422` naming the field, checked against the merged state on a `PATCH` so clearing the connection and leaving the repository behind is refused too |
+| `branch` | The branch to read. Empty means the repository's default branch |
+| `working-directory` | The **directory** ansible reads as one source. A directory rather than a file, because ansible reads a directory lexically, so one binding already carries arbitrarily many inventory files in an order the operator controls through filenames |
+| `ignore-paths` | Globs matched against paths **relative to `working-directory`**, pruned from the fetched source before anything reads it. Ansible takes every file in a directory, so this is the only way to leave one out |
+
+The `vcs-connection` relationship is the binding, and it is **independent of the workspace's own Terraform VCS binding**: even in one repository the root directory differs, and a workspace with no infrastructure of its own has no Terraform binding at all.
+
+### List / Create Inventory Hosts
+
+```
+GET  /api/v1/workspaces/{id}/inventory/hosts
+POST /api/v1/workspaces/{id}/inventory/hosts
+```
+
+`GET` requires `inventory:read`, is ordered by name, and supports the standard `page[number]` / `page[size]`. Unphased for a runner token — a plan reads the inventory to diff it. `POST` requires `inventory:write` (apply phase for a runner token) and returns `201`.
+
+```json
+{"data": {"type": "inventory-hosts", "attributes": {"name": "web-01"}}}
+```
+
+| Attribute | Meaning |
+|---|---|
+| `name` | Required. Ansible's `inventory_hostname`. Refused with `422` if it contains whitespace or any of `,`, `:`, `!`, `&`, `~` — those are `--limit`'s own operators and separators, so such a host cannot be targeted and a leading `!` would silently exclude the host it names. Dots, hyphens and underscores are fine |
+
+**A host has no other field.** There is no `address`: `ansible_host` is a variable like any other, because that is what it is to ansible.
+
+A read carries `group-count` and `variable-count` rather than the rows themselves — a list view shows "3 groups, 2 variables", and embedding either would make one request grow with the whole inventory. The rows are one drill-down away.
+
+### Show / Update / Delete Inventory Host
+
+```
+GET    /api/v1/inventory-hosts/{id}
+PATCH  /api/v1/inventory-hosts/{id}
+DELETE /api/v1/inventory-hosts/{id}
+```
+
+`GET` requires `inventory:read`; `PATCH` and `DELETE` require `inventory:write` (apply phase for a runner token). `DELETE` returns `204`, and the host's memberships and variables go with it — the database's own cascade.
+
+`PATCH` renames: `name` is the only mutable field a host has.
+
+### List / Create Inventory Groups
+
+```
+GET  /api/v1/workspaces/{id}/inventory/groups
+POST /api/v1/workspaces/{id}/inventory/groups
+```
+
+Same gating and paging as hosts. `POST` returns `201`.
+
+```json
+{"data": {"type": "inventory-groups", "attributes": {"name": "web"}}}
+```
+
+| Attribute | Meaning |
+|---|---|
+| `name` | Required. Must start with a letter or underscore and contain only letters, digits and underscores — `422` otherwise, because a name ansible merely warns about cannot be used reliably in a `--limit` pattern or as a `group_vars` filename. **`all` and `ungrouped` are refused**: ansible derives both, and the rendered inventory document is rooted at `all:`, so a declared group of that name would collide with the document's own structure. For variables that apply to every host, use the inventory variables below — that is ansible's `group_vars/all` |
+
+A read carries `member-count`, `child-count` and `variable-count`.
+
+### Show / Update / Delete Inventory Group
+
+```
+GET    /api/v1/inventory-groups/{id}
+PATCH  /api/v1/inventory-groups/{id}
+DELETE /api/v1/inventory-groups/{id}
+```
+
+As for a host: `PATCH` renames, `DELETE` returns `204` and takes the group's memberships, nestings and variables with it.
+
+### Host memberships
+
+```
+GET  /api/v1/inventory-groups/{id}/hosts
+GET  /api/v1/inventory-hosts/{id}/groups
+POST /api/v1/inventory-groups/{id}/hosts
+POST /api/v1/inventory-hosts/{id}/groups
+GET    /api/v1/inventory-host-groups/{id}
+DELETE /api/v1/inventory-host-groups/{id}
+```
+
+One `[groupname]` line, many-to-many, and its own row rather than a list on either side — so a membership has an id a Terraform resource can address, and two concerns can each put their own hosts in a shared group without owning it.
+
+**Both sides can create one, and the result is identical.** A loop over a group's intended members wants the group route; a loop over a host's groups wants the host route; forcing either to invert its loop buys nothing. The row, the constraint and the response are the same.
+
+The other end is a **relationship**, not an `*-id` attribute, because it is a link:
+
+```json
+POST /api/v1/inventory-groups/invgroup-.../hosts
+
+{"data": {"relationships": {
+  "host": {"data": {"id": "invhost-...", "type": "inventory-hosts"}}}}}
+```
+
+`POST` returns `201`; `DELETE` returns `204`. A host in another workspace is a `422` from the composite foreign key rather than a check the API performs first — the constraint answers both "does it exist" and "is it ours", and a `SELECT` first would be check-then-act.
+
+### Group nestings
+
+```
+GET  /api/v1/inventory-groups/{id}/children
+GET  /api/v1/inventory-groups/{id}/parents
+POST /api/v1/inventory-groups/{id}/children
+POST /api/v1/inventory-groups/{id}/parents
+GET    /api/v1/inventory-group-children/{id}
+DELETE /api/v1/inventory-group-children/{id}
+```
+
+One `[groupname:children]` entry. Many-to-many too — **a group may have several parents**, which ansible allows — so the same symmetry applies: `…/children` names the child, `…/parents` names the parent, and both create the same row.
+
+```json
+POST /api/v1/inventory-groups/invgroup-PARENT/children
+
+{"data": {"relationships": {
+  "child-group": {"data": {"id": "invgroup-...", "type": "inventory-groups"}}}}}
+```
+
+A nesting that would close a **cycle** is refused with `422`. The one-step case is a database constraint; a longer one is checked before the write, because a constraint cannot walk a graph.
+
+### Variables
+
+```
+GET  /api/v1/inventory-hosts/{id}/vars
+POST /api/v1/inventory-hosts/{id}/vars
+GET    /api/v1/inventory-host-vars/{id}
+PATCH  /api/v1/inventory-host-vars/{id}
+DELETE /api/v1/inventory-host-vars/{id}
+
+GET  /api/v1/inventory-groups/{id}/vars
+POST /api/v1/inventory-groups/{id}/vars
+GET    /api/v1/inventory-group-vars/{id}
+PATCH  /api/v1/inventory-group-vars/{id}
+DELETE /api/v1/inventory-group-vars/{id}
+
+GET  /api/v1/workspaces/{id}/inventory/vars
+POST /api/v1/workspaces/{id}/inventory/vars
+GET    /api/v1/inventory-global-vars/{id}
+PATCH  /api/v1/inventory-global-vars/{id}
+DELETE /api/v1/inventory-global-vars/{id}
+```
+
+Three surfaces, one shape: a host's `host_vars`, a group's `group_vars`, and the inventory's `group_vars/all`. **The inventory variables are parented on the workspace rather than on a group**, because `all` cannot be a declared group name — they land at the rendered document's root `vars:`, which is the consequence of that refusal rather than a way round it.
+
+Each variable is a row with **one writer**, which is the point of the shape: a second concern can contribute a variable to a host or group it does not own.
+
+```json
+{
+  "data": {
+    "type": "inventory-host-vars",
+    "attributes": {
+      "key": "ansible_host",
+      "value": "10.0.0.5",
+      "structured": false,
+      "sensitive": false
+    }
+  }
+}
+```
+
+| Attribute | Meaning |
+|---|---|
+| `key` | Required. Unique per parent (`409` otherwise). Only has to be a non-empty string with no leading or trailing whitespace — deliberately laxer than a group name, because ansible stores a non-identifier variable and only warns that it is unreachable as a bare `{{ name }}`, while it is still readable through `hostvars`, which some roles do on purpose |
+| `value` | The value. **A `sensitive` value reads back as a fixed mask**, never its own length or shape |
+| `structured` | Whether `value` is a typed expression rather than a plain string — a list, a number, a nested object, which is what ansible's own `group_vars` carries natively. Parsed as YAML, so both `[80, 443]` and a block sequence work. Default `false` |
+| `sensitive` | A **display** flag: it decides what a reader sees, not what the database holds. All three surfaces are registered for Terrapod's [app-layer encryption](encryption-at-rest.md), so where a deployment has that enabled every value is enveloped whatever this flag says. Default `false` |
+
+`POST` returns `201`; `DELETE` returns `204`. `PATCH` changes `value`, `structured` and `sensitive`.
+
+Every list route in this section supports the standard `page[number]` / `page[size]` and returns `meta.pagination`. Hosts and groups are ordered by name, variables by key, and memberships and nestings by when they were created.
+
+### Show Resolved Inventory
+
+```
+GET /api/v1/workspaces/{id}/inventory/resolved[?limit=<pattern>]
+```
+
+Requires `inventory:read`; unphased for a runner token. **Resolved by ansible, not by Terrapod** — `ansible-inventory --list` does the merge, the precedence, the group DAG, the derivation of `all` and `ungrouped`, and with `?limit=` the expansion of a `--limit` pattern, so the answer is ansible's own, `~regex` terms included.
+
+**It is live, and it writes nothing.** Every source is static — dynamic inventory was declined ([#1970](https://github.com/mattrobinsonsre/terrapod/issues/1970), closed as not-planned) — so the resolution is a function of the rows and the resolved commit. A Redis entry backs it and is keyed on their content, so a write supersedes it rather than needing an invalidation: there is no timestamp, no freshness field and no refresh action, because there is no other resolution the answer could be.
+
+```json
+{
+  "data": {
+    "id": "ws-...",
+    "type": "resolved-inventories",
+    "attributes": {
+      "hosts": {
+        "web-01": {"ansible_host": "10.0.0.5", "ansible_user": "deploy"},
+        "web-02": {"ansible_host": "10.0.0.6"}
+      },
+      "groups": {"web": ["web-01", "web-02"], "eu": []},
+      "group-children": {"eu": ["web"]},
+      "host-count": 2,
+      "group-count": 2
+    }
+  }
+}
+```
+
+| Attribute | Meaning |
+|---|---|
+| `hosts` | Every host, with its merged variables. A host with no variables is present with an empty object |
+| `groups` | Each group's **direct** membership. Ansible does not flatten nesting into a group's host list, so a parent whose members all arrive through a child reports none of its own — `eu` above is the example. **Do not read an empty list as "this group targets nothing"** |
+| `group-children` | The nesting, carried rather than resolved. Taking the transitive closure would be Terrapod computing the group DAG, which is ansible's job |
+| `host-count`, `group-count` | The sizes of the two maps above |
+| `limit` | Echoed back when `?limit=` was supplied |
+
+**`?limit=<pattern>` is the authoritative "what would this target"**, and it is the one that expands **through** nesting — so it, not a group's host list, is how the effective set of a parent group is read. The pattern goes straight to `ansible-inventory --limit`: host names, group names, `all` and `*`, globs, comma- or colon-separated terms, `!` exclusion, `&` intersection, and `~regex`.
+
+This is the safety surface rather than a convenience: auto-configure is deliberately broad — at scale the hazard is hosts left unconfigured, not hosts configured — so visibility is the control, and the question has to be answerable before anything runs.
+
+Statuses worth knowing, because the three say different things:
+
+| Status | Meaning |
+|---|---|
+| `422` | A fetched source was **declined**: a file whose top level carries a `plugin:` key is an inventory plugin configuration, and Terrapod does not run inventory plugins. The message names the file and the plugin it asks for. The resolution did not fail — there is something to do about it |
+| `503` | The resolution could not be performed: a repository that cannot be fetched, a branch that is gone, a source ansible cannot parse, or `ansible-core` itself not obtainable from Terrapod's own PyPI cache. **It fails closed** rather than degrading into a partial host list, because a silently short target set is the failure mode this whole surface exists to prevent |
+| `200` with empty maps | A workspace that has declared nothing and bound no repository. A defined empty result, not an error |
 
 ## High Availability
 

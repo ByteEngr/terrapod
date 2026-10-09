@@ -112,11 +112,27 @@ export default defineConfig({
       testMatch: 'deleted-workspaces.spec.ts',
       use: { ...devices['Desktop Chrome'], storageState: ADMIN_AUTH },
     },
+    // Two projects, not one. These were a single object literal with `name` and
+    // `testMatch` each written twice, so the later pair silently won and
+    // `pulumi-workspace.spec.ts` was never collected — a whole spec file that
+    // could not fail. Duplicate keys in an object literal are legal JS, so
+    // nothing complained (#1911).
     {
       name: 'pulumi-workspace',
       testMatch: 'pulumi-workspace.spec.ts',
+      use: { ...devices['Desktop Chrome'], storageState: ADMIN_AUTH },
+    },
+    {
       name: 'vault-diagnostics',
       testMatch: 'vault-diagnostics.spec.ts',
+      use: { ...devices['Desktop Chrome'], storageState: ADMIN_AUTH },
+    },
+    {
+      // #1967/#1968: the data-gated Inventory tab. The first test asserts the
+      // tab is ABSENT on a workspace that has declared nothing, which is the
+      // only place that gate is checked.
+      name: 'inventory',
+      testMatch: 'inventory.spec.ts',
       use: { ...devices['Desktop Chrome'], storageState: ADMIN_AUTH },
     },
     {

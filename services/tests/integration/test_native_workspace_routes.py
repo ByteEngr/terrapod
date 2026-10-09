@@ -1,16 +1,16 @@
 """Native workspace read, update and list against real Postgres (#1554).
 
 The services-api tests pin the wiring with a mocked database; this pins the SQL.
-The load-bearing assertions are the two engine boundaries, both properties of
-the query rather than of the code's control flow:
+The load-bearing assertion is the engine boundary, a property of the query
+rather than of the code's control flow: the native surface returns a Pulumi
+workspace while the TFE surface — which a `terraform` CLI talks to — still never
+does.
 
-- the native surface returns a Pulumi workspace while the TFE surface — which a
-  `terraform` CLI talks to — still never does;
-- gating an engine off makes its workspaces absent from the native surface, and
-  turning it back on brings them back unchanged, because nothing was deleted.
+There was a second boundary here, that gating an engine off hid its workspaces.
+That switch is withdrawn (#1986), so there is nothing left to hide them and the
+tests went with it; `test_engines_endpoint.py` now pins the inverse — that no
+setting can shrink the engine list.
 """
-
-from unittest.mock import patch
 
 import pytest
 
@@ -72,13 +72,43 @@ class TestTheNativeSurfaceServesEveryEngine:
         again = await client.get(f"{NATIVE}/{pid}", headers=AUTH)
         assert again.json()["data"]["attributes"]["pulumi-bind-plan"] is True
 
+    #: Attributes the native surface serves and the compatibility surface does
+    #: not, with the reason. Enumerated rather than tolerated: a difference that
+    #: nobody had to write down is a difference nobody notices growing.
+    NATIVE_ONLY_ATTRS = {
+        "pulumi-bind-plan": "a Pulumi concept, and this surface serves Terraform alone (#1911)",
+    }
+
     async def test_a_terraform_workspace_reads_the_same_on_both_surfaces(self, app, client):
+        """The same workspace, described identically wherever the two overlap.
+
+        This asserted byte-identity until #1911, which was true and slightly
+        stronger than the property worth holding. The surfaces are *designed* to
+        differ — the native one serves every engine — so the native body is a
+        strict SUPERSET, and what matters is that no shared attribute disagrees
+        and that every extra one is there on purpose.
+
+        Gated on the surface rather than on the workspace's engine, deliberately:
+        gating on the engine would drop the attribute from the native body too,
+        where the provider reads it as `Optional+Computed` and a value that turned
+        null under an unchanged configuration is a perpetual diff.
+        """
         set_auth(app, admin_user())
         tid = await _create(client, "tf-both", "terraform")
         native = await client.get(f"{NATIVE}/{tid}", headers=AUTH)
         tfe = await client.get(f"/api/v2/workspaces/{tid}", headers=AUTH)
         assert native.status_code == tfe.status_code == 200
-        assert native.json()["data"]["attributes"] == tfe.json()["data"]["attributes"]
+
+        n = native.json()["data"]["attributes"]
+        t = tfe.json()["data"]["attributes"]
+        assert set(t) <= set(n), (
+            f"the TFE surface serves attributes the native one does not: {set(t) - set(n)}"
+        )
+        assert {k: n[k] for k in t} == t, "a shared attribute disagrees between the two surfaces"
+        assert set(n) - set(t) == set(self.NATIVE_ONLY_ATTRS), (
+            f"native-only attributes changed: {set(n) - set(t)}. Add it to "
+            f"NATIVE_ONLY_ATTRS with a reason, or stop serving it only there."
+        )
 
 
 class TestTheTfeSurfaceStaysTerraformOnly:
@@ -93,31 +123,6 @@ class TestTheTfeSurfaceStaysTerraformOnly:
             headers=AUTH,
         )
         assert patched.status_code == 404
-
-
-class TestGatingAnEngineOffHidesItsWorkspaces:
-    async def test_absent_while_off_and_back_unchanged_when_on(self, app, client):
-        set_auth(app, admin_user())
-        pid = await _create(client, "proj::gated", "pulumi")
-        await client.patch(
-            f"{NATIVE}/{pid}",
-            json={"data": {"type": "workspaces", "attributes": {"pulumi-bind-plan": True}}},
-            headers=AUTH,
-        )
-
-        with patch("terrapod.engines.engine_enabled", side_effect=lambda e: e != "pulumi"):
-            assert "proj::gated" not in _names(await client.get(NATIVE, headers=AUTH))
-            assert (await client.get(f"{NATIVE}/{pid}", headers=AUTH)).status_code == 404
-            assert (await client.get(f"{NATIVE}/proj::gated", headers=AUTH)).status_code == 404
-            assert (
-                await client.patch(
-                    f"{NATIVE}/{pid}", json={"data": {"attributes": {}}}, headers=AUTH
-                )
-            ).status_code == 404
-
-        back = await client.get(f"{NATIVE}/{pid}", headers=AUTH)
-        assert back.status_code == 200
-        assert back.json()["data"]["attributes"]["pulumi-bind-plan"] is True
 
 
 class TestDeletingAWorkspaceOfAnyEngine:
@@ -168,18 +173,3 @@ class TestDeletingAWorkspaceOfAnyEngine:
         gone = await client.delete(f"{NATIVE}/proj::by-name", headers=AUTH)
         assert gone.status_code == 204, gone.text
         assert "proj::by-name" not in _names(await client.get(NATIVE, headers=AUTH))
-
-    async def test_gating_the_engine_off_makes_it_undeletable_not_deleted(self, app, client):
-        """Gating hides and halts; it never destroys (#1429)."""
-        set_auth(app, admin_user())
-        pid = await _create(client, "proj::protected", "pulumi")
-
-        with patch("terrapod.engines.engine_enabled", side_effect=lambda e: e != "pulumi"):
-            refused = await client.delete(f"{NATIVE}/{pid}", headers=AUTH)
-            assert refused.status_code == 404
-
-        # Untouched: still there, and no marker was written for it.
-        back = await client.get(f"{NATIVE}/{pid}", headers=AUTH)
-        assert back.status_code == 200
-        assert back.json()["data"]["attributes"]["name"] == "proj::protected"
-        assert await self._marker(client, "proj::protected") is None

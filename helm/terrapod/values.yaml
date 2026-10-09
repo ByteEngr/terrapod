@@ -43,20 +43,45 @@ api:
   # command: ["uvicorn", "terrapod.api.app:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
   command: []
 
-  # Dedicated HMAC secret for stateless tokens (runner tokens + run-task
-  # callback tokens). When unset, the signing key falls back to
-  # sha256(database_url) — functionally fine, but it couples token-forgery
-  # resistance to the database credentials. Point this at a K8s Secret to
-  # decouple them. Leaving it unset does NOT invalidate in-flight tokens on
-  # upgrade. Inject via secretKeyRef (the key is a secret, never a ConfigMap).
+  # OPTIONAL. Bring your own HMAC secret for the four stateless token families
+  # (runner tokens, run-task callback tokens, download tickets, Slack link
+  # tokens).
+  #
+  # You do not need to set this. Terrapod generates its own key on first
+  # startup and persists it in the database, the same way it does the listener
+  # CA — read on every startup, so replicas cannot disagree about it, and with
+  # no random value in any rendered manifest for a GitOps renderer to re-mint.
+  #
+  # Set it when your own secret management is the system of record for key
+  # material. **It then wins on every startup and Terrapod does not read its
+  # stored key at all**, so rotating your Secret takes effect on the next
+  # restart; the Deployment carries a checksum annotation so that rotation
+  # rolls every pod together instead of leaving the fleet split.
   tokenSigningKey:
     existingSecret: ""               # name of a K8s Secret holding the key
     existingSecretKey: "token_signing_key"  # key within that Secret
 
-    # NOTE: leaving tokenSigningKey unset is reported at startup as a warning
-    # (GHSA-hc47-q72v-4vcm). Set api.config.require_strong_secrets to make it
-    # fatal instead, once the key is set and any static encryption key is
-    # generated material rather than a typed passphrase.
+    # NOTE: a deployment that upgraded into this from before the key was stored
+    # ADOPTS its previous sha256(database_url) value, so tokens in flight across
+    # the upgrade keep working — but that value is still derivable by anyone with
+    # the database URL, and startup warns about it until you replace it
+    # (GHSA-hc47-q72v-4vcm). Replace it by setting this, or accept it.
+    # api.config.require_strong_secrets makes the warning fatal instead.
+
+  # The RSA private key Terrapod signs run identity tokens with (#1901), when
+  # you want to hold it yourself rather than let Terrapod generate and persist
+  # one. A key supplied here WINS ON EVERY STARTUP and is never copied into the
+  # database, so rotating it means replacing this Secret and restarting the API
+  # — and `POST /oidc/signing-keys/actions/rotate` is refused, because the key
+  # is yours. Leave unset unless you have a key-custody requirement: the
+  # generated key is persisted, shared across replicas, and rotatable in place.
+  #
+  # Must be an RSA private key in PKCS8 PEM form. An Ed25519 or EC key is
+  # refused at startup by name, because workload identity federation does not
+  # accept EdDSA at every cloud.
+  oidcSigningKey:
+    existingSecret: ""                      # name of a K8s Secret holding the PEM
+    existingSecretKey: "oidc_signing_key"   # key within that Secret
 
   # CA bundle for database TLS server-cert verification, used when
   # config.database.ssl_mode is "verify-ca"/"verify-full" (cloud-IAM DB auth).
@@ -64,7 +89,8 @@ api:
   # either inline (the chart creates the ConfigMap for you) or by referencing an
   # existing one. The chart mounts it read-only and wires
   # config.database.ssl_root_cert to the mounted path automatically. Leave unset
-  # for ssl_mode require / a system-trusted CA.
+  # only if you set ssl_mode to require, or the server's CA is already in the
+  # system trust store — unset plus the verify-full default means system CAs.
   databaseCA:
     inline: ""                       # paste the CA bundle PEM here; the chart creates a ConfigMap for it
     existingConfigMap: ""            # OR reference an existing ConfigMap holding the CA bundle
@@ -157,7 +183,10 @@ api:
       #   azure_ad  — Azure Database for PostgreSQL Entra auth (Azure Workload Identity)
       auth_mode: password
       aws_iam_region: ""       # AWS region for RDS IAM signing ("" = AWS_REGION env); aws_iam only
-      ssl_mode: ""             # IAM-auth TLS: "" / require (encrypt) | verify-ca | verify-full
+      # "" means verify-full (chain + hostname) — NOT encrypt-only. IAM auth sends
+      # the cloud token as the password, so the default verifies the peer; set
+      # require explicitly to encrypt without verifying (the pre-2.0 behaviour).
+      ssl_mode: ""             # "" = verify-full | verify-ca | require (encrypt only)
       ssl_root_cert: ""        # CA bundle path for verify-ca/verify-full (mount via api.extraVolumes); "" = system CAs
 
     # Redis/Valkey auth (#579). "password" (default — static auth string in the
@@ -175,7 +204,29 @@ api:
 
     # Default execution backend and version for new workspaces
     default_execution_backend: tofu  # tofu | terraform
-    default_terraform_version: "1.12"
+    default_terraform_version: "1.13"
+    # Default ansible-core version for NEW workspaces (#2010), overrideable per
+    # workspace exactly as default_terraform_version is -- collection
+    # compatibility is a per-workspace concern, so one version for the whole
+    # deployment would be the wrong shape.
+    #
+    # Raising this moves only workspaces created afterwards; existing ones keep
+    # the version they carry, the same as the engine version. That is deliberate:
+    # an ansible-core minor changes behaviour as well as fixing bugs, so an
+    # upgrade must not silently change what someone's playbooks run against. To
+    # move a fleet, use bulk update.
+    #
+    # Deliberately NOT under registry.platform_tools: that block is
+    # platform-scoped by design, with no per-workspace field. Unlike those tools
+    # ansible publishes no release binary either, so it is pip-installed from
+    # Terrapod's own PyPI pull-through proxy -- hence no *_mirror_url sibling,
+    # and the runner needs no upstream reach.
+    #
+    # INERT UNTIL THE ANSIBLE WORK LANDS: the acquisition mechanism is complete
+    # and tested, but nothing calls it yet -- inventory resolution (#1967) and
+    # executing a configure (#1972) are what will. The fetch is lazy, so a
+    # deployment that never uses Ansible never downloads it.
+    default_ansible_version: "2.21.5"
     # What a new Pulumi workspace gets when it pins no engine-version. Partial,
     # like its Terraform counterpart: resolved to the newest matching release.
     default_pulumi_version: "3.208"
@@ -254,7 +305,85 @@ api:
       legacy_callback_url: true
 
       session_ttl_hours: 12
+      # Hard ceiling on a web session, measured from login rather than from last
+      # activity. The sliding session_ttl_hours window is clamped to it, so a
+      # session a polling browser keeps warm still ends here and the user signs in
+      # again. That is what bounds how long anything resolved at login — the
+      # session's roles above all — can outlive a change to it; the revocations on
+      # a demotion are the first line and this is the backstop. Set it at or above
+      # session_ttl_hours. 0 removes the ceiling (not recommended).
+      session_absolute_ttl_hours: 24
       api_token_max_ttl_hours: 8760  # 1 year; upper bound on any token. 0 = no limit
+
+      # Terrapod as an OIDC issuer for runs (#1901) — per-workspace cloud
+      # identity. A run gets a short-lived RS256 JWT describing itself (which
+      # workspace, which phase) and a cloud federates to Terrapod as an
+      # identity provider, so two workspaces on one agent pool can hold
+      # different cloud permissions without a second listener. Terrapod writes
+      # the token to a file and knows nothing about any cloud; the provider
+      # configuration is yours. See docs/cloud-identity.md.
+      #
+      # Enabling this publishes TWO PUBLIC PATHS that the clouds fetch
+      # ANONYMOUSLY, so they must be reachable from the internet — add them to
+      # `webhookIngress.paths` (below), which is the surface that exists for
+      # exactly this. A tailnet-only management hostname will not do.
+      #
+      #   /.well-known/openid-configuration
+      #   /.well-known/jwks.json
+      #
+      # Off means those routes are NOT MOUNTED, not mounted-and-404ing: a
+      # deployment that has not opted in publishes no trust root at all. And
+      # enabling it alone grants nothing — a workspace mints a token only once
+      # someone sets its `oidc-audiences`.
+      oidc_issuer:
+        enabled: false
+        # The issuer URL, exactly as the cloud is configured with it. OIDC
+        # issuer matching is EXACT. Empty derives it from
+        # webhookIngress.hostname, falling back to external_url — which is the
+        # right answer for almost everyone, and wrong only if the clouds reach
+        # you on a third hostname.
+        public_url: ""
+        # A run identity token's lifetime. Short because the cloud exchanges it
+        # for its own credentials at provider init and never reads it again.
+        token_ttl_seconds: 900
+        # How long a rotated-in key is PUBLISHED before it starts SIGNING. A
+        # published trust root cannot be swapped atomically: the clouds cache
+        # the JWKS, so a token signed with a brand-new key cannot be verified
+        # until they next fetch it. Raise this if your cloud caches longer.
+        key_propagation_seconds: 600
+        # How long a retired key stays published. Must exceed
+        # token_ttl_seconds, or a token signed moments before a rotation stops
+        # verifying while it is still inside its own lifetime.
+        retired_key_grace_seconds: 3600
+        # ── The audience catalogue: deployment defaults, per provider ──
+        #
+        # Keyed on the BARE PROVIDER TYPE exactly as it appears in a `provider`
+        # block — `aws`, `azurerm`, `google`, `vault` — optionally with an alias
+        # (`aws.west`). The runner discovers which provider configurations a
+        # root module actually uses and asks for one token per used target, so a
+        # key nothing references costs nothing.
+        #
+        # The value is the `aud` claim for that target, ALWAYS A LIST even when
+        # it holds one entry. Keep it to one entry unless you genuinely mean
+        # "these are interchangeable": a multi-valued `aud` is replayable
+        # between the targets it names, and AWS refuses one outright — it fails
+        # at the cloud's token exchange, not here, so Terrapod cannot warn you.
+        #
+        # A workspace's own `oidc_audiences` is MERGED OVER this, per key, so
+        # one workspace can point `vault` at a different instance without
+        # restating the rest. Removing the key from the workspace falls back to
+        # what is here.
+        #
+        # Terrapod attaches no meaning to any of these strings. There is no
+        # built-in `sts.amazonaws.com`, because any provider may be federated to
+        # any audience and the only gate is the cloud's own trust policy.
+        #
+        # Example:
+        #   audiences:
+        #     aws: ["sts.amazonaws.com"]
+        #     azurerm: ["api://AzureADTokenExchange"]
+        #     vault: ["https://vault.example.com"]
+        audiences: {}
       # Lifespan of the token minted by `terraform login` — short-lived per-session
       # CLI credentials, distinct from the max cap above. 0 falls back to the cap.
       login_token_ttl_hours: 12
@@ -288,6 +417,13 @@ api:
         #   audience: ""                     # API audience (Auth0/Okta); omit if unused
         #   groups_claim: groups             # Claim name containing user groups
         #   role_prefixes: ["terrapod:", "terrapod-"]  # Stripped from group names
+        #   # The email claim is the principal: it selects role assignments and
+        #   # owns workspaces. Default true refuses a login whose claims omit
+        #   # `email_verified`, because an address the IdP does not vouch for may
+        #   # have been set by whoever is logging in. Set false ONLY for an IdP
+        #   # that verifies email without sending the claim; an explicit
+        #   # `email_verified: false` is refused either way.
+        #   require_email_verified: true
         #   # K8s Secret containing the client_secret:
         #   existingSecret: "terrapod-auth0"
         #   existingSecretKey: "client_secret"   # Key within the Secret
@@ -302,32 +438,57 @@ api:
         #   metadata_url: https://login.microsoftonline.com/<tenant>/federationmetadata/2007-06/federationmetadata.xml
         #   entity_id: "https://terrapod.example.com"
         #   role_prefixes: ["terrapod:", "terrapod-"]
-
-    # Engines beyond Terraform/OpenTofu (#1429).
-    #
-    # Terrapod carries surfaces that exist only for a particular engine — a
-    # container registry for Ansible execution environments, PyPI and npm proxies
-    # for Pulumi program dependencies. If you only run terraform/tofu, turn these
-    # two off and none of it is deployed: the routes are never registered, the
-    # background tasks never scheduled, and the UI never shows them.
-    #
-    # These outrank the per-capability flags under `registry` below. With
-    # `ansible.enabled: false` the container registry does not run even if
-    # `registry.oci.enabled` is left true, so switching an engine off is a single
-    # decision rather than a hunt for everything that belongs to it.
-    #
-    # Turning one off is never destructive. Stored images and cached artifacts
-    # stay exactly where they are and come back if you turn it on again.
-    #
-    # Terraform/OpenTofu is not listed. It is not optional — it is what Terrapod
-    # is, and its provider mirror, binary cache and module registry are unaffected
-    # by anything here.
-    engines:
-      ansible:
-        enabled: true
-      pulumi:
-        enabled: true
-
+        #
+        #   # The externally-reachable address the IDP posts assertions to.
+        #   # Leave it unset and it is derived from auth.callback_base_url
+        #   # (falling back to external_url). Set it when a proxy rewrites the
+        #   # path, because this is the URL an assertion's Destination and
+        #   # Recipient are checked against — and it must be the URL you
+        #   # registered with the IDP.
+        #   acs_url: "https://terrapod.example.com/api/terrapod/v1/auth/saml/acs"
+        #
+        #   # ── Assertion validation ──────────────────────────────────
+        #   # Five independent checks, one switch each, because identity
+        #   # providers get different things wrong. An IDP that cannot be moved
+        #   # off SHA-1 is a different problem from one that signs only the
+        #   # message, and neither should cost you the other protections.
+        #   #
+        #   # ALL FIVE DEFAULT TO TRUE, so a provider that sets none of them is
+        #   # protected. The 1.x release lines default all five to false, where
+        #   # a patch release must not change what a running deployment does —
+        #   # so if you are upgrading from 1.x, work through this block and
+        #   # check your IDP against each one before you upgrade. Each switch is
+        #   # independent: relax the one your IDP cannot satisfy and keep the
+        #   # other four. The failure messages in docs/authentication.md name
+        #   # which check refused a login.
+        #
+        #   # Check that an assertion's Destination and Recipient name THIS
+        #   # deployment. Without it an assertion the IDP minted for a different
+        #   # service provider is accepted here, so anyone who can obtain one for
+        #   # a host they control can replay it at Terrapod and log in as that
+        #   # user. Needs an absolute ACS URL, which SAML already requires.
+        #   validate_destination: true
+        #
+        #   # Require the assertion to answer the authentication request this
+        #   # login actually sent. Set false only for an IDP that does not echo
+        #   # InResponseTo on the Response element, or for IDP-initiated sign-on.
+        #   validate_in_response_to: true
+        #
+        #   # Remember each accepted assertion in Redis for the rest of its
+        #   # validity window and refuse a second use, across all API replicas.
+        #   # An IDP never issues the same assertion twice, so this refuses no
+        #   # legitimate login — setting it false only buys independence from
+        #   # Redis, never IDP compatibility.
+        #   reject_replayed_assertions: true
+        #
+        #   # Require the signature to be on the assertion itself. A response
+        #   # signed only at the message level leaves the assertion the claims
+        #   # are read from unprotected. Set false for a message-only-signing IDP.
+        #   want_assertions_signed: true
+        #
+        #   # Refuse SHA-1 signature and digest algorithms. Set false for an IDP
+        #   # that cannot yet be moved off SHA-1.
+        #   reject_deprecated_algorithm: true
 
     # Private Registry & Caching
     registry:
@@ -552,9 +713,9 @@ api:
       # They are fetched lazily and only when needed: opa when a policy set
       # applies to a run, trivy only when it is the selected scan engine.
       platform_tools:
-        opa_version: "1.21.0"
-        trivy_version: "0.74.0"
-        checkov_version: "3.3.19"
+        opa_version: "1.21.1"
+        trivy_version: "0.75.0"
+        checkov_version: "3.3.23"
         opa_mirror_url: "https://github.com/open-policy-agent/opa/releases/download"
         trivy_mirror_url: "https://github.com/aquasecurity/trivy/releases/download"
         checkov_mirror_url: "https://github.com/bridgecrewio/checkov/releases/download"
@@ -626,6 +787,18 @@ api:
       # `location`, GCP `region`/`location`, then provider config). A plan can
       # span regions, so this default is used only when a resource has no region.
       default_region: "us-east-1"
+      # Integrity for the fetched sheet (GHSA-7486-vv55-jxhq). Empty means "verify
+      # against the `.sha256` published beside the sheet" — which catches
+      # corruption and a swapped asset, but not someone who can rewrite both. Pin
+      # the digest here for the check that survives that, having verified the
+      # release's attestation once:
+      #   gh attestation verify prices.yaml.gz --repo mattrobinsonsre/terrapod
+      prices_sha256: ""
+      # Bounds, so a hostile or broken upstream cannot fill the ephemeral PVC. The
+      # real sheet is ~2 MB compressed / ~20 MB decompressed, so both are far above
+      # any legitimate size and exist only to stop a decompression bomb.
+      prices_max_compressed_bytes: 268435456 # 256 MiB
+      prices_max_decompressed_bytes: 2147483648 # 2 GiB
 
     # Leader/follower role resolution (#960).
     #
@@ -794,6 +967,24 @@ api:
       # so with webhooks configured this is the fallback floor rather than the
       # latency anyone experiences.
       module_poll_interval_seconds: 300
+      # Require a claim to a VCS connection before naming it
+      # (GHSA-v8g7-pqrj-8mcm). A connection reaches every repository its
+      # credential can reach, so naming one is a grant, not a reference. A
+      # platform admin may name any; anyone else may name one they already own a
+      # workspace on. Deliberate consequence: the FIRST workspace for a given
+      # connection must be created by an admin. Set false to accept any id, as
+      # releases before this one did.
+      require_connection_authorization: true
+      # Only act on a `terrapod ...` PR comment when its author can push to
+      # the repository (GitHub: the collaborator permission API; GitLab:
+      # Developer / access level 30 or above, inherited group membership
+      # included). On because a comment is a very low bar for `terrapod
+      # apply`, which applies real infrastructure, and because `terrapod
+      # unlock` is not covered by branch protection at all. Set false only to
+      # restore the previous behaviour of treating anyone who can comment as
+      # authorized. The check fails closed: a command whose author cannot be
+      # established is refused, with a reply on the PR saying so.
+      require_push_permission_for_commands: true
       github:
         # Optional: K8s Secret containing the webhook HMAC secret.
         # Only needed if GitHub webhooks are enabled for faster feedback.
@@ -806,6 +997,28 @@ api:
         # per-connection webhook secret on the VCS connection.
         existingSecret: ""
         existingSecretKey: "webhook_secret"
+        # Whether a `git_http_auth` workspace variable sourced from a
+        # `vcs_connection` may hand a GitLab connection's stored access token to
+        # a runner Job, for fetching private git module sources.
+        #
+        # OFF, and the default is the point. A GitLab VCS connection holds a
+        # Personal or Group Access Token an operator pasted in, and nothing
+        # produces a narrower copy of one — so the runner receives it WHOLE,
+        # with every permission and every project that token covers, inside a
+        # Job that is also running workspace-supplied IaC. Worse, the connection
+        # is named in a variable *value*, so the chooser is anyone who can set a
+        # workspace variable, not an admin.
+        #
+        # GitHub has no such switch and needs none: its installation token is
+        # minted per run and narrowed to `contents: read`.
+        #
+        # Turn this on only if you accept that specific disclosure — a private
+        # runner fleet with a single-project token is a reasonable place to.
+        # Otherwise use a `static` git_http_auth credential holding a token you
+        # scoped yourself, which needs nothing enabled. With this off, such a
+        # variable FAILS the run with a message naming this key; it is never
+        # dropped silently.
+        allow_token_delivery_to_runners: false
 
     # Audit logging
     audit:
@@ -825,6 +1038,12 @@ api:
       # no expiry).
       default_join_token_max_uses: 2
       default_join_token_ttl_seconds: 3600
+      # A listener authenticates with its certificate — PUBLIC material, sent on
+      # every request — so it also signs each request with the private key the CA
+      # issued it at join, proving possession rather than presenting a copy. Set
+      # false ONLY while a pool still runs listener images older than 2.0, which
+      # do not sign; see docs/upgrading-to-2.0.md.
+      require_listener_proof_of_possession: true
 
     # AI plan-summary (#401). Off by default. When enabled, every
     # plan-phase terminal transition triggers an asynchronous LLM call
@@ -1629,7 +1848,14 @@ runners:
     pullPolicy: IfNotPresent
 
   # Internal API URL for runner Jobs. Runner pods use this to reach the API
-  # for presigned storage URLs. Defaults to http://<release>-api:8000.
+  # for presigned storage URLs and to report results.
+  #
+  # Defaults to the FULLY QUALIFIED in-cluster Service name,
+  # http://<release>-api.<release-namespace>.svc.cluster.local:8000 — not a bare
+  # `<release>-api:8000`, which would resolve only from the release namespace
+  # and so would break every runner Job as soon as `listener.runnerNamespace`
+  # pointed somewhere else (GHSA-p8xx-7rwg-9f72). Set this when runners reach
+  # the API by some other route, such as a listener in another cluster.
   serverUrl: ""
 
   # Image pull secrets for runner Jobs (private registries).
@@ -1706,7 +1932,7 @@ runners:
   launchTimeoutSeconds: 300
   # Default terraform/tofu version + backend for runner Jobs when a workspace
   # doesn't pin one. Runs snapshot the resolved version at creation time.
-  defaultTerraformVersion: "1.12"
+  defaultTerraformVersion: "1.13"
   # The same for a Pulumi run whose workspace pins no version.
   defaultPulumiVersion: "3.208"
   defaultExecutionBackend: "tofu"  # tofu | terraform
@@ -1845,7 +2071,33 @@ listener:
       cpu: 500m
       memory: 512Mi
 
-  # Namespace where runner Jobs are created (defaults to release namespace)
+  # Namespace where runner Jobs are created (defaults to release namespace).
+  #
+  # RECOMMENDED: set this to a namespace of its own, create it with
+  # `namespace.createRunner: true`, and turn `networkPolicies.enabled` on
+  # (GHSA-p8xx-7rwg-9f72). The chart does not default it, because where a
+  # workload runs is the operator's call and a default that moved runner Jobs
+  # out from under an existing deployment's quotas, policies and node selectors
+  # would be a surprise on upgrade.
+  #
+  # What the default costs you, plainly. Runner Jobs run arbitrary Terraform/Tofu
+  # from your repositories, and left here they run in the same namespace as the
+  # control plane:
+  #
+  #   * The listener holds `jobs: create` and `secrets: create` in THIS
+  #     namespace. A compromised listener can therefore create a Job that mounts
+  #     any Secret here -- the token signing key, the database URL, OIDC, Slack,
+  #     Vault and webhook secrets, and every per-run variables Secret -- and read
+  #     it out through the pod's own logs. Separate the namespace and that same
+  #     grant reaches only per-run Secrets.
+  #   * With `networkPolicies.enabled: false` (the default) runner code can open
+  #     connections to Postgres, Redis and the API directly, bypassing the BFF.
+  #
+  # Neither is bounded by anything else in the chart, so if you leave both at
+  # their defaults, treat "can run a plan" as close to "can read the control
+  # plane's Secrets".
+  #
+  # See docs/security-hardening.md → "Separate the runner namespace".
   runnerNamespace: ""
 
   # ServiceAccount for the listener Deployment
@@ -1982,18 +2234,40 @@ webhookIngress:
   # routing to the web Service (the BFF). Defaults to the full set of
   # inbound-from-public-internet endpoints Terrapod exposes; operators
   # who don't use external run tasks can trim that out.
-  # BOTH prefixes are listed because this is an ALLOW-LIST: a path absent
-  # here is not routed publicly, and that shows up as a 404 at the SENDER
-  # (a VCS provider, or an external run-task service) rather than anywhere
-  # in Terrapod's own logs. The /api/v1 entries are what run-task callbacks
-  # now use and where a re-registered webhook points; the /api/terrapod/v1
-  # entries keep already-registered webhooks working. Drop the legacy pair
-  # once every sender has been re-pointed — see docs/deprecations.md.
+  #
+  # "Webhook" undersells this block: it is THE PUBLIC SURFACE, and webhooks are
+  # one use of it. Per-workspace cloud identity (#1901) is another — enabling
+  # the OIDC issuer means the clouds fetch the discovery document and the JWKS
+  # anonymously and cannot reach a tailnet-only hostname. Enabling this block
+  # with ONLY the issuer, and no webhook path at all, is a first-class
+  # configuration rather than a corner: the allow-list is what decides, so a
+  # deployment that polls VCS and wants no webhook exposed can publish an
+  # issuer and nothing else.
+  #
+  # BOTH webhook prefixes are listed because this is an ALLOW-LIST: a path
+  # absent here is not routed publicly, and that shows up as a 404 at the
+  # SENDER (a VCS provider, or an external run-task service) rather than
+  # anywhere in Terrapod's own logs. The /api/v1 entries are what run-task
+  # callbacks now use and where a re-registered webhook points; the
+  # /api/terrapod/v1 entries keep already-registered webhooks working. Drop
+  # the legacy pair once every sender has been re-pointed — see
+  # docs/deprecations.md.
   paths:
     - /api/v1/vcs-events                  # GitHub / GitLab webhook receivers
     - /api/v1/task-stage-results          # external run-task callback receiver
     - /api/terrapod/v1/vcs-events         # deprecated alias — already-registered webhooks
     - /api/terrapod/v1/task-stage-results # deprecated alias
+    # The two issuer paths are added AUTOMATICALLY when
+    # api.config.auth.oidc_issuer.enabled is true -- you do not list them here,
+    # and never as the `/.well-known` prefix, which would bring
+    # `/.well-known/terraform.json` along as a side effect of a shorter string.
+    # Publishing a trust root the clouds cannot fetch is not a degraded
+    # configuration but a broken one, and the failure surfaces at the cloud's
+    # token exchange rather than anywhere on the Terrapod side.
+    #
+    # To publish the issuer and NO webhook path, set this to `[]` with the
+    # issuer enabled. The chart supplies the two paths, so the resulting
+    # Ingress serves exactly them.
 
 # ── Internal Ingress (optional) ─────────────────────────────────────────────
 # Optional THIRD Ingress for the internal-only surface: listener pods
@@ -2076,17 +2350,46 @@ migrations:
 # bootstrap:
 #   enabled: true      # set false to skip the bootstrap Job (admin already seeded)
 #   adminEmail: admin@example.com
-#   adminPassword: ""  # Required when enabled
+#   adminPassword: ""  # Required when enabled. A credential, so the chart puts it
+#                      # in a Secret and the Job reads it by secretKeyRef — it is
+#                      # no longer a literal in the Job spec
+#                      # (GHSA-93m3-v3h4-4qvw). It still passes through the
+#                      # release's own stored values, which only existingSecret
+#                      # avoids.
 #   existingSecret: ""  # Alternative: reference an existing K8s Secret
 #   emailKey: email
 #   passwordKey: password
 #   poolName: ""       # Optional: auto-create an agent pool with this name
-#   poolToken: ""      # Optional: the pool's join token. Rendered into the Job
-#                      # spec as a literal, so prefer poolTokenExistingSecret
-#                      # (or `pools` below), which do not.
+#   poolToken: ""      # Optional: the pool's join token. Delivered by secretKeyRef
+#                      # from a chart-managed Secret, not as a literal in the Job
+#                      # spec. Still prefer poolTokenExistingSecret (or `pools`
+#                      # below): a token given here is in the release's values.
 #   poolTokenExistingSecret: ""  # Preferred: read poolName's join token from a
 #                                # Secret instead of from values.
 #   poolTokenKey: "join_token"   # Key within that Secret.
+#
+#   # Bootstrap join-token limits (GHSA-93m3-v3h4-4qvw). A bootstrap token used
+#   # to be created with no expiry and no use limit — a permanent, unlimited
+#   # credential that lets any holder join a listener to the pool and claim every
+#   # run's variables. It now defaults to ONE use and TWENTY-FOUR HOURS, which is
+#   # what a bootstrap token is for: the first listener's first join.
+#   #
+#   # Raising the use limit is the knob to reach for if you need it. The one case
+#   # that wants it is a race during a green-field install: the first listener pod
+#   # consumes the single use, and if it dies between joining and writing its
+#   # credentials Secret, no other pod can take over and the Deployment waits out
+#   # its ~3-minute budget before failing. The API's own default for tokens
+#   # created through it is 2, for exactly that tolerance. Pod REPLACEMENT is not
+#   # a reason: a listener's certificate lives in a Secret in its own namespace
+#   # and survives restarts, rolling updates and scale-out, so a replaced pod
+#   # adopts the existing identity and never touches the join token.
+#   #
+#   # 0 means unlimited / no expiry on either. An expired or spent token is not
+#   # re-armed by a later `helm upgrade` — deliberately, since re-arming it on
+#   # every sync would be the same permanent credential by another route. To
+#   # rejoin after that, issue a token through the API.
+#   poolTokenMaxUses: 1        # 0 = unlimited
+#   poolTokenTTLSeconds: 86400 # 24h. 0 = never expires
 #
 #   # Several pools (#1411). bootstrap writes directly to the database, so it is
 #   # the only way to register a pool with no API running yet — and the listener's
@@ -2195,8 +2498,33 @@ storage:
 # ── Network Policies ────────────────────────────────────────────────────────
 # Restrict pod-to-pod and pod-to-external traffic.
 # Requires a CNI plugin that supports NetworkPolicy (Calico, Cilium, etc.).
+#
+# RECOMMENDED ON, together with a separate `listener.runnerNamespace`
+# (GHSA-p8xx-7rwg-9f72). Off by default because a policy set is only as good as
+# the CNI under it: on a cluster whose CNI does not enforce NetworkPolicy these
+# objects are accepted and ignored, and enabling them by default would read as a
+# control where there is none. On a cluster that DOES enforce them, a default-on
+# egress policy would cut off whatever outbound path an existing deployment
+# depends on (an on-prem registry, a proxy, a VCS on a non-443 port) on upgrade.
+#
+# What off costs you: nothing stops runner Jobs -- arbitrary Terraform/Tofu --
+# from opening connections to Postgres (5432), Redis (6379), or the API
+# directly, bypassing the BFF. Turning this on denies all three.
 networkPolicies:
   enabled: false
+
+  web:
+    # NetworkPolicy peers allowed to reach the web pod on 3000. REQUIRED when
+    # networkPolicies.enabled is true — the chart cannot guess where your
+    # ingress controller runs, and a rule with no `from:` admits every source,
+    # so leaving it empty fails the render rather than shipping a policy that
+    # reads as a restriction and enforces nothing.
+    #
+    #   ingressFrom:
+    #     - namespaceSelector:
+    #         matchLabels:
+    #           kubernetes.io/metadata.name: kube-system
+    ingressFrom: []
 
 # ── Priority Classes ─────────────────────────────────────────────────────────
 # Optional control-plane priority protection. OFF by default — enabling creates
@@ -2212,19 +2540,6 @@ networkPolicies:
 # own api/listener/web.priorityClassName (or runners.priorityClassName) is set,
 # which always wins. Values stay well below the reserved system classes
 # (system-cluster-critical = 2000000000).
-
-  web:
-    # NetworkPolicy peers allowed to reach the web pod on 3000. REQUIRED when
-    # networkPolicies.enabled is true — the chart cannot guess where your
-    # ingress controller runs, and a rule with no `from:` admits every source,
-    # so leaving it empty fails the render rather than shipping a policy that
-    # reads as a restriction and enforces nothing.
-    #
-    #   ingressFrom:
-    #     - namespaceSelector:
-    #         matchLabels:
-    #           kubernetes.io/metadata.name: kube-system
-    ingressFrom: []
 priorityClasses:
   create: false
   # Higher-priority class for the control plane (api, listener, web).
@@ -2254,6 +2569,29 @@ priorityClasses:
 namespace:
   create: false
   labels: {}
+
+  # Also create the runner namespace named by `listener.runnerNamespace`
+  # (GHSA-p8xx-7rwg-9f72). Only has an effect when that is set to something
+  # other than the release namespace.
+  #
+  # Running runner Jobs in a namespace of their own is the RECOMMENDED topology
+  # — see docs/security-hardening.md → "Separate the runner namespace". The
+  # listener's Role, RoleBinding, the runner ServiceAccount and the runner
+  # NetworkPolicy already render into that namespace; this creates the namespace
+  # so the install does not fail on the first of them. Leave it false and create
+  # the namespace yourself if your RBAC does not allow cluster-scoped writes, or
+  # if you manage namespaces outside Helm.
+  #
+  # NOTE: a chart-created namespace is DELETED by `helm uninstall`, taking any
+  # in-flight runner Job with it. That is also true of `create` above.
+  createRunner: false
+  # Labels for the runner namespace. Untrusted Terraform/Tofu code runs here, so
+  # the PSS restricted profile is worth setting — the runner pod and container
+  # security contexts are already compatible with it:
+  #   pod-security.kubernetes.io/enforce: restricted
+  #   pod-security.kubernetes.io/audit: restricted
+  #   pod-security.kubernetes.io/warn: restricted
+  runnerLabels: {}
 
 # ── Egress: forward proxy + custom CA trust (restricted-network deployments) ──
 # proxy.* and caBundle.* are a matched pair for high-security / restricted-egress

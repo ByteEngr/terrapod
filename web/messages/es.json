@@ -27,6 +27,7 @@
     "account": "Cuenta",
     "apiTokens": "Tokens de API",
     "sessions": "Sesiones",
+    "slackLinks": "Enlaces de Slack",
     "logOut": "Cerrar sesión",
     "menu": "Menú",
     "openMenu": "Abrir menú",
@@ -70,7 +71,6 @@
       "agentPool": "Grupo de agentes",
       "none": "Ninguno",
       "autoApply": "Aplicación automática",
-      "autoApplyModeHint": "never: esperar siempre a una persona. always: aplicar todos los planes correctos. create / create/update: aplicar solo los planes limitados a esas acciones — nunca una destrucción ni un reemplazo.",
       "enabled": "Habilitado",
       "workingDirectory": "Directorio de trabajo",
       "workingDirectoryPlaceholder": "p. ej. environments/dev",
@@ -372,6 +372,22 @@
         "load": "No se pudieron cargar las sesiones",
         "revoke": "No se pudieron revocar las sesiones ({status})",
         "revokeGeneric": "No se pudieron revocar las sesiones"
+      }
+    },
+    "slackLinks": {
+      "title": "Enlaces de Slack",
+      "description": "Cuentas de Slack que pueden actuar en tu nombre. Una cuenta de Slack vinculada puede aprobar y descartar ejecuciones con tus permisos, así que revoca cualquiera que no reconozcas.",
+      "empty": "No tienes ninguna cuenta de Slack vinculada.",
+      "revoke": "Revocar",
+      "confirmRevoke": "¿Revocar el enlace del usuario de Slack {user}? Esa cuenta ya no podrá actuar en tu nombre desde Slack.",
+      "columns": {
+        "slackUser": "Usuario de Slack",
+        "team": "Equipo de Slack",
+        "linkedAt": "Vinculada"
+      },
+      "errors": {
+        "load": "No se pudieron cargar tus enlaces de Slack.",
+        "revoke": "No se pudo revocar ese enlace de Slack."
       }
     }
   },
@@ -761,7 +777,9 @@
       "setAssignmentStatus": "No se pudo establecer la asignación ({status})",
       "deleteAssignment": "No se pudo eliminar la asignación",
       "conflictingLabelKeys": "{keys} tiene más de un valor. Una regla de etiqueta admite un valor por clave, así que el último sustituiría a los anteriores sin avisar. La API admite varios valores por clave, pero aún no se pueden definir aquí."
-    }
+    },
+    "pinnedToSubject": "Fijado",
+    "pinnedToSubjectTitle": "Fijado al sujeto de IdP {subject}"
   },
   "adminVcs": {
     "title": "Conexiones VCS",
@@ -774,6 +792,23 @@
       "delete": "Eliminar"
     },
     "confirmDelete": "¿Eliminar esta conexión VCS? Los espacios de trabajo que la usen perderán la integración con VCS. Esto no se puede deshacer.",
+    "access": {
+      "heading": "Quién puede usar esta conexión",
+      "intro": "Estos tres ajustes deciden qué espacios de trabajo pueden apuntar a esta conexión. La credencial en sí sigue siendo de solo escritura.",
+      "ownerEmail": "Correo del propietario",
+      "ownerEmailHint": "El propietario siempre puede usar esta conexión. Déjalo en blanco para que la conexión quede sin propietario.",
+      "labels": "Etiquetas de acceso",
+      "labelsHint": "Un rol cuyas reglas coincidan con estas etiquetas puede apuntar un espacio de trabajo a esta conexión.",
+      "allowedRepositories": "Repositorios permitidos",
+      "allowedRepositoriesHint": "Patrones glob que se comparan con el repositorio que un espacio de trabajo pide usar.",
+      "addPattern": "Añadir un patrón",
+      "anyRepositoryWarning": "No hay ningún patrón en la lista, así que esta conexión puede apuntar a cualquier repositorio.",
+      "restricted": "{count, plural, one {Hay # patrón en la lista} other {Hay # patrones en la lista}}, así que se rechaza un repositorio que no coincida con ninguno de ellos.",
+      "ownedBy": "Propiedad de {email}",
+      "unowned": "No se ha establecido ningún propietario",
+      "anyRepositorySummary": "Se permite cualquier repositorio",
+      "repositoryCount": "Restringido a {count, plural, one {# repositorio} other {# repositorios}}"
+    },
     "form": {
       "name": "Nombre",
       "namePattern": "Solo letras, números, guiones y guiones bajos. Debe empezar por una letra o un número.",
@@ -922,7 +957,6 @@
       "varKey": "Clave",
       "varValue": "Valor",
       "varCategory": "Categoría",
-      "categoryTerraform": "Terraform",
       "categoryEnv": "Entorno",
       "sensitive": "Sensible",
       "sensAbbr": "Sens.",
@@ -988,7 +1022,9 @@
       "valueSource": "Origen del valor",
       "valueSourceStatic": "Introducir un valor",
       "valueSourceVault": "Leer desde OpenBao/Vault",
-      "vaultHint": "Terrapod lee el secreto de OpenBao (o HashiCorp Vault) en tiempo de ejecución. Aquí no se almacena nada."
+      "vaultHint": "Terrapod lee el secreto de OpenBao (o HashiCorp Vault) en tiempo de ejecución. Aquí no se almacena nada.",
+      "categoryNative": "Nativa",
+      "structured": "Estructurada"
     }
   },
   "adminAutodiscovery": {
@@ -1076,7 +1112,10 @@
       "terragruntVersion": "Versión de Terragrunt",
       "noExpiry": "Sin caducidad",
       "addDriftIgnoreRule": "Añadir regla",
-      "debugModeHint": "Mantener abiertos los pods de runners fallidos en los espacios de trabajo que crea esta regla. Desactivado de forma predeterminada: un pod mantenido abierto conserva las credenciales de ese espacio de trabajo."
+      "debugModeHint": "Mantener abiertos los pods de runners fallidos en los espacios de trabajo que crea esta regla. Desactivado de forma predeterminada: un pod mantenido abierto conserva las credenciales de ese espacio de trabajo.",
+      "allowForkPrPlansHint": "Se aplica a todos los espacios de trabajo que crea esta regla. Desactivado de forma predeterminada: una pull request desde un fork no recibe ningún plan especulativo, porque ejecutaría el código de su autor con las credenciales del espacio de trabajo.",
+      "oidcAudiences": "Audiencias de la identidad de ejecución (heredadas por los espacios de trabajo creados)",
+      "oidcAudiencesHint": "Sustituciones de audiencias aplicadas a cada espacio de trabajo que crea esta regla, indexadas por la configuración de provider a la que corresponde un token: aws, o aws.west para una configuración con alias. Déjalas vacías y esos espacios de trabajo usan la configuración propia del despliegue."
     },
     "table": {
       "name": "Nombre",
@@ -1270,7 +1309,8 @@
       "cancel": "Cancelar",
       "working": "Trabajando...",
       "previewDryRun": "Vista previa (simulación)",
-      "applyChanges": "Aplicar cambios"
+      "applyChanges": "Aplicar cambios",
+      "setOidcAudiences": "Establecer audiencias OIDC de la identidad de ejecución (reemplaza el mapa en cada espacio de trabajo coincidente)"
     },
     "diff": {
       "colWorkspace": "Espacio de trabajo",
@@ -1919,12 +1959,24 @@
       "always": "siempre",
       "create": "crear",
       "createUpdate": "crear/actualizar"
+    },
+    "oidcAudiences": {
+      "addProvider": "Añadir configuración de provider",
+      "audiences": "Audiencias",
+      "badgeInherited": "Valor del despliegue",
+      "badgeOwned": "Espacio de trabajo",
+      "issuerDisabled": "Este despliegue no publica ningún emisor de OpenID Connect, así que nada de lo configurado aquí puede surtir efecto.",
+      "override": "Sustituir",
+      "overrideAria": "Sustituir las audiencias de {provider} en este espacio de trabajo",
+      "providerDuplicate": "Esa configuración de provider ya tiene una entrada.",
+      "providerInvalid": "Un nombre de provider no lleva espacios y admite un punto como máximo: aws, o aws.west.",
+      "providerPlaceholder": "aws, o aws.west",
+      "removeProviderAria": "Quitar la configuración de provider {provider}"
     }
   },
   "planSummary": {
     "aiGenerated": "Generado por IA",
     "heading": {
-      "planSummary": "Resumen del plan",
       "failureAnalysis": "Análisis del fallo"
     },
     "errors": {
@@ -1933,13 +1985,11 @@
     "regenerate": {
       "label": "Regenerar",
       "queueing": "Poniendo en cola…",
-      "tooltip": "Volver a ejecutar el resumen de IA con las mismas entradas del plan",
       "ariaLabel": "Regenerar resumen de IA",
       "confirm": "¿Regenerar el análisis de IA? Esto vuelve a ejecutar el modelo.",
       "error": "No se pudo regenerar: <mono>{detail}</mono>"
     },
     "pending": {
-      "summarisingPlan": "Resumiendo el plan…",
       "analysingFailure": "Analizando el fallo…"
     },
     "skipped": {
@@ -1963,7 +2013,6 @@
     "badges": {
       "noChanges": "Sin cambios",
       "noChangesLower": "sin cambios",
-      "noChangesTitle": "El plan no reportó cambios de recursos",
       "toAdd": "{count, plural, one {# a añadir} other {# a añadir}}",
       "toChange": "{count, plural, one {# a cambiar} other {# a cambiar}}",
       "toDestroy": "{count, plural, one {# a destruir} other {# a destruir}}",
@@ -1973,7 +2022,6 @@
     "chat": {
       "heading": "Seguimiento",
       "sharedThreadNote": "Un único hilo compartido, visible para cualquiera con acceso de lectura al espacio de trabajo.",
-      "placeholder": "Haga una pregunta de seguimiento sobre este plan… (⌘/Ctrl + Enter para enviar)",
       "send": "Enviar",
       "thinking": "Pensando…",
       "you": "Usted",
@@ -1997,7 +2045,6 @@
     "workspaceFallback": "espacio de trabajo",
     "backTo": "Volver a {name}",
     "errorHeading": "Error",
-    "discardedHeading": "Descartado — se requiere volver a planificar",
     "common": {
       "yes": "Sí",
       "no": "No"
@@ -2051,14 +2098,13 @@
     },
     "badge": {
       "destroy": "destruir",
-      "planOnly": "solo plan"
+      "savedPlan": "plan guardado",
+      "savedPlanHint": "Aplicación diferida: esta ejecución no bloquea el espacio de trabajo hasta que se aplique el plan guardado."
     },
     "actions": {
       "retryShort": "Reintentar",
       "retryFull": "Reintentar ejecución",
       "retrying": "Reintentando…",
-      "confirmShort": "Aplicar",
-      "confirmFull": "Confirmar y aplicar",
       "confirming": "Confirmando…",
       "discard": "Descartar",
       "discarding": "Descartando…",
@@ -2068,8 +2114,6 @@
       "queuing": "Poniendo en cola…"
     },
     "confirm": {
-      "apply": "¿Aplicar esta ejecución? Esto aplica el plan y cambia la infraestructura.",
-      "discard": "¿Descartar este plan?",
       "cancel": "¿Cancelar esta ejecución?",
       "retry": "¿Reintentar esta ejecución?"
     },
@@ -2092,20 +2136,19 @@
       "impactFull": "Grafo de impacto",
       "cost": "Coste",
       "costFull": "Estimación de coste",
-      "planLabel": "Plan<log>Registro</log>",
-      "applyLabel": "Apply<log>Registro</log>",
-      "planFull": "Registro del plan",
-      "applyFull": "Registro del apply",
       "details": "Detalles",
       "security": "Seguridad",
       "securityFull": "Análisis de seguridad"
     },
     "banner": {
       "destroy": "Esta es una ejecución de <strong>destrucción</strong> — todos los recursos gestionados se destruirán al aplicar.",
-      "planOnlyCli": "Esta es una ejecución <strong>solo de plan</strong> iniciada desde la CLI en un espacio de trabajo conectado a VCS. Apply no está disponible para código subido desde la CLI — solo se puede aplicar código gestionado por VCS.",
       "moduleOverridesPrefix": "Esta ejecución usa <strong>anulaciones de módulo</strong>",
       "moduleOverridesFromPr": "del PR #{number}",
       "moduleOverridesSuffix": "se obtendrá de la rama del PR en lugar de la versión publicada del registro."
+    },
+    "bindPlan": {
+      "bound": "Vinculado a este preview: el update aplica exactamente el plan que se muestra aquí, y cualquier cambio posterior hace fallar el update en lugar de aplicarse.",
+      "unbound": "Sin vincular a este preview: el update calcula sus propios cambios al ejecutarse, como hace un pulumi up normal, así que lo que aplique puede diferir de lo que se muestra aquí."
     },
     "cards": {
       "changes": "Cambios",
@@ -2117,7 +2160,6 @@
     },
     "changes": {
       "noChanges": "Sin cambios",
-      "planning": "Planificando…",
       "toAdd": "a añadir",
       "toChange": "a cambiar",
       "toDestroy": "a destruir",
@@ -2154,7 +2196,6 @@
       "executionBackend": "Backend de ejecución",
       "source": "Origen",
       "autoApply": "Aplicación automática",
-      "planOnly": "Solo plan",
       "triggeredBy": "Activado por",
       "created": "Creado",
       "commit": "Commit",
@@ -2170,11 +2211,7 @@
     "timeline": {
       "heading": "Cronología",
       "queued": "En cola",
-      "planningStarted": "Planificación iniciada",
-      "planComplete": "Plan completado",
       "confirmed": "Confirmado",
-      "applyingStarted": "Aplicación iniciada",
-      "applied": "Aplicado",
       "errored": "Con error",
       "canceled": "Cancelado",
       "discarded": "Descartado"
@@ -2198,12 +2235,8 @@
       "followOffTitle": "Seguir la cola en vivo",
       "end": "Fin",
       "endTitle": "Ir al final del registro",
-      "planEmpty": "Aún no hay salida del plan disponible.",
-      "applyEmpty": "Aún no hay salida del apply disponible.",
       "index": {
         "label": "Ir a",
-        "title": "Ir a un cambio de recurso o al resumen del plan",
-        "summary": "Resumen del plan",
         "action": {
           "create": "crear",
           "update": "actualizar",
@@ -2215,13 +2248,11 @@
           "error": "error",
           "warning": "advertencia"
         }
-      },
-      "applySkippedNoChanges": "No se ejecutó ninguna aplicación: el plan no tenía cambios, así que no había nada que aplicar."
+      }
     },
     "policyPanel": {
       "heading": "Comprobaciones de políticas",
       "passedCount": "{passed}/{total} superadas",
-      "blockedMessage": "Esta ejecución está <strong>bloqueada por un conjunto de políticas obligatorio</strong>. No se aplicará hasta que se resuelva el fallo o un administrador lo anule.",
       "overriding": "Anulando...",
       "overrideContinue": "Anular y continuar",
       "overrideFailed": "Error al anular",
@@ -2261,7 +2292,6 @@
       "unpricedHint": "Nada en los datos de precios coincidió con estos: un tipo no asignado, un recurso sin coste directo o un proveedor aún no cubierto.",
       "indicative": "Las estimaciones son orientativas; el coste real depende del uso, la región, los compromisos y los descuentos.",
       "asOfState": "según el estado v{serial}",
-      "noState": "Aún sin coste — aparece tras la primera aplicación.",
       "usageBand": "{dimension}: {typical} {unit} típico (rango {low}–{high})",
       "usageBandCost": "{dimension}: {costTypical}/mes típico — {costLow}–{costHigh} entre {low}–{high} {unit}"
     },
@@ -2348,7 +2378,6 @@
       "passed": "Ningún criterio de política coincidió.",
       "overriding": "Anulando...",
       "overrideContinue": "Anular y continuar",
-      "overrideConfirm": "¿Anular la puerta de política de IA y permitir que esta ejecución se aplique a pesar del veredicto?",
       "overrideFailed": "Error al anular",
       "overrideFailedStatus": "Error al anular ({status})",
       "overriddenBy": "anulado por {by}"
@@ -2407,9 +2436,6 @@
       "translatedNote": "Traducido del original al visualizar."
     },
     "drift": {
-      "remediate": "Plan + apply",
-      "remediateTitle": "Poner en cola una ejecución plan + apply para volver a alinear la infraestructura con la configuración",
-      "remediateConfirm": "¿Poner en cola una ejecución plan + apply para este espacio de trabajo?",
       "remediateMessage": "Puesto en cola desde una comprobación de desviación",
       "remediateFailed": "No se pudo poner en cola la ejecución de corrección"
     }
@@ -2469,6 +2495,7 @@
       "architecture": "Arquitectura",
       "insights": "Perspectivas",
       "automation": "Automatización",
+      "inventory": "Inventario",
       "access": "Acceso"
     },
     "lifecycle": {
@@ -2501,6 +2528,9 @@
       "version": "Versión",
       "versionPlaceholder": "p. ej. 1.11 o 1.11.5",
       "versionTitle": "Versión en formato X.Y o X.Y.Z (p. ej. 1.11 o 1.11.5)",
+      "ansibleVersion": "Versión de Ansible",
+      "ansibleVersionPlaceholder": "p. ej. 2.21.5",
+      "ansibleVersionTitle": "La versión de ansible-core para este espacio de trabajo. Déjalo vacío para seguir el valor predeterminado del despliegue.",
       "terragruntEnabledAgent": "Habilitado (modo agente)",
       "terragruntEnabledVersion": "Habilitado (v{version})",
       "terragruntVersionPlaceholder": "p. ej. 1.0",
@@ -2541,12 +2571,16 @@
       "engineTerraform": "Terraform",
       "nameTitlePulumi": "Dos partes separadas por '::' — project::stack. Solo letras, números, guiones y guiones bajos; cada parte debe empezar por una letra o un número.",
       "bindPlan": "Vincular la actualización a la vista previa aprobada",
-      "bindPlanHelp": "Si está activado, la actualización aplica exactamente el plan que guardó la vista previa, así que cualquier cambio desde la vista previa hace fallar la actualización en lugar de aplicarse. Se basa en los planes de actualización de Pulumi, que siguen siendo experimentales. Si está desactivado, la actualización calcula sus propios cambios, como hace un pulumi up normal. <docs>Cómo funcionan las ejecuciones de Pulumi</docs>"
+      "bindPlanHelp": "Si está activado, la actualización aplica exactamente el plan que guardó la vista previa, así que cualquier cambio desde la vista previa hace fallar la actualización en lugar de aplicarse. Se basa en los planes de actualización de Pulumi, que siguen siendo experimentales. Si está desactivado, la actualización calcula sus propios cambios, como hace un pulumi up normal. <docs>Cómo funcionan las ejecuciones de Pulumi</docs>",
+      "oidcAudiences": "Audiencias de la identidad de ejecución",
+      "oidcAudiencesAdd": "Añadir audiencia",
+      "oidcAudiencesHint": "Terrapod emite un token OpenID Connect de vida corta para cada configuración de provider que usa una ejecución y lo escribe en un archivo que la ejecución puede leer. Indexa cada entrada por el provider tal como lo nombra tu configuración —aws, o aws.west para una configuración con alias— y enumera las audiencias que acepta ese destino. Cada entrada sustituye la configuración propia del despliegue para ese provider; quítala y ese provider vuelve a las audiencias del despliegue. Una audiencia es una cadena opaca que eligió el destino de federación, así que se guarda exactamente como la escribes.",
+      "oidcAudiencesLoading": "Comprobando las audiencias configuradas en el despliegue …",
+      "oidcAudiencesNone": "Ninguna (las ejecuciones usan la identidad propia del grupo de agentes)",
+      "oidcAudiencesPlaceholder": "p. ej. sts.amazonaws.com"
     },
     "vcsWorkflowWarning": {
       "title": "Autorización delegada a su repositorio VCS.",
-      "rbac": "Cualquiera que pueda fusionar el PR puede aplicar. Las reglas de protección de rama (revisiones obligatorias, comprobaciones de estado, aprobación del propietario del código) se convierten en la barrera. El RBAC de roles/etiquetas de Terrapod<em>no</em> se aplica a las acciones impulsadas por comentarios en este modo.",
-      "recommended": "<strong>Recomendado:</strong> exija un historial lineal (rebase/squash antes de fusionar) para que el commit que aplica sea el commit que llega.",
       "credit": "Crédito: este flujo de trabajo está modelado según <atlantis>Atlantis</atlantis>. Atlantis sigue siendo la herramienta adecuada para equipos que solo quieren applies impulsados por comentarios de PR y ninguna interfaz de plataforma."
     },
     "vcsPolling": {
@@ -2562,7 +2596,6 @@
     },
     "lock": {
       "title": "Estado de bloqueo",
-      "lockedDesc": "Este espacio de trabajo está bloqueado. No se pueden ejecutar planes ni applies.",
       "unlockedDesc": "Este espacio de trabajo está desbloqueado y listo para ejecuciones.",
       "lock": "Bloquear",
       "unlock": "Desbloquear",
@@ -2584,7 +2617,6 @@
       "dismissTitle": "Borrar el estado de desviación reportado. La siguiente comprobación programada lo repoblará a partir de la realidad.",
       "lastChecked": "Última comprobación",
       "checkNow": "Comprobar ahora",
-      "checkNowTitle": "Poner en cola una ejecución solo de plan para comprobar la desviación",
       "checkNowTitleDisabled": "Habilite primero la detección de desviación"
     },
     "intervals": {
@@ -2598,13 +2630,10 @@
       "7days": "7 días"
     },
     "planExpiry": {
-      "title": "Caducidad del plan",
-      "description": "Descartar automáticamente un plan sin confirmar una vez que sea más antiguo que esto, para que un plan obsoleto no pueda aplicarse contra un mundo que ha cambiado. Desactivado de forma predeterminada; el plan debe entonces volver a ejecutarse. (Solo se aplica a ejecuciones con capacidad de apply.)",
       "expireAfter": "Caducar tras"
     },
     "aiSummary": {
       "title": "Resumen de plan por IA",
-      "description": "Resumen de cambios generado automáticamente por LLM, evaluación de riesgos y análisis de fallos en cada resultado de fase de plan para este espacio de trabajo.",
       "mode": "Modo",
       "modeDefault": "Seguir el valor predeterminado del despliegue",
       "modeEnabled": "Resumir siempre",
@@ -2619,7 +2648,6 @@
     },
     "slack": {
       "title": "Notificaciones de Slack",
-      "description": "Active para este espacio de trabajo las notificaciones de ejecución en Slack — solicitudes de aprobación, applies, errores y desviación. Deje el canal vacío y este espacio de trabajo permanecerá en silencio (no hay difusión para todo el despliegue). Requiere que un administrador haya habilitado la app de Slack.",
       "channel": "Canal",
       "channelPlaceholder": "#deploys o un ID de canal (p. ej. C0123ABCD)",
       "notSet": "Sin establecer — en silencio.",
@@ -2694,20 +2722,18 @@
       "vaultFileEncoding": "Codificación",
       "vaultFileEncodingNone": "Tal como está guardado en OpenBao/Vault",
       "vaultFileEncodingBase64": "Decodificar Base64",
-      "vaultFileEncodingHint": "Decodifica el campo antes de escribirlo. El resultado debe ser texto; no se admiten archivos binarios."
+      "vaultFileEncodingHint": "Decodifica el campo antes de escribirlo. El resultado debe ser texto; no se admiten archivos binarios.",
+      "categoryNative": "Nativa",
+      "structured": "Estructurada",
+      "categoryTerraform": "Terraform",
+      "categoryPulumiConfig": "Configuración de Pulumi"
     },
     "runs": {
       "options": "Opciones",
       "hideOptions": "Ocultar opciones",
       "queueDestroy": "Destruir",
-      "queueDestroyTitle": "Poner en cola un plan de destrucción",
       "destroyAllConfirm": "¿Destruir todos los recursos?",
       "confirmDestroy": "Confirmar destrucción",
-      "queuePlan": "Plan",
-      "queueRun": "Plan + apply",
-      "queuePlanConfirm": "¿Poner en cola un plan especulativo para este espacio de trabajo?",
-      "queueApplyConfirm": "¿Poner en cola una ejecución de plan + apply? Esto puede cambiar la infraestructura.",
-      "planOptions": "Opciones del plan",
       "targetResources": "Recursos objetivo",
       "replaceResources": "Reemplazar recursos",
       "commaSeparated": "(separados por comas)",
@@ -2718,7 +2744,6 @@
       "branch": "Rama",
       "tag": "Etiqueta",
       "defaultBranch": "Predeterminada ({branch})",
-      "nonDefaultRefNote": "Referencia no predeterminada seleccionada — la ejecución será solo de plan",
       "empty": "Aún no hay ejecuciones para este espacio de trabajo.",
       "runId": "ID de ejecución",
       "status": "Estado",
@@ -2729,13 +2754,11 @@
       "created": "Creado",
       "needsConfirm": "requiere confirmación",
       "typeDestroy": "destruir",
-      "typePlanOnly": "solo plan",
-      "typePlanApply": "plan + apply",
       "sourceModuleTest": "prueba de módulo",
       "sourceModulePublish": "publicación de módulo",
-      "queueApplyTitle": "Poner en cola una ejecución de plan + apply",
-      "queueApplyRefBlocked": "Apply no está disponible mientras haya una rama, etiqueta o commit seleccionado: esas ejecuciones son siempre solo de plan",
-      "awaitingDecision": "esperando una decisión"
+      "awaitingDecision": "esperando una decisión",
+      "typeSavedPlan": "plan guardado",
+      "typeSavedPlanHint": "Aplicación diferida: esta ejecución no bloquea el espacio de trabajo hasta que se aplique el plan guardado."
     },
     "state": {
       "deleteConfirm": "¿Eliminar la versión de estado n.º {serial}? Esto no se puede deshacer.",
@@ -2752,12 +2775,18 @@
       "runner": "runner",
       "latest": "la más reciente"
     },
+    "stateOutputs": {
+      "title": "Salidas",
+      "fromSerial": "Serie #{serial}",
+      "empty": "Este estado no declara ninguna salida.",
+      "sensitive": "Sensible",
+      "loadFailed": "No se pudieron cargar las salidas de este espacio de trabajo."
+    },
     "configurations": {
       "description": "Archivos de origen subidos para este espacio de trabajo, del más reciente al más antiguo. Elija dos filas para comparar.",
       "selectedCount": "{count}/2 seleccionadas",
       "compare": "Comparar",
       "comparing": "Comparando…",
-      "empty": "Aún no hay versiones de configuración. Aparecen aquí en cuanto un `terraform plan` sube una o un push de VCS activa una ejecución.",
       "id": "ID",
       "source": "Origen",
       "status": "Estado",
@@ -2819,7 +2848,6 @@
     },
     "runTriggers": {
       "title": "Disparadores de ejecución",
-      "description": "Cuando un espacio de trabajo de origen completa un apply, los espacios de trabajo descendentes obtienen automáticamente una nueva ejecución en cola. Hasta 20 espacios de trabajo de origen por destino.",
       "inboundHeading": "Espacios de trabajo de origen que activan ejecuciones aquí",
       "inboundEmpty": "Ningún espacio de trabajo de origen activa ejecuciones en este espacio de trabajo.",
       "pickerPlaceholder": "Buscar espacios de trabajo para añadir como origen…",
@@ -2827,6 +2855,173 @@
       "outboundEmpty": "Este espacio de trabajo no activa ejecuciones en ningún otro espacio de trabajo.",
       "destinationNote": "(destino; quítelo desde allí)",
       "removeConfirm": "¿Quitar este disparador de ejecución?"
+    },
+    "inventory": {
+      "scope": {
+        "heading": "Inventario",
+        "body": "Los hosts y los grupos que contiene este espacio de trabajo, y a qué los resuelve ansible. Cada fila se puede editar aquí; ejecutar un playbook contra ellos todavía no está disponible."
+      },
+      "nav": {
+        "label": "Secciones del inventario",
+        "hosts": "Hosts",
+        "groups": "Grupos",
+        "vars": "Variables",
+        "resolved": "Resuelto",
+        "settings": "Configuración"
+      },
+      "actions": {
+        "save": "Guardar",
+        "saving": "Guardando…",
+        "cancel": "Cancelar",
+        "edit": "Editar",
+        "delete": "Eliminar",
+        "remove": "Quitar",
+        "add": "Añadir",
+        "adding": "Añadiendo…",
+        "rename": "Cambiar el nombre"
+      },
+      "hosts": {
+        "heading": "Hosts",
+        "body": "Una fila por host. Abra un host para editar sus variables y los grupos a los que pertenece.",
+        "empty": "Todavía no hay hosts.",
+        "colName": "Host",
+        "colGroups": "Grupos",
+        "colVars": "Variables",
+        "newLabel": "Nombre del nuevo host",
+        "newPlaceholder": "web-1",
+        "add": "Añadir host",
+        "confirmDelete": "¿Eliminar el host {name}? Sus variables y sus pertenencias a grupos se van con él.",
+        "renameLabel": "Nombre del host"
+      },
+      "groups": {
+        "heading": "Grupos",
+        "body": "Una fila por grupo. Abra un grupo para editar sus variables, los hosts que lo integran y los grupos anidados dentro de él.",
+        "empty": "Todavía no hay grupos.",
+        "colName": "Grupo",
+        "colMembers": "Hosts",
+        "colChildren": "Grupos hijos",
+        "colVars": "Variables",
+        "newLabel": "Nombre del nuevo grupo",
+        "newPlaceholder": "web",
+        "add": "Añadir grupo",
+        "confirmDelete": "¿Eliminar el grupo {name}? Sus variables y sus pertenencias se van con él; los hosts en sí se quedan.",
+        "renameLabel": "Nombre del grupo"
+      },
+      "vars": {
+        "actions": "Acciones",
+        "key": "Clave",
+        "keyPlaceholder": "ansible_user",
+        "value": "Valor",
+        "structured": "Estructurado",
+        "sensitive": "Sensible",
+        "structuredHelp": "Una lista, un número o un objeto es un valor estructurado: marque Estructurado y escriba su código literal en el valor. Un valor sensible nunca se vuelve a leer: el campo muestra una máscara en su lugar.",
+        "structuredBadge": "estructurado",
+        "sensitiveKeep": "Deje esto en blanco para conservar el valor almacenado.",
+        "empty": "Aquí no hay variables.",
+        "add": "Añadir variable",
+        "confirmDelete": "¿Eliminar la variable {key}?"
+      },
+      "hostDetail": {
+        "heading": "Host {name}",
+        "body": "Todo lo que lleva este host.",
+        "back": "Volver a los hosts",
+        "gone": "Ese host ya no existe.",
+        "vars": "Variables del host",
+        "varsBody": "Variables que se aplican solo a este host. Prevalecen sobre una variable de grupo con el mismo nombre.",
+        "memberships": "Grupos",
+        "membershipsBody": "Los grupos a los que pertenece este host. Una pertenencia es un vínculo, así que quitar una aquí deja en su sitio tanto el host como el grupo.",
+        "membershipsEmpty": "Este host no está en ningún grupo, así que ansible lo pone en ungrouped.",
+        "addGroup": "Añadir a un grupo",
+        "addGroupLabel": "Elija un grupo",
+        "removeGroupAria": "Quitar este host de {name}",
+        "confirmRemoveGroup": "¿Sacar este host de {name}?"
+      },
+      "groupDetail": {
+        "heading": "Grupo {name}",
+        "body": "Todo lo que lleva este grupo.",
+        "back": "Volver a los grupos",
+        "gone": "Ese grupo ya no existe.",
+        "vars": "Variables del grupo",
+        "varsBody": "Variables que se aplican a todos los hosts de este grupo, directamente o a través del anidamiento.",
+        "members": "Hosts integrantes",
+        "membersBody": "Los hosts que están en este grupo directamente. Un host al que solo se llega a través de un grupo anidado no aparece aquí.",
+        "membersEmpty": "Ningún host está directamente en este grupo.",
+        "addHost": "Añadir host",
+        "addHostLabel": "Elija un host",
+        "removeHostAria": "Quitar {name} de este grupo",
+        "confirmRemoveHost": "¿Sacar {name} de este grupo?",
+        "children": "Grupos hijos",
+        "childrenBody": "Grupos anidados dentro de este. Sus hosts también son integrantes de este grupo, y las variables de este grupo les llegan.",
+        "childrenEmpty": "No hay grupos anidados dentro de este.",
+        "addChild": "Añadir grupo hijo",
+        "addChildLabel": "Elija un grupo para anidar",
+        "removeChildAria": "Quitar {name} de los hijos de este grupo",
+        "confirmRemoveChild": "¿Dejar de anidar {name} dentro de este grupo?",
+        "parents": "Grupos padres",
+        "parentsBody": "Los grupos dentro de los cuales está anidado este. Un grupo puede tener varios padres.",
+        "parentsEmpty": "Este grupo no está anidado dentro de nada.",
+        "addParent": "Añadir grupo padre",
+        "addParentLabel": "Elija un grupo padre",
+        "removeParentAria": "Quitar este grupo de {name}",
+        "confirmRemoveParent": "¿Dejar de anidar este grupo dentro de {name}?"
+      },
+      "globalVars": {
+        "heading": "Variables del inventario",
+        "body": "Variables que se aplican a todos los hosts: el group_vars/all de ansible. Una variable de grupo o de host con el mismo nombre prevalece sobre una definida aquí."
+      },
+      "resolved": {
+        "heading": "Hosts resueltos",
+        "body": "Lo que ansible hace de las filas: cada host con las variables que acaba llevando, después de la combinación y la precedencia.",
+        "hosts": "Hosts",
+        "groups": "Grupos",
+        "liveNote": "Esto es en vivo. Cada origen aquí es estático, así que la lectura resuelve las filas para responderse a sí misma: no hay nada que actualizar.",
+        "noHosts": "Nada se resolvió a un host.",
+        "noVars": "sin variables",
+        "groupsHeading": "Pertenencia a grupos",
+        "directOnly": "Solo pertenencia directa, exactamente como la informa ansible: un grupo cuyos hosts llegan todos a través de un grupo anidado no lista ninguno propio. El anidamiento está más abajo.",
+        "noGroups": "Ningún grupo resuelto.",
+        "noDirectMembers": "sin hosts directos",
+        "nestingHeading": "Anidamiento de grupos",
+        "nestingBody": "Qué grupos están dentro de cuáles. Un límite sobre un padre alcanza a todos los hosts que están por debajo.",
+        "noNesting": "No hay grupos anidados.",
+        "limitHeading": "¿A qué apuntaría un límite?",
+        "limitBody": "Expanda un patrón ansible --limit contra este inventario y vea exactamente qué hosts selecciona antes de que se ejecute nada. La expansión la hace ansible, así que un grupo, una exclusión y un ~regex se comportan igual que lo harán en tiempo de ejecución.",
+        "limitLabel": "Patrón de límite",
+        "limitPlaceholder": "web:!web-2",
+        "limitApply": "Aplicar límite",
+        "limitClear": "Borrar",
+        "limitApplied": "Limitado a {limit}. Todo lo que hay debajo es a lo que apunta ese patrón."
+      },
+      "settings": {
+        "heading": "Configuración",
+        "body": "Si las filas que se guardan aquí cuentan, y el repositorio del que también se lee un inventario.",
+        "absent": "Sin configuración, que es lo predeterminado: los hosts y los grupos guardados aquí son todo el inventario.",
+        "includePlatform": "Usar los hosts y los grupos guardados aquí",
+        "includePlatformHelp": "Activado por defecto. Desactívelo para resolver solo desde el repositorio, dejando estas filas en su sitio pero fuera de la respuesta.",
+        "included": "sí",
+        "excluded": "no",
+        "vcsConnection": "Conexión VCS",
+        "vcsNone": "Ninguna",
+        "field": {
+          "repo-url": "Repositorio",
+          "branch": "Rama",
+          "working-directory": "Directorio"
+        },
+        "branchHelp": "Déjelo vacío para seguir la rama predeterminada del repositorio.",
+        "ignorePaths": "Rutas ignoradas",
+        "ignorePathsHelp": "Un glob por línea. Todo lo que coincida queda fuera del inventario leído desde el repositorio.",
+        "unset": "sin definir",
+        "create": "Añadir configuración",
+        "clear": "Borrar la configuración",
+        "confirmClear": "¿Borrar esta configuración? El vínculo con el repositorio se va con ella; los hosts y los grupos guardados aquí se quedan."
+      },
+      "errors": {
+        "load": "No se pudo cargar el inventario",
+        "save": "No se pudo guardar",
+        "delete": "No se pudo eliminar",
+        "resolved": "No se pudo resolver el inventario",
+        "settings": "No se pudo guardar la configuración del inventario"
+      }
     },
     "sharing": {
       "title": "Compartición de estado remoto",
@@ -2896,8 +3091,6 @@
       "addVariableStatus": "No se pudo añadir la variable ({status})",
       "deleteVariable": "No se pudo eliminar la variable",
       "updateVariable": "No se pudo actualizar la variable",
-      "queuePlan": "No se pudo poner el plan en cola",
-      "queuePlanStatus": "No se pudo poner el plan en cola ({status})",
       "queueDestroy": "No se pudo poner la destrucción en cola",
       "queueDestroyStatus": "No se pudo poner la destrucción en cola ({status})",
       "createNotification": "No se pudo crear la notificación",
@@ -2914,7 +3107,8 @@
       "uploadState": "No se pudo subir el estado",
       "uploadStateFile": "No se pudo subir el archivo de estado",
       "updateSecurityScan": "No se pudo actualizar el análisis de seguridad",
-      "updateDebugMode": "No se pudo actualizar el modo de depuración"
+      "updateDebugMode": "No se pudo actualizar el modo de depuración",
+      "updateForkPlans": "No se pudieron actualizar los planes de pull requests desde forks"
     },
     "subtabs": {
       "state": "Estado",
@@ -2967,6 +3161,14 @@
       "bannerTitle": "El modo de depuración está activado para este espacio de trabajo",
       "bannerBody": "El pod de una ejecución fallida se mantiene abierto para su inspección en lugar de terminar, y mientras tanto conserva las credenciales y las variables descifradas de este espacio de trabajo. Desactiva el modo de depuración cuando termines de diagnosticar.",
       "confirmEnable": "¿Activar el modo de depuración? El pod de una ejecución fallida se mantendrá abierto con las credenciales y las variables descifradas de este espacio de trabajo hasta que expire la ventana o elimines el pod."
+    },
+    "allowForkPrPlans": {
+      "title": "Planes en pull requests desde forks",
+      "description": "Si una pull request abierta desde un fork recibe un plan especulativo. Desactivado de forma predeterminada, porque ese plan ejecuta el código del autor del fork con las credenciales de este espacio de trabajo.",
+      "label": "Ejecutar planes en pull requests desde forks",
+      "hint": "Una ejecución recibe las variables de entorno de este espacio de trabajo, los valores sensibles, cualquier secreto resuelto con Vault y la identidad en la nube del job. Quien abre una pull request desde un fork no tiene acceso de escritura ni puede fusionar, así que un plan especulativo es la única vía por la que su código llega a esas credenciales. Actívalo en un espacio de trabajo que no guarde nada que merezca la pena robar: un repositorio público de módulos que acepta contribuciones de la comunidad, por ejemplo. Las pull requests desde ramas del propio repositorio no se ven afectadas y siempre se planifican.",
+      "activeBadge": "Activado",
+      "confirmEnable": "¿Ejecutar planes en las pull requests abiertas desde forks? El código de sus autores se ejecutará con las credenciales y las variables descifradas de este espacio de trabajo, sin que nadie lo apruebe antes."
     }
   },
   "graphs": {
@@ -3189,11 +3391,14 @@
     "unknown": "desconocido",
     "confirm": {
       "prompt": "¿Vincular esta cuenta de Slack a <em>su</em> identidad de Terrapod? Cada acción futura de Slack (aprobar/descartar) se ejecutará como este usuario de Terrapod con sus permisos.",
+      "slackName": "Cuenta de Slack",
       "slackUser": "Usuario de Slack",
       "slackTeam": "Equipo de Slack",
       "terrapodAccount": "Cuenta de Terrapod",
       "warning": "Continúe solo si acaba de iniciar este vínculo desde Slack usted mismo. Si no lo hizo, cierre esta pestaña y no vincule — esto vincula la cuenta de Slack de arriba a <em>su</em> identidad de Terrapod.",
-      "button": "Confirmar y vincular"
+      "button": "Confirmar y vincular",
+      "namesUnavailable": "Terrapod no pudo obtener el nombre de esta cuenta de Slack. Comprueba los identificadores de arriba y continúa solo si iniciaste este enlace desde Slack tú mismo.",
+      "nameIsSelfChosen": "El identificador es único en el espacio de Slack; el nombre visible que aparece debajo lo elige su propietario, así que fíjate en el identificador."
     },
     "success": {
       "message": "Su cuenta de Slack ya está vinculada a Terrapod.",
@@ -3416,7 +3621,77 @@
       },
       "status": {
         "planning": "Planificando",
-        "applying": "Aplicando"
+        "applying": "Aplicando",
+        "planned": "Planificado",
+        "applied": "Aplicado"
+      },
+      "words": {
+        "actionConfirmFull": "Confirmar y aplicar",
+        "actionConfirmShort": "Aplicar",
+        "activityApplied": "Apply completado",
+        "activityConfirmed": "Iniciando apply",
+        "activityDiscarded": "Plan descartado",
+        "activityPlannedComplete": "Plan completado",
+        "activityPlannedConfirmable": "Esperando a que confirme y aplique",
+        "activityPlannedSpeculative": "Plan especulativo completado",
+        "aiPolicyOverrideConfirm": "¿Anular la puerta de política de IA y permitir que esta ejecución se aplique a pesar del veredicto?",
+        "aiSummaryDescription": "Resumen de cambios generado automáticamente por LLM, evaluación de riesgos y análisis de fallos en cada resultado de fase de plan para este espacio de trabajo.",
+        "aiSummaryTitle": "Resumen de plan por IA",
+        "badgePlanOnly": "solo plan",
+        "bannerPlanOnlyCli": "Esta es una ejecución <strong>solo de plan</strong> iniciada desde la CLI en un espacio de trabajo conectado a VCS. Apply no está disponible para código subido desde la CLI — solo se puede aplicar código gestionado por VCS.",
+        "changesPlanning": "Planificando…",
+        "configurationsEmpty": "Aún no hay versiones de configuración. Aparecen aquí en cuanto un `terraform plan` sube una o un push de VCS activa una ejecución.",
+        "confirmApply": "¿Aplicar esta ejecución? Esto aplica el plan y cambia la infraestructura.",
+        "confirmDiscard": "¿Descartar este plan?",
+        "costNoState": "Aún sin coste — aparece tras la primera aplicación.",
+        "detailsPlanOnly": "Solo plan",
+        "discardedHeading": "Descartado — se requiere volver a planificar",
+        "driftCheckNowTitle": "Poner en cola una ejecución solo de plan para comprobar la desviación",
+        "driftRemediate": "Plan + apply",
+        "driftRemediateConfirm": "¿Poner en cola una ejecución plan + apply para este espacio de trabajo?",
+        "driftRemediateTitle": "Poner en cola una ejecución plan + apply para volver a alinear la infraestructura con la configuración",
+        "errorsQueuePlan": "No se pudo poner el plan en cola",
+        "errorsQueuePlanStatus": "No se pudo poner el plan en cola ({status})",
+        "fieldsAutoMerge": "Fusionar automáticamente tras apply",
+        "formAutoApplyModeHint": "never: esperar siempre a una persona. always: aplicar todos los planes correctos. create / create/update: aplicar solo los planes limitados a esas acciones — nunca una destrucción ni un reemplazo.",
+        "lockLockedDesc": "Este espacio de trabajo está bloqueado. No se pueden ejecutar planes ni applies.",
+        "logApplyEmpty": "Aún no hay salida del apply disponible.",
+        "logApplySkipped": "No se ejecutó ninguna aplicación: el plan no tenía cambios, así que no había nada que aplicar.",
+        "logIndexSummary": "Resumen del plan",
+        "logIndexTitle": "Ir a un cambio de recurso o al resumen del plan",
+        "logPlanEmpty": "Aún no hay salida del plan disponible.",
+        "nonDefaultRefNote": "Referencia no predeterminada seleccionada — la ejecución será solo de plan",
+        "planExpiryDescription": "Descartar automáticamente un plan sin confirmar una vez que sea más antiguo que esto, para que un plan obsoleto no pueda aplicarse contra un mundo que ha cambiado. Desactivado de forma predeterminada; el plan debe entonces volver a ejecutarse. (Solo se aplica a ejecuciones con capacidad de apply.)",
+        "planExpiryTitle": "Caducidad del plan",
+        "planOptions": "Opciones del plan",
+        "planSummaryChatPlaceholder": "Haga una pregunta de seguimiento sobre este plan… (⌘/Ctrl + Enter para enviar)",
+        "planSummaryHeading": "Resumen del plan",
+        "planSummaryNoChangesTitle": "El plan no reportó cambios de recursos",
+        "planSummaryRegenerateTooltip": "Volver a ejecutar el resumen de IA con las mismas entradas del plan",
+        "planSummarySummarising": "Resumiendo el plan…",
+        "policyBlockedMessage": "Esta ejecución está <strong>bloqueada por un conjunto de políticas obligatorio</strong>. No se aplicará hasta que se resuelva el fallo o un administrador lo anule.",
+        "queueApplyConfirm": "¿Poner en cola una ejecución de plan + apply? Esto puede cambiar la infraestructura.",
+        "queueApplyRefBlocked": "Apply no está disponible mientras haya una rama, etiqueta o commit seleccionado: esas ejecuciones son siempre solo de plan",
+        "queueApplyTitle": "Poner en cola una ejecución de plan + apply",
+        "queueDestroyTitle": "Poner en cola un plan de destrucción",
+        "queuePlan": "Plan",
+        "queuePlanConfirm": "¿Poner en cola un plan especulativo para este espacio de trabajo?",
+        "queueRun": "Plan + apply",
+        "replacePlaceholder": "e.g. aws_instance.web",
+        "runTriggersDescription": "Cuando un espacio de trabajo de origen completa un apply, los espacios de trabajo descendentes obtienen automáticamente una nueva ejecución en cola. Hasta 20 espacios de trabajo de origen por destino.",
+        "tabApplyFull": "Registro del apply",
+        "tabApplyLabel": "Apply<log>Registro</log>",
+        "tabPlanFull": "Registro del plan",
+        "tabPlanLabel": "Plan<log>Registro</log>",
+        "targetPlaceholder": "e.g. aws_instance.web, aws_s3_bucket.data",
+        "timelineApplied": "Aplicado",
+        "timelineApplyingStarted": "Aplicación iniciada",
+        "timelinePlanComplete": "Plan completado",
+        "timelinePlanningStarted": "Planificación iniciada",
+        "typePlanApply": "plan + apply",
+        "vcsWorkflowWarningRbac": "Cualquiera que pueda fusionar el PR puede aplicar. Las reglas de protección de rama (revisiones obligatorias, comprobaciones de estado, aprobación del propietario del código) se convierten en la barrera. El RBAC de roles/etiquetas de Terrapod<em>no</em> se aplica a las acciones impulsadas por comentarios en este modo.",
+        "vcsWorkflowWarningRecommended": "<strong>Recomendado:</strong> exija un historial lineal (rebase/squash antes de fusionar) para que el commit que aplica sea el commit que llega.",
+        "slackDescription": "Active para este espacio de trabajo las notificaciones de ejecución en Slack — solicitudes de aprobación, applies, errores y desviación. Deje el canal vacío y este espacio de trabajo permanecerá en silencio (no hay difusión para todo el despliegue). Requiere que un administrador haya habilitado la app de Slack."
       }
     },
     "pulumi": {
@@ -3425,14 +3700,84 @@
         "applying": "Ejecutando pulumi up"
       },
       "runStatus": {
-        "planning": "Previewificando",
-        "planned": "Previewificado",
-        "applying": "Aplicando",
-        "applied": "Aplicado"
+        "planning": "Generando preview",
+        "planned": "Preview generado",
+        "applying": "Actualizando",
+        "applied": "Actualizado"
       },
       "status": {
-        "planning": "Previewificando",
-        "applying": "Aplicando"
+        "planning": "Generando preview",
+        "applying": "Actualizando",
+        "planned": "Preview generado",
+        "applied": "Actualizado"
+      },
+      "words": {
+        "actionConfirmFull": "Confirmar y actualizar",
+        "actionConfirmShort": "Actualizar",
+        "activityApplied": "Update completado",
+        "activityConfirmed": "Iniciando update",
+        "activityDiscarded": "Preview descartado",
+        "activityPlannedComplete": "Preview completado",
+        "activityPlannedConfirmable": "Esperando a que confirme y actualice",
+        "activityPlannedSpeculative": "Preview especulativo completado",
+        "aiPolicyOverrideConfirm": "¿Anular la puerta de política de IA y permitir que esta ejecución actualice a pesar del veredicto?",
+        "aiSummaryDescription": "Resumen de cambios generado automáticamente por LLM, evaluación de riesgos y análisis de fallos en cada resultado de fase de preview para este espacio de trabajo.",
+        "aiSummaryTitle": "Resumen de preview por IA",
+        "badgePlanOnly": "solo preview",
+        "bannerPlanOnlyCli": "Esta es una ejecución <strong>solo de preview</strong> iniciada desde la CLI en un espacio de trabajo conectado a VCS. Update no está disponible para código subido desde la CLI — solo se puede actualizar código gestionado por VCS.",
+        "changesPlanning": "Generando preview…",
+        "configurationsEmpty": "Aún no hay versiones de configuración. Aparecen aquí en cuanto un push de VCS activa una ejecución.",
+        "confirmApply": "¿Actualizar esta ejecución? Esto ejecuta el preview y cambia la infraestructura.",
+        "confirmDiscard": "¿Descartar este preview?",
+        "costNoState": "Aún sin coste — aparece tras la primera actualización.",
+        "detailsPlanOnly": "Solo preview",
+        "discardedHeading": "Descartado — se requiere un nuevo preview",
+        "driftCheckNowTitle": "Poner en cola una ejecución solo de preview para comprobar la desviación",
+        "driftRemediate": "Preview + update",
+        "driftRemediateConfirm": "¿Poner en cola una ejecución preview + update para este espacio de trabajo?",
+        "driftRemediateTitle": "Poner en cola una ejecución preview + update para volver a alinear la infraestructura con la configuración",
+        "errorsQueuePlan": "No se pudo poner el preview en cola",
+        "errorsQueuePlanStatus": "No se pudo poner el preview en cola ({status})",
+        "fieldsAutoMerge": "Fusionar automáticamente tras update",
+        "formAutoApplyModeHint": "never: esperar siempre a una persona. always: actualizar con cada preview correcto. create / create/update: actualizar solo a partir de previews limitados a esas acciones — nunca una destrucción ni un reemplazo.",
+        "lockLockedDesc": "Este espacio de trabajo está bloqueado. No se pueden ejecutar previews ni updates.",
+        "logApplyEmpty": "Aún no hay salida del update disponible.",
+        "logApplySkipped": "No se ejecutó ninguna actualización: el preview no tenía cambios, así que no había nada que actualizar.",
+        "logIndexSummary": "Resumen del preview",
+        "logIndexTitle": "Ir a un cambio de recurso o al resumen del preview",
+        "logPlanEmpty": "Aún no hay salida del preview disponible.",
+        "nonDefaultRefNote": "Referencia no predeterminada seleccionada — la ejecución será solo de preview",
+        "planExpiryDescription": "Descartar automáticamente un preview sin confirmar una vez que sea más antiguo que esto, para que un preview obsoleto no pueda ejecutarse contra un mundo que ha cambiado. Desactivado de forma predeterminada; el preview debe entonces volver a ejecutarse. (Solo se aplica a ejecuciones con capacidad de update.)",
+        "planExpiryTitle": "Caducidad del preview",
+        "planOptions": "Opciones del preview",
+        "planSummaryChatPlaceholder": "Haga una pregunta de seguimiento sobre este preview… (⌘/Ctrl + Enter para enviar)",
+        "planSummaryHeading": "Resumen del preview",
+        "planSummaryNoChangesTitle": "El preview no reportó cambios de recursos",
+        "planSummaryRegenerateTooltip": "Volver a ejecutar el resumen de IA con las mismas entradas del preview",
+        "planSummarySummarising": "Resumiendo el preview…",
+        "policyBlockedMessage": "Esta ejecución está <strong>bloqueada por un conjunto de políticas obligatorio</strong>. No se actualizará hasta que se resuelva el fallo o un administrador lo anule.",
+        "queueApplyConfirm": "¿Poner en cola una ejecución de preview + update? Esto puede cambiar la infraestructura.",
+        "queueApplyRefBlocked": "Update no está disponible mientras haya una rama, etiqueta o commit seleccionado: esas ejecuciones son siempre solo de preview",
+        "queueApplyTitle": "Poner en cola una ejecución de preview + update",
+        "queueDestroyTitle": "Poner en cola un preview de destrucción",
+        "queuePlan": "Preview",
+        "queuePlanConfirm": "¿Poner en cola un preview especulativo para este espacio de trabajo?",
+        "queueRun": "Preview + update",
+        "replacePlaceholder": "e.g. urn:pulumi:dev::shop::aws:ec2/instance:Instance::web",
+        "runTriggersDescription": "Cuando un espacio de trabajo de origen completa un update, los espacios de trabajo descendentes obtienen automáticamente una nueva ejecución en cola. Hasta 20 espacios de trabajo de origen por destino.",
+        "tabApplyFull": "Registro del update",
+        "tabApplyLabel": "Update<log>Registro</log>",
+        "tabPlanFull": "Registro del preview",
+        "tabPlanLabel": "Preview<log>Registro</log>",
+        "targetPlaceholder": "e.g. urn:pulumi:dev::shop::aws:s3/bucket:Bucket::assets",
+        "timelineApplied": "Actualizado",
+        "timelineApplyingStarted": "Actualización iniciada",
+        "timelinePlanComplete": "Preview completado",
+        "timelinePlanningStarted": "Preview iniciado",
+        "typePlanApply": "preview + update",
+        "vcsWorkflowWarningRbac": "Cualquiera que pueda fusionar el PR puede actualizar. Las reglas de protección de rama (revisiones obligatorias, comprobaciones de estado, aprobación del propietario del código) se convierten en la barrera. El RBAC de roles/etiquetas de Terrapod<em>no</em> se aplica a las acciones impulsadas por comentarios en este modo.",
+        "vcsWorkflowWarningRecommended": "<strong>Recomendado:</strong> exija un historial lineal (rebase/squash antes de fusionar) para que el commit desde el que actualiza sea el commit que llega.",
+        "slackDescription": "Active para este espacio de trabajo las notificaciones de ejecución en Slack — solicitudes de aprobación, updates, errores y desviación. Deje el canal vacío y este espacio de trabajo permanecerá en silencio (no hay difusión para todo el despliegue). Requiere que un administrador haya habilitado la app de Slack."
       }
     }
   },

@@ -17,14 +17,17 @@ import sqlalchemy as sa
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    CheckConstraint,
     DateTime,
     Float,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
+    or_,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -151,6 +154,15 @@ class RoleAssignment(Base):
     role_name: Mapped[str] = mapped_column(
         String(63), ForeignKey("roles.name", ondelete="CASCADE"), primary_key=True
     )
+    # Optionally pins this assignment to one IdP SUBJECT. The subject is the stable
+    # half of an identity: it survives the user changing their email, and an
+    # attacker who acquires the address cannot acquire it. NULL means the
+    # assignment matches on (provider, email) as it always has -- which is what an
+    # operator can actually type, since a `sub` is opaque. Set, it matches ONLY
+    # that subject, so an email takeover at the same provider inherits nothing.
+    # A restriction on an existing grant rather than a new kind of row, which is
+    # why it is not part of the primary key (GHSA-3m8x-ff8g-7x8c).
+    subject: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=now_utc, nullable=False
     )
@@ -168,6 +180,15 @@ class PlatformRoleAssignment(Base):
     provider_name: Mapped[str] = mapped_column(String(63), primary_key=True)
     email: Mapped[str] = mapped_column(String(255), primary_key=True)
     role_name: Mapped[str] = mapped_column(String(63), primary_key=True)
+    # Optionally pins this assignment to one IdP SUBJECT. The subject is the stable
+    # half of an identity: it survives the user changing their email, and an
+    # attacker who acquires the address cannot acquire it. NULL means the
+    # assignment matches on (provider, email) as it always has -- which is what an
+    # operator can actually type, since a `sub` is opaque. Set, it matches ONLY
+    # that subject, so an email takeover at the same provider inherits nothing.
+    # A restriction on an existing grant rather than a new kind of row, which is
+    # why it is not part of the primary key (GHSA-3m8x-ff8g-7x8c).
+    subject: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=now_utc, nullable=False
     )
@@ -197,6 +218,19 @@ class APIToken(Base):
     bound_to: Mapped[str | None] = mapped_column(String(255), nullable=True)
     # The minter (audit). Always set, even for detached (its only creator record).
     created_by: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    # The IdP the owning identity authenticated with, matching
+    # `RoleAssignment.provider_name` / `PlatformRoleAssignment.provider_name`.
+    # Both assignment tables are keyed (provider, email), but token role
+    # resolution used to query on email alone, so a token minted after a login at
+    # a weak provider inherited every role assigned to that address under ANY
+    # provider, up to platform admin (GHSA-3m8x-ff8g-7x8c). Resolution now joins
+    # on this too. NULL means the token predates the column: it resolves to no
+    # roles rather than to all of them, because guessing a provider is how the
+    # original hole worked.
+    identity_provider: Mapped[str | None] = mapped_column(String(63), nullable=True)
+    # The IdP subject of the owning identity, where it was known at mint time. Lets a
+    # subject-pinned role assignment be matched for a token, not only a session.
+    identity_subject: Mapped[str | None] = mapped_column(String(255), nullable=True)
     # Token's own pinned role set (service tokens). Resolved through label-RBAC.
     pinned_roles: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
     # Legacy TFE-shaped field, superseded by `kind`. Retained (unread) for
@@ -308,7 +342,21 @@ class Workspace(Base):
     #: The version of whichever engine `execution_backend` names (#1559).
     #: Partial versions resolve to the newest matching release; empty means the
     #: deployment's default for that engine.
-    engine_version: Mapped[str] = mapped_column(String(20), nullable=False, default="1.12")
+    engine_version: Mapped[str] = mapped_column(String(20), nullable=False, default="1.13")
+    #: ansible-core for this workspace's configure operations (#2010). A default
+    #: overrideable per workspace, following `engine_version` above in every
+    #: respect -- including that a bump to the deployment default moves only the
+    #: server_default, never existing rows (see `3214ad466305`).
+    #:
+    #: That consistency is deliberate, and it is also the safer shape. An
+    #: ansible-core minor changes behaviour as well as fixing bugs --
+    #: deprecations, module changes, collection compatibility -- so a
+    #: `helm upgrade` must not silently move an existing workspace onto one.
+    #: Moving a fleet is a deliberate act, and bulk update is how.
+    #:
+    #: Empty still resolves to the deployment default, for a row that predates
+    #: this column -- a restore from an older snapshot, say.
+    ansible_version: Mapped[str] = mapped_column(String(20), nullable=False, default="2.21.5")
     # Terragrunt single-unit support (#534): when enabled the runner invokes
     # `terragrunt` wrapping the tofu/terraform binary (via TG_TF_PATH). Version
     # is partial (e.g. "0.67"), resolved via the binary cache like
@@ -365,6 +413,34 @@ class Workspace(Base):
     #: is itself a per-workspace setting — so resizing a runner would otherwise
     #: silently change concurrency, with nothing in the configuration saying so.
     parallelism: Mapped[int] = mapped_column(Integer, nullable=False, default=10)
+    # Per-workspace cloud identity (#1901). **The workspace's OVERRIDE**, merged
+    # over the deployment catalogue in `api.config.auth.oidc_issuer.audiences` —
+    # see `services/cloud_identity_resolver.py`. Keyed on the provider name as
+    # the configuration writes it, optionally with an alias
+    # (`aws`, `vault`, `vault.eu`), each value the audiences for that one target.
+    #
+    # A map rather than a flat list because **one token is minted per target,
+    # each carrying only that target's audience**: a token audienced for two
+    # targets is replayable between them, and AWS refuses a multi-valued `aud`
+    # outright (its `aud` condition key maps to `azp` when present, and the real
+    # claim is exposed as `oaud`). A list *within* one entry is the deliberate
+    # "these are interchangeable" statement, which is safe for a Vault-like
+    # consumer whose `bound_audiences` intersects and unsafe for AWS — Terrapod
+    # cannot tell which, so the docs say one audience per entry is the norm.
+    #
+    # Empty here does NOT mean "mints nothing": the catalogue still applies.
+    # A workspace mints nothing only when the resolved merge is empty, in which
+    # case its runs authenticate with the agent pool's own ServiceAccount
+    # exactly as before — the permanent fall-through, not a degraded state.
+    #
+    # Nothing cloud-specific lives here on purpose. The audience is the one value
+    # every federation target names for itself (`sts.amazonaws.com`,
+    # `api://AzureADTokenExchange`, whatever a Vault role's `bound_audiences`
+    # says), and which provider maps to which audience is entirely the
+    # operator's — Terrapod assumes none of it.
+    oidc_audiences: Mapped[dict[str, list[str]]] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default="{}"
+    )
 
     # RBAC
     labels: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
@@ -420,6 +496,36 @@ class Workspace(Base):
     #   the user drives apply via PR comments.
     vcs_workflow: Mapped[str] = mapped_column(
         String(20), nullable=False, server_default="merge_then_apply", default="merge_then_apply"
+    )
+
+    # Whether a pull request opened from a FORK may trigger a speculative plan.
+    #
+    # OFF by default (GHSA-gp5w-76rw-c452). The control itself shipped in v1.7.7
+    # and v1.8.2 defaulting ON, because a patch must not stop a fork pull request
+    # that plans today; v1.9.0 flips the default for NEW rows and deliberately does
+    # not rewrite existing ones, so an operator upgrading audits rather than being
+    # surprised. A plan executes the PR
+    # author's code — provider configuration, `external` data sources,
+    # `local-exec` — with everything the run receives: env-category secrets,
+    # sensitive variables, Vault-resolved values, minted git credentials and the
+    # Job's cloud workload identity. There is no meaningful subset to hand it
+    # instead, because a plan needs the credentials to refresh state and the
+    # variables to evaluate the config at all.
+    #
+    # For a same-repository PR that is fine and is the entire point of the
+    # product: the author already has write access, can already get code
+    # applied by merging, and plan-on-PR is the safety property Terrapod
+    # exists to provide. Gating them would ask a reviewer to merge blind.
+    #
+    # A fork author is outside that boundary. They have no write access and
+    # cannot merge, so a speculative plan is the only path by which their code
+    # ever runs against these credentials. An operator who genuinely wants fork
+    # PRs planned — a public module repository taking community contributions,
+    # with a workspace holding nothing worth stealing — turns it on here, the
+    # same shape as naming a loopback destination in
+    # `outbound_requests.allowed_hosts`.
+    allow_fork_pr_plans: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false", default=False
     )
 
     # Auto-merge after apply succeeds. Available in both modes; primary use is
@@ -645,6 +751,14 @@ class StateVersion(Base):
     md5: Mapped[str] = mapped_column(String(32), nullable=False, default="")
     sha256: Mapped[str] = mapped_column(String(64), nullable=False, default="", server_default="")
     state_size: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    #: How many resources this version records, when the writer counted them
+    #: (#1568). NULL means "not counted", which is every version written before
+    #: this existed and every Terraform one — distinct from a genuine zero, so
+    #: `pulumi stack ls` can say nothing rather than claim an empty stack.
+    #:
+    #: Stored rather than derived because the alternative is decrypting and
+    #: parsing every stack's whole deployment to print one number in a list.
+    resource_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     run_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("runs.id", ondelete="SET NULL"),
@@ -1245,6 +1359,51 @@ class CachedPackageFile(Base):
 # --- Certificate Authority ---
 
 
+class OIDCSigningKey(Base):
+    """An RSA keypair Terrapod signs run identity tokens with (#1901).
+
+    Several rows, not one: a published trust root cannot be swapped atomically,
+    because the clouds fetch the JWKS on their own schedule and cache it. So a
+    rotation adds a key, waits for it to propagate, and only then starts signing
+    with it — which means more than one key is live at a time and the JWKS is a
+    set rather than a single entry.
+
+    Three timestamps say which is which:
+
+    * `activates_at` — the earliest this key may SIGN. A freshly rotated key is
+      published immediately and signs only once the propagation window passes,
+      so no token is ever signed with a key the clouds have not had a chance to
+      see. The signing key is the newest activated, unretired row.
+    * `retired_at` — the moment it stopped signing. It stays in the JWKS for the
+      grace window afterwards, because tokens it already signed are still valid.
+    * `created_at` — ordering, and nothing else.
+
+    An operator-supplied key (BYO) is never stored here at all: it wins on every
+    startup and rotating it is something the operator does to their own secret.
+    """
+
+    __tablename__ = "oidc_signing_keys"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=generate_uuid7
+    )
+    #: RFC 7638 JWK thumbprint. Derived from the key itself rather than assigned,
+    #: so it is stable, collision-free, and computed the same way for a generated
+    #: key and an operator's own.
+    kid: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
+    #: PKCS8 PEM. EncryptedText for the same reason as the CA key (#553) — this
+    #: is the private half of a published trust root, so whoever holds it can
+    #: mint an identity for any workspace in the deployment.
+    private_key_pem: Mapped[str] = mapped_column(EncryptedText, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=now_utc
+    )
+    activates_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=now_utc
+    )
+    retired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class CertificateAuthorityModel(Base):
     """CA certificate and key, persisted for cross-restart identity.
 
@@ -1262,6 +1421,50 @@ class CertificateAuthorityModel(Base):
     # it is plaintext and at-rest protection comes from the database's own
     # encryption (RDS/Azure/GCS-managed). The DB column is still TEXT either way.
     ca_key_pem: Mapped[str] = mapped_column(EncryptedText, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, nullable=False
+    )
+
+
+class TokenSigningKey(Base):
+    """The HMAC key for stateless tokens, persisted so every replica agrees.
+
+    Signs four stateless token families — runner tokens, run-task callback
+    tokens, download tickets and Slack link tokens. Created on first startup by
+    `init_token_signing_key()`, exactly as `init_ca()` creates the CA row, and
+    for the same reason: the application owns the key so no rendered manifest
+    has to contain a random value (GHSA-hc47-q72v-4vcm).
+
+    **An operator-supplied key is NOT stored here.** `token_signing_key`
+    (Helm: `api.tokenSigningKey`) wins on every startup and this table is not
+    even read, so bring-your-own stays authoritative and a rotation of the
+    operator's own Secret takes effect. Storing it would make the first value
+    win for ever and silently ignore every later change.
+
+    **Newest row wins**, mirroring the CA's read, so a future rotation can add
+    a row without a schema change. Rotation is deliberately NOT implemented:
+    nothing accepts a previous key, so adding a row today invalidates every
+    token in flight.
+    """
+
+    __tablename__ = "token_signing_keys"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=generate_uuid7
+    )
+    #: The derived 32-byte HMAC key, hex-encoded. Stored via EncryptedText
+    #: (#553) like the CA private key: envelope-encrypted when app-layer
+    #: encryption at rest is on, otherwise plaintext with the database's own
+    #: at-rest protection. The column is TEXT either way.
+    key: Mapped[str] = mapped_column(EncryptedText, nullable=False)
+    #: Where the key came from — "generated" (32 random bytes, strong by
+    #: construction) or "database-url" (adopted from the pre-2.0
+    #: sha256(database_url) derivation to keep in-flight tokens valid across
+    #: the upgrade). Load-bearing, not bookkeeping: without it a stored key is
+    #: an opaque blob and the weakness the adoption carries forward becomes
+    #: invisible, which would silently close GHSA-hc47-q72v-4vcm rather than
+    #: fix it.
+    provenance: Mapped[str] = mapped_column(String(32), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=now_utc, nullable=False
     )
@@ -1334,6 +1537,24 @@ class VCSConnection(Base):
     # encryption envelope never overflows it. App-encrypted at rest when enabled.
     webhook_secret: Mapped[str | None] = mapped_column(EncryptedText, nullable=True)
 
+    # GHSA-v8g7-pqrj-8mcm. A connection reaches every repository its credential
+    # can reach, and its id is serialised to anyone with read on a workspace using
+    # it — so the id is discoverable by design and naming one is a grant, not a
+    # reference. v1.8.2 closed the worst of it by requiring the caller to already
+    # own a workspace on the connection, which has a deliberate consequence: the
+    # FIRST workspace on a connection has to be created by an admin. These two
+    # columns are the general answer, so a connection can be delegated to a team
+    # the same way every other labelled resource is.
+    owner_email: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    labels: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+
+    # The residual hole after per-connection RBAC: an entitled caller could still
+    # point the connection at ANY repository its credential can read. A non-empty
+    # list restricts it to these patterns (fnmatch against the repo URL and against
+    # `owner/name`); empty keeps today's behaviour of any reachable repository, so
+    # an existing deployment is unchanged until an operator narrows it.
+    allowed_repositories: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, default="active"
     )  # active, suspended, removed
@@ -1346,8 +1567,26 @@ class VCSConnection(Base):
     )
 
     __table_args__ = (
-        sa.UniqueConstraint(
-            "provider", "github_installation_id", name="uq_vcs_connections_install"
+        # One GitHub App installation, one connection — connecting the same
+        # installation twice would mean two credentials over the same
+        # repositories with no way to tell which a workspace is using.
+        #
+        # **Scoped to GitHub, and that is the whole point.** This was a blanket
+        # `UniqueConstraint("provider", "github_installation_id")` from the
+        # initial schema, and `github_installation_id` is `0` on every GitLab
+        # row — the column has no meaning there. So the pair `("gitlab", 0)`
+        # collided with itself and **a deployment could never hold more than
+        # one GitLab connection**, which the create route reported as a bare
+        # 409 "already exists" naming nothing. Nobody met it because nothing
+        # created two, and it made the documented remedy for a saturated GitLab
+        # token — give a busy repository its own connection, since the
+        # allowance is per token — impossible to follow.
+        sa.Index(
+            "uq_vcs_connections_install",
+            "provider",
+            "github_installation_id",
+            unique=True,
+            postgresql_where=sa.text("provider = 'github'"),
         ),
     )
 
@@ -1419,13 +1658,26 @@ class AutodiscoveryRule(Base):
         nullable=True,
     )
     execution_backend: Mapped[str] = mapped_column(String(20), nullable=False, default="tofu")
-    engine_version: Mapped[str] = mapped_column(String(50), nullable=False, default="1.12")
+    engine_version: Mapped[str] = mapped_column(String(50), nullable=False, default="1.13")
+    #: Template for a materialised workspace's ansible-core version (#2010),
+    #: following `engine_version` above -- including the literal default, which
+    #: mirrors `api.config.default_ansible_version` and moves with it, exactly
+    #: as this column's `engine_version` sibling mirrors
+    #: `default_terraform_version`.
+    ansible_version: Mapped[str] = mapped_column(String(20), nullable=False, default="2.21.5")
     resource_cpu: Mapped[str] = mapped_column(String(20), nullable=False, default="1")
     resource_memory: Mapped[str] = mapped_column(String(20), nullable=False, default="2Gi")
     #: Templated onto workspaces this rule materialises (#1431), alongside the
     #: resources above — a monorepo's directories are rarely uniform in weight, so
     #: a rule that can size the runner should be able to say how hard to drive it.
     parallelism: Mapped[int] = mapped_column(Integer, nullable=False, default=10)
+    # Templated onto workspaces this rule materialises (#1901). Same override
+    # shape as `Workspace.oidc_audiences` — provider name (optionally
+    # `provider.alias`) to that target's audiences — and merged over the
+    # deployment catalogue the same way once materialised.
+    oidc_audiences: Mapped[dict[str, list[str]]] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default="{}"
+    )
     auto_apply: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     # Templated onto workspaces this rule materialises (#1274).
     auto_apply_mode: Mapped[str] = mapped_column(String(20), nullable=False, default="never")
@@ -1519,6 +1771,15 @@ class AutodiscoveryRule(Base):
         String(128), nullable=False, default="", server_default=""
     )
     debug_mode: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    #: Defaults FALSE, matching the workspace column rather than overriding it
+    #: like `drift_detection_enabled` above. An operator who decides fork PRs
+    #: should plan has to say so, and a rule is how they say it once for every
+    #: directory the repository grows later -- otherwise enabling it in bulk
+    #: holds only until autodiscovery creates the next workspace, which looks
+    #: exactly like the setting not working.
+    allow_fork_pr_plans: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
     # #314 deletion lifecycle: what to do when a discovered directory is
@@ -1742,12 +2003,18 @@ class ModuleAutodiscoveryRepository(Base):
 
 
 class PRSession(Base):
-    """Conversation state for one PR/MR in apply-then-merge mode (#282).
+    """Conversation state for one PR/MR (#282).
 
-    Tracks the edit-in-place status comment, the current head SHA, the
-    poll cursors for comments/reviews, and the lifecycle state of the PR.
-    One row per (connection, repo, pr_number). Created lazily when the
-    first apply-then-merge workspace plans against the PR.
+    Tracks the edit-in-place status comment, the current head SHA, the poll
+    cursors for comments/reviews, the lifecycle state of the PR, and the commit
+    it merged as. One row per (connection, repo, pr_number).
+
+    Created lazily by the poller the first time a workspace gets a run for the
+    PR, in **either** workflow mode. The mode does not gate it, and that is
+    deliberate: without a session there is no trigger, so a `merge_then_apply`
+    PR got no status comment at all. This docstring said "apply-then-merge
+    mode" long after that was fixed, and #1878 was written from it — a
+    reminder that a stale docstring is read as the specification.
     """
 
     __tablename__ = "pr_sessions"
@@ -1783,6 +2050,19 @@ class PRSession(Base):
     # historical audit but don't dispatch commands.
     state: Mapped[str] = mapped_column(String(20), nullable=False, default="open")
 
+    # The commit this PR merged as, once the poller has asked the provider
+    # (#1878). It is what ties the post-merge plan+apply back to the PR that
+    # caused it: those runs are branch runs, carrying `vcs_pull_request_number
+    # IS NULL` — deliberately, since three places in the poller read that field
+    # as "this is a speculative PR run" — so the commit is the only honest join.
+    #
+    # `state` alone cannot stand in for this. `merged` is only ever written when
+    # Terrapod performed the merge itself (`vcs_auto_merge`); a PR merged by a
+    # human in the web UI, which is the common case, is stamped `closed` by
+    # `_reconcile_closed_pr_sessions` on set difference against the open list,
+    # which never asks the provider why the PR left it.
+    merge_commit_sha: Mapped[str | None] = mapped_column(String(40), nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=now_utc, nullable=False
     )
@@ -1793,6 +2073,7 @@ class PRSession(Base):
     __table_args__ = (
         sa.UniqueConstraint("vcs_connection_id", "repo", "pr_number", name="uq_pr_session"),
         sa.Index("ix_pr_sessions_open", "vcs_connection_id", "state"),
+        sa.Index("ix_pr_sessions_merge_commit_sha", "vcs_connection_id", "merge_commit_sha"),
     )
 
 
@@ -1849,7 +2130,11 @@ class Variable(Base):
     workspace: Mapped[Workspace] = relationship(back_populates="variables")
 
     __table_args__ = (
-        sa.UniqueConstraint("workspace_id", "key", name="uq_variables_workspace_key"),
+        # A variable is identified by (key, category), not key alone (#1898): a
+        # workspace may hold `native:region` and `env:region` at once -- an input
+        # variable and an environment variable of the same name, which is
+        # ordinary and which the older constraint silently refused.
+        sa.UniqueConstraint("workspace_id", "key", "category", name="uq_variables_workspace_key"),
         Index("ix_variables_workspace_id", "workspace_id"),
     )
 
@@ -1930,7 +2215,8 @@ class VariableSetVariable(Base):
     variable_set: Mapped[VariableSet] = relationship(back_populates="variables")
 
     __table_args__ = (
-        sa.UniqueConstraint("variable_set_id", "key", name="uq_variable_set_variables"),
+        # Same identity as a workspace variable (#1898).
+        sa.UniqueConstraint("variable_set_id", "key", "category", name="uq_variable_set_variables"),
         Index("ix_variable_set_variables_set_id", "variable_set_id"),
     )
 
@@ -2084,6 +2370,13 @@ class SlackIdentityLink(Base):
     # The bound Terrapod principal. Email-first identity; no FK (a user row may not
     # exist for SSO-only identities, mirroring role_assignments' email keying).
     terrapod_email: Mapped[str] = mapped_column(String(320), nullable=False)
+    # The IdP the linking principal authenticated with, matching
+    # `RoleAssignment.provider_name`. Without it the Slack path resolved roles by
+    # email across every provider, so a Slack action carried the union of what
+    # that address was assigned anywhere (GHSA-3m8x-ff8g-7x8c). NULL (a link made
+    # before the column) resolves to no roles and the action is refused, rather
+    # than guessing a provider.
+    identity_provider: Mapped[str | None] = mapped_column(String(63), nullable=True)
     linked_via: Mapped[str] = mapped_column(String(32), nullable=False, default="slash_command")
     linked_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=now_utc
@@ -2177,6 +2470,47 @@ class Run(Base):
     #: Snapshotted from the workspace at run creation, like the resources above,
     #: so editing the workspace mid-flight cannot change a run already under way.
     parallelism: Mapped[int] = mapped_column(Integer, nullable=False, default=10)
+    # The **RESOLVED** map — the workspace's override already merged over the
+    # deployment catalogue — snapshotted at creation like the resources above
+    # (#1901).
+    #
+    # Snapshotted so a run executes against the configuration it was created
+    # under: both phases mint from this, so a catalogue edit between a plan and
+    # the apply a human spent twenty minutes reviewing cannot silently change
+    # which identity the apply presents.
+    #
+    # **But the snapshot is what the apply CHECKS AGAINST, not a licence to use
+    # a stale value.** Minting from it blindly would hand the apply a token that
+    # agrees with the reviewed plan while the *cloud* has moved on, and it would
+    # then be rejected at `AssumeRoleWithWebIdentity` deep inside the engine,
+    # possibly after a partial apply. So the mint path re-resolves the requested
+    # target and refuses when it no longer matches this snapshot — a controlled
+    # failure before anything executes, the same shape as a saved plan refused
+    # because the state serial moved.
+    #
+    # Each phase still mints its OWN tokens: the apply runs in its own Job and
+    # presents `phase: apply`, which resolves to the base identity plus any
+    # extra apply identity. Plan and apply are *supposed* to differ.
+    oidc_audiences: Mapped[dict[str, list[str]]] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default="{}"
+    )
+    # Which targets a token was ACTUALLY minted for on this run, appended by the
+    # mint endpoint as it serves each one (#1901).
+    #
+    # Recorded rather than derived, because the two sets differ in a way that
+    # matters. `oidc_audiences` above is the snapshot of CONFIGURED targets, and
+    # it is the merged map — so it carries deployment-wide entries a workspace
+    # may never use. Scoping the confirm-time staleness check to the configured
+    # set would mean one edit to the deployment catalogue refusing every pending
+    # apply in the fleet, including runs whose own identity had not moved. This
+    # is the set the check is actually about: what the plan presented.
+    #
+    # Written sequentially by the runner (one mint at a time per phase), so the
+    # read-modify-write here needs no locking. It only ever grows, so a retry
+    # that re-mints is harmless and a superset is still sound.
+    oidc_minted_targets: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default="[]"
+    )
     # `pool_id` is the pool this run is currently associated with: at creation
     # it is element 0 of the workspace's pool set, and on claim it is rewritten
     # to the pool that actually took the run — so cancellation, job-status
@@ -2218,6 +2552,14 @@ class Run(Base):
     refresh_only: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     refresh: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     allow_empty_apply: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # `terraform plan -out=FILE` (#1903). A saved-plan run is apply-capable but
+    # its apply is DEFERRED: it plans immediately without contending for the
+    # workspace, and only takes the workspace's single apply slot when the
+    # operator confirms it — which is what makes holding a plan file for a while
+    # meaningful. See `is_deferred_saved_plan` in run_service for where that
+    # distinction is enforced; it is a scheduling property, so the runner is
+    # never told about it.
+    save_plan: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     # Module impact analysis overrides (maps module coords to override storage paths)
     module_overrides: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
@@ -3720,3 +4062,436 @@ class OCIUploadSession(Base):
     )
 
     __table_args__ = (sa.Index("ix_oci_upload_sessions_updated_at", "updated_at"),)
+
+
+def subject_matches(model, identity_subject: str | None):
+    """SQL for "this assignment is unpinned, or pinned to exactly this subject".
+
+    Shared by both role resolvers -- `dependencies._resolve_user_roles` for tokens and
+    `sso_service._load_internal_assignments` for logins -- so the rule cannot drift
+    between them. A rule applied in one and not the other is a hole, because the other
+    path becomes the way around it (GHSA-3m8x-ff8g-7x8c).
+
+    An unpinned assignment (``subject IS NULL``) is the normal case and always matches,
+    because an operator types an address and a ``sub`` is opaque. A pinned one matches
+    only its own subject, so an unknown subject matches unpinned assignments only --
+    the fail-closed direction.
+    """
+    if identity_subject is None:
+        return model.subject.is_(None)
+    return or_(model.subject.is_(None), model.subject == identity_subject)
+
+
+# --- Ansible inventory (#1967, #1968) ---
+#
+# Eight tables, one per structure ansible's inventory actually has, because the
+# structures have one-to-many and many-to-many mappings and a faithful
+# representation is what lets a second concern contribute to a group it does not
+# own. The earlier shape put group membership in a JSONB array on the host and
+# had no group entity at all, so `group_vars` and `[group:children]` could not
+# be expressed at all.
+#
+# ## Everything is workspace-scoped, and the keys enforce it
+#
+# Each row carries `workspace_id`, and every link is a COMPOSITE foreign key
+# `(workspace_id, <parent>_id)` against a `UNIQUE (workspace_id, id)` on the
+# parent. That makes a membership spanning two workspaces structurally
+# impossible rather than something application code has to remember, and gives
+# every per-workspace query and ceiling one index to use.
+#
+# ## The joins carry a surrogate id rather than a composite primary key
+#
+# Both precedents exist here. `variable_set_workspaces` and
+# `execution_hook_workspaces` use a composite primary key and consequently have
+# no addressable route; `workspace_remote_state_consumers` chose a surrogate id,
+# which is what buys it `GET /remote-state-consumers/{id}`. A Terraform resource
+# needs a row it can address, so the joins follow the second.
+#
+# ## Three variable tables rather than one polymorphic table
+#
+# They are structurally alike -- key, value, structured, sensitive -- but one
+# table would need a polymorphic parent reference, which cannot carry a real
+# foreign key. Referential integrity is the whole reason for the composite keys
+# above, so three tables with three honest FKs it is. Worth saying here because
+# it reads as duplication to anyone later tempted to merge them.
+
+
+class InventorySettings(Base):
+    """A workspace's inventory configuration: at most one row (#1967).
+
+    **One inventory per workspace.** Disjoint targeting is what groups and
+    `--limit` are for, which is ansible's own answer, so there is no named
+    inventory object and nothing has to choose between several.
+
+    A 1:1 row rather than columns on `Workspace`, deliberately. Six inventory
+    columns there would flow through `test_workspace_setting_parity` and
+    therefore the bulk-update ledger, the autodiscovery rule template, the
+    provider's workspace resource and every surface that gate checks -- and a
+    terraform/tofu-only deployment would pay for all of it. Here the absence of
+    a row *is* "this workspace has no ansible", which costs nothing.
+    """
+
+    __tablename__ = "inventory_settings"
+
+    #: The workspace IS the key. No surrogate id: there can only be one.
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    #: Whether the declared rows take part in resolution. False resolves the VCS
+    #: source alone, which is how an operator moves a repo's inventory in before
+    #: declaring anything.
+    include_platform: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+    #: The VCS source. NULL means there is none, and the rows are the whole
+    #: inventory.
+    #:
+    #: **Not the workspace's own Terraform binding**, and that is the reason
+    #: these are columns here rather than a reference to it: even in one
+    #: repository the root directory differs (`terraform/` versus `ansible/`),
+    #: and a configure-only workspace has no Terraform binding at all.
+    vcs_connection_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("vcs_connections.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    repo_url: Mapped[str] = mapped_column(String(500), nullable=False, default="")
+    branch: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    #: The directory ansible reads as ONE source. A directory, not a file, on
+    #: purpose: ansible reads a directory lexically, so a single binding already
+    #: carries arbitrarily many inventory files in an order the operator
+    #: controls through filenames.
+    working_directory: Mapped[str] = mapped_column(String(500), nullable=False, default="")
+    ignore_paths: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, onupdate=now_utc, nullable=False
+    )
+
+    workspace: Mapped[Workspace] = relationship()
+
+    __table_args__ = (
+        # A repo with no connection could never be fetched, so it is refused
+        # rather than stored as a configuration that silently does nothing.
+        CheckConstraint(
+            "vcs_connection_id IS NOT NULL OR repo_url = ''",
+            name="ck_inventory_settings_repo_needs_connection",
+        ),
+        Index("ix_inventory_settings_vcs_connection_id", "vcs_connection_id"),
+    )
+
+
+class InventoryHost(Base):
+    """One host. `name` is ansible's `inventory_hostname` (#1968).
+
+    **Everything else about a host is a variable row.** There is no `address`
+    column: `ansible_host` is a variable like any other, because that is what it
+    is to ansible, and a promoted column would be a second home for one value
+    with a precedence rule to explain.
+    """
+
+    __tablename__ = "inventory_hosts"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=generate_uuid7
+    )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    #: Validated against `--limit`'s own operators -- see
+    #: `inventory_resolution.validate_host_name`, which refuses the characters
+    #: that would make a host unselectable or silently change which other hosts
+    #: a pattern selects.
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, onupdate=now_utc, nullable=False
+    )
+
+    workspace: Mapped[Workspace] = relationship()
+
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "name", name="uq_inventory_hosts_workspace_name"),
+        # What the composite foreign keys below point at.
+        UniqueConstraint("workspace_id", "id", name="uq_inventory_hosts_workspace_id"),
+        Index("ix_inventory_hosts_workspace_id", "workspace_id"),
+    )
+
+
+class InventoryGroup(Base):
+    """One ansible group (#1967).
+
+    `all` and `ungrouped` are refused as names: ansible derives both, and the
+    rendered document is rooted at `all:`, so a declared group of that name
+    would collide with the document's own structure.
+    """
+
+    __tablename__ = "inventory_groups"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=generate_uuid7
+    )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, onupdate=now_utc, nullable=False
+    )
+
+    workspace: Mapped[Workspace] = relationship()
+
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "name", name="uq_inventory_groups_workspace_name"),
+        UniqueConstraint("workspace_id", "id", name="uq_inventory_groups_workspace_id"),
+        Index("ix_inventory_groups_workspace_id", "workspace_id"),
+    )
+
+
+class InventoryHostGroup(Base):
+    """A host's membership of a group -- one `[groupname]` line (#1967).
+
+    Many-to-many, and its own row rather than a list on either side, so a
+    membership has an id a Terraform resource can address and two concerns can
+    each put their own hosts in a shared group without owning it.
+    """
+
+    __tablename__ = "inventory_host_groups"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=generate_uuid7
+    )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    host_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    group_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint("host_id", "group_id", name="uq_inventory_host_groups_pair"),
+        # Composite, so a host in one workspace cannot be put in a group in
+        # another. Enforced by the database rather than remembered in code.
+        ForeignKeyConstraint(
+            ["workspace_id", "host_id"],
+            ["inventory_hosts.workspace_id", "inventory_hosts.id"],
+            ondelete="CASCADE",
+            name="fk_inventory_host_groups_host",
+        ),
+        ForeignKeyConstraint(
+            ["workspace_id", "group_id"],
+            ["inventory_groups.workspace_id", "inventory_groups.id"],
+            ondelete="CASCADE",
+            name="fk_inventory_host_groups_group",
+        ),
+        Index("ix_inventory_host_groups_workspace_id", "workspace_id"),
+        Index("ix_inventory_host_groups_group_id", "group_id"),
+    )
+
+
+class InventoryGroupChild(Base):
+    """A `[groupname:children]` entry: one group nested inside another (#1967).
+
+    A group may have several parents, which ansible allows, so this is
+    many-to-many too. Terrapod does not resolve the resulting graph -- ansible
+    does -- so a cycle is refused at the write for the operator's sake rather
+    than because anything here would loop on one.
+    """
+
+    __tablename__ = "inventory_group_children"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=generate_uuid7
+    )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    parent_group_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    child_group_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "parent_group_id", "child_group_id", name="uq_inventory_group_children_pair"
+        ),
+        # The one-step cycle, which the database can state. Longer ones are the
+        # service's job, because a CHECK cannot walk a graph.
+        CheckConstraint(
+            "parent_group_id <> child_group_id",
+            name="ck_inventory_group_children_not_self",
+        ),
+        ForeignKeyConstraint(
+            ["workspace_id", "parent_group_id"],
+            ["inventory_groups.workspace_id", "inventory_groups.id"],
+            ondelete="CASCADE",
+            name="fk_inventory_group_children_parent",
+        ),
+        ForeignKeyConstraint(
+            ["workspace_id", "child_group_id"],
+            ["inventory_groups.workspace_id", "inventory_groups.id"],
+            ondelete="CASCADE",
+            name="fk_inventory_group_children_child",
+        ),
+        Index("ix_inventory_group_children_workspace_id", "workspace_id"),
+        Index("ix_inventory_group_children_child_group_id", "child_group_id"),
+    )
+
+
+# ## The three variable tables
+#
+# `value` is `EncryptedText` on all three, so a secret host variable is not
+# plaintext in the database. That makes `sensitive` purely a display-masking
+# flag in API, UI and MCP responses -- orthogonal, because a column cannot be
+# conditionally encrypted.
+#
+# **All three MUST be listed in `crypto/columns.py::ENCRYPTED_COLUMNS`.** That
+# list is the sole driver of `cli.encryption_migrate`, so an unlisted column is
+# visited by neither `encrypt` nor `decrypt` and a DEK rotation never re-keys
+# it. Two columns sat absent for two releases exactly that way.
+
+
+class InventoryHostVar(Base):
+    """One entry in a host's `host_vars` (#1967)."""
+
+    __tablename__ = "inventory_host_vars"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=generate_uuid7
+    )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    host_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    key: Mapped[str] = mapped_column(String(255), nullable=False)
+    value: Mapped[str] = mapped_column(EncryptedText, nullable=False, default="")
+    #: Whether `value` is a typed expression rather than a plain string, the
+    #: same question `Variable.structured` answers (#1435). A list, a number or
+    #: a nested object is what ansible's own `group_vars` carries, so the
+    #: variable surface has to be able to say so.
+    structured: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    sensitive: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, onupdate=now_utc, nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint("host_id", "key", name="uq_inventory_host_vars_host_key"),
+        ForeignKeyConstraint(
+            ["workspace_id", "host_id"],
+            ["inventory_hosts.workspace_id", "inventory_hosts.id"],
+            ondelete="CASCADE",
+            name="fk_inventory_host_vars_host",
+        ),
+        Index("ix_inventory_host_vars_workspace_id", "workspace_id"),
+        Index("ix_inventory_host_vars_host_id", "host_id"),
+    )
+
+
+class InventoryGroupVar(Base):
+    """One entry in a group's `group_vars` (#1967)."""
+
+    __tablename__ = "inventory_group_vars"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=generate_uuid7
+    )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    group_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    key: Mapped[str] = mapped_column(String(255), nullable=False)
+    value: Mapped[str] = mapped_column(EncryptedText, nullable=False, default="")
+    structured: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    sensitive: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, onupdate=now_utc, nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint("group_id", "key", name="uq_inventory_group_vars_group_key"),
+        ForeignKeyConstraint(
+            ["workspace_id", "group_id"],
+            ["inventory_groups.workspace_id", "inventory_groups.id"],
+            ondelete="CASCADE",
+            name="fk_inventory_group_vars_group",
+        ),
+        Index("ix_inventory_group_vars_workspace_id", "workspace_id"),
+        Index("ix_inventory_group_vars_group_id", "group_id"),
+    )
+
+
+class InventoryGlobalVar(Base):
+    """One entry in `group_vars/all` (#1967).
+
+    **Parented on the workspace, not on a group row**, because `all` cannot be
+    declared as a group: the rendered document is rooted at `all:`, so a group
+    of that name would collide with it. These rows land at that root's `vars:`,
+    which is what `group_vars/all` means in ansible -- a real structure, and the
+    consequence of refusing `all` as a name rather than a way round it.
+    """
+
+    __tablename__ = "inventory_global_vars"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=generate_uuid7
+    )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    key: Mapped[str] = mapped_column(String(255), nullable=False)
+    value: Mapped[str] = mapped_column(EncryptedText, nullable=False, default="")
+    structured: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    sensitive: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, onupdate=now_utc, nullable=False
+    )
+
+    workspace: Mapped[Workspace] = relationship()
+
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "key", name="uq_inventory_global_vars_workspace_key"),
+        Index("ix_inventory_global_vars_workspace_id", "workspace_id"),
+    )

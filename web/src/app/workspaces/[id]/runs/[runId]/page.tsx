@@ -23,7 +23,13 @@ import { createLogFollower, type LogFollower } from '@/lib/log-follower'
 import { parsePlanLogIndex, type PlanEntryAction } from '@/lib/plan-log-index'
 import { ArrowDownToLine, RefreshCw, Download, Copy, Check, Palette } from 'lucide-react'
 
-import { phaseKey } from '@/lib/phase-vocabulary'
+import {
+  DEFAULT_ENGINE,
+  PHASE_STATUSES,
+  engineWord,
+  phaseKey,
+  vocabularyFor,
+} from '@/lib/phase-vocabulary'
 import { gateOf, holdActivityKey, phaseOf, type Gate } from '@/lib/run-hold'
 
 // WebGL (three.js) — client-only, never SSR'd. Loaded on demand (#761).
@@ -67,12 +73,18 @@ interface RunAttrs {
   'auto-apply-mode': string
   'auto-apply-declined-reason': string | null
   'plan-only': boolean
+  // `tofu plan -out=FILE` (#1903) -- apply-capable, apply deferred.
+  'save-plan': boolean
   'is-destroy': boolean
   'target-addrs': string[]
   'replace-addrs': string[]
   'refresh-only': boolean
   'refresh': boolean
   'allow-empty-apply': boolean
+  // Pulumi only (#1553, #1560): whether this update is bound to the plan its
+  // preview saved. Null on every other engine, which have no such distinction —
+  // so `!= null` is the engine test, not a separate one.
+  'pulumi-bind-plan'?: boolean | null
   'vcs-commit-sha': string | null
   'vcs-branch': string | null
   'vcs-pull-request-number': number | null
@@ -223,6 +235,10 @@ function RunActivityHeader({
   const tPhase = useTranslations()
   const phase = (group: 'runStatus' | 'activity', state: string) =>
     tPhase(phaseKey(engine, group, state))
+  // The rest of the phase vocabulary — the lines that *describe* the phase
+  // rather than name it ("Plan complete", "Starting apply"). Same engine, same
+  // namespace, so the strip can never disagree with itself (#1911).
+  const word = (name: string) => engineWord(tPhase, engine, name)
   // A run held after its plan is waiting for a person, not doing anything: no
   // pulse, no ticking timer (#1725).
   const live = !gate && ['pending', 'queued', 'planning', 'confirmed', 'applying', 'canceling'].includes(status)
@@ -240,12 +256,16 @@ function RunActivityHeader({
     planning: { label: phase('runStatus', 'planning'), activity: phase('activity', 'planning'), dot: 'bg-yellow-400', card: 'border-yellow-800/40 bg-yellow-900/10', sinceKey: 'planning-at' },
     planned: {
       label: phase('runStatus', 'planned'),
-      activity: isConfirmable ? t('activity.plannedConfirmable') : planOnly ? t('activity.plannedSpeculative') : t('activity.plannedComplete'),
+      activity: isConfirmable
+        ? word('activityPlannedConfirmable')
+        : planOnly
+          ? word('activityPlannedSpeculative')
+          : word('activityPlannedComplete'),
       dot: 'bg-blue-400',
       card: isConfirmable ? 'border-blue-800/40 bg-blue-900/10' : 'border-slate-700/50 bg-slate-800/40',
       sinceKey: 'planned-at',
     },
-    confirmed: { label: t('status.confirmed'), activity: t('activity.confirmed'), dot: 'bg-blue-400', card: 'border-blue-800/40 bg-blue-900/10', sinceKey: 'confirmed-at' },
+    confirmed: { label: t('status.confirmed'), activity: word('activityConfirmed'), dot: 'bg-blue-400', card: 'border-blue-800/40 bg-blue-900/10', sinceKey: 'confirmed-at' },
     applying: { label: phase('runStatus', 'applying'), activity: phase('activity', 'applying'), dot: 'bg-yellow-400', card: 'border-yellow-800/40 bg-yellow-900/10', sinceKey: 'applying-at' },
     canceling: { label: t('status.canceling'), activity: t('activity.canceling'), dot: 'bg-yellow-400', card: 'border-yellow-800/40 bg-yellow-900/10' },
     applied:
@@ -259,15 +279,15 @@ function RunActivityHeader({
             // use for this state, so the page does not grow a second name for
             // the same thing.
             label: t('changes.noChanges'),
-            activity: t('log.applySkippedNoChanges'),
+            activity: word('logApplySkipped'),
             dot: 'bg-slate-400',
             card: 'border-slate-700/50 bg-slate-800/40',
             sinceKey: 'applied-at',
           }
-        : { label: phase('runStatus', 'applied'), activity: t('activity.applied'), dot: 'bg-green-400', card: 'border-green-800/40 bg-green-900/10', sinceKey: 'applied-at' },
+        : { label: phase('runStatus', 'applied'), activity: word('activityApplied'), dot: 'bg-green-400', card: 'border-green-800/40 bg-green-900/10', sinceKey: 'applied-at' },
     errored: { label: t('status.errored'), activity: t('activity.errored'), dot: 'bg-red-400', card: 'border-red-800/40 bg-red-900/10', sinceKey: 'errored-at' },
     canceled: { label: t('status.canceled'), activity: t('activity.canceled'), dot: 'bg-slate-400', card: 'border-slate-700/50 bg-slate-800/40', sinceKey: 'canceled-at' },
-    discarded: { label: t('status.discarded'), activity: t('activity.discarded'), dot: 'bg-slate-400', card: 'border-slate-700/50 bg-slate-800/40', sinceKey: 'discarded-at' },
+    discarded: { label: t('status.discarded'), activity: word('activityDiscarded'), dot: 'bg-slate-400', card: 'border-slate-700/50 bg-slate-800/40', sinceKey: 'discarded-at' },
   }
   const held: Info | null = gate
     ? {
@@ -384,8 +404,16 @@ function SummaryCard({
  * A switch of literal keys rather than `t(`log.index.action.${action}`)`: the
  * i18n resolve gate deliberately skips dynamically-built keys, so the template
  * form would pass CI and then throw MISSING_MESSAGE in front of an operator.
+ *
+ * `summaryLabel` is the engine's word for the summary block — a Pulumi preview
+ * does not end in a "Plan summary" (#1911) — so it arrives resolved rather than
+ * as a key this helper would have to look up without knowing the engine.
  */
-function planActionLabel(t: ReturnType<typeof useTranslations>, action: PlanEntryAction): string {
+function planActionLabel(
+  t: ReturnType<typeof useTranslations>,
+  action: PlanEntryAction,
+  summaryLabel: string,
+): string {
   switch (action) {
     case 'create':
       return t('log.index.action.create')
@@ -406,7 +434,7 @@ function planActionLabel(t: ReturnType<typeof useTranslations>, action: PlanEntr
     case 'warning':
       return t('log.index.action.warning')
     default:
-      return t('log.index.summary')
+      return summaryLabel
   }
 }
 
@@ -420,6 +448,7 @@ function LogPanel({
   isStreaming,
   logComplete = false,
   onRefresh,
+  engine,
 }: {
   log: string | null
   precomputedHtml?: string
@@ -428,6 +457,8 @@ function LogPanel({
   phase: 'plan' | 'apply'
   runId: string
   isStreaming: boolean
+  /** The run's engine, so the plan index names the summary block its way (#1911). */
+  engine?: string
   /**
    * True once the server has marked this phase's log complete (#1590). The
    * plan index appears only then: a settled log parses in one pass, so the
@@ -446,6 +477,8 @@ function LogPanel({
   // touch tablet/foldable page-scrolls too, while a mouse (any width) keeps the
   // inner pane. Mirrors the CSS `fine:` overflow on the <pre> below.
   const t = useTranslations('runDetail')
+  const tRoot = useTranslations()
+  const summaryLabel = engineWord(tRoot, engine, 'logIndexSummary')
   const isTouch = useIsTouch()
   const [colorMode, setColorMode] = useState(true)
   // Follow the tail by default while streaming; a static (finished) log opens
@@ -753,14 +786,14 @@ function LogPanel({
                     e.target.value = ''
                   }}
                   className="px-2 py-1 text-xs rounded font-medium bg-slate-700 text-slate-400 hover:text-slate-200 transition-colors max-w-[12rem] focus:border-brand-500 focus:outline-none"
-                  title={t('log.index.title')}
+                  title={engineWord(tRoot, engine, 'logIndexTitle')}
                 >
                   <option value="">{t('log.index.label')}</option>
                   {planIndex.map(entry => (
                     <option key={`${entry.line}-${entry.address}`} value={entry.line}>
                       {entry.action === 'summary'
-                        ? t('log.index.summary')
-                        : `${planActionLabel(t, entry.action)} · ${entry.address}`}
+                        ? summaryLabel
+                        : `${planActionLabel(t, entry.action, summaryLabel)} · ${entry.address}`}
                     </option>
                   ))}
                 </select>
@@ -873,6 +906,10 @@ export default function RunDetailPage() {
 
 function RunDetailPageInner() {
   const t = useTranslations('runDetail')
+  // Root namespace, for the per-engine phase vocabulary (#1911). Every label on
+  // this page that names a phase reads from here, so the pill, the status card,
+  // the tabs and the buttons can never show two different words for one run.
+  const tPhase = useTranslations()
   const locale = useLocale()
   // Shared with the workspace page — same four values, one set of labels.
   const tMode = useTranslations('common.autoApplyMode')
@@ -883,6 +920,10 @@ function RunDetailPageInner() {
 
   const isTouch = useIsTouch()
   const [run, setRun] = useState<Run | null>(null)
+  // Which engine's words this run is described in, and which of its surfaces
+  // apply at all (#1911). Null until the run loads; every reader falls back to
+  // Terraform, which is what the column defaults to.
+  const runEngine = run?.attributes.engine
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [actionLoading, setActionLoading] = useState('')
@@ -974,7 +1015,7 @@ function RunDetailPageInner() {
 
   const loadRun = useCallback(async () => {
     try {
-      const res = await apiFetch(`/api/v2/runs/${runId}`)
+      const res = await apiFetch(`/api/v1/runs/${runId}`)
       if (!res.ok) throw new Error(t('errors.loadRun'))
       const data = await res.json()
       setRun(data.data)
@@ -1019,6 +1060,11 @@ function RunDetailPageInner() {
   }, [runId])
 
   const loadSecurityInfo = useCallback(async () => {
+    // Checkov and Trivy read Terraform plan JSON, so an engine that produces
+    // none is never scanned and the API refuses to enable scanning on its
+    // workspaces at all (#1567). Not asking is the honest form of that: the
+    // card and the tab stay absent rather than appearing empty (#1911).
+    if (vocabularyFor(runEngine) !== DEFAULT_ENGINE) { setSecurityInfo({ present: false }); return }
     try {
       const res = await apiFetch(`/api/terrapod/v1/runs/${runId}/security-scan`)
       if (!res.ok) { setSecurityInfo({ present: false }); return }
@@ -1034,7 +1080,7 @@ function RunDetailPageInner() {
     } catch {
       /* rollup is best-effort chrome */
     }
-  }, [runId])
+  }, [runId, runEngine])
 
   useEffect(() => {
     if (!getAuthState()) { router.push('/login'); return }
@@ -1225,16 +1271,32 @@ function RunDetailPageInner() {
     return getApplyFollower().fetch(reset)
   }
 
+  // The same engine the loaders above keyed on, under the name the render half
+  // reads it by.
+  const engine = runEngine
+  const word = (name: string) => engineWord(tPhase, engine, name)
+  // A status that names a phase belongs to the engine; everything else (queued,
+  // errored, canceled…) is the platform's own and reads the same either way.
+  const statusLabel = (status: string) =>
+    PHASE_STATUSES.has(status)
+      ? tPhase(phaseKey(engine, 'runStatus', status))
+      : t.has(`status.${status}`)
+        ? t(`status.${status}`)
+        : status
+
   async function handleAction(action: 'confirm' | 'discard' | 'cancel' | 'retry') {
     setActionLoading(action)
     setError('')
     try {
-      // TFE V2 API uses "apply" to confirm a planned run.
-      // confirm / discard / cancel are on the TFE V2 CLI contract surface
-      // (terraform/go-tfe call them) and live permanently at /api/v2/.
-      // retry is a Terrapod extension and lives at /api/terrapod/v1/.
+      // "apply" is what confirms a planned run — the TFE V2 verb, kept.
+      //
+      // The PREFIX is native for all four. These endpoints are served on both
+      // surfaces, and the TFE one answers 404 for any workspace that is not
+      // Terraform (#1904) — so on /api/v2 the primary apply gate was
+      // unreachable for a Pulumi run, from the page that is its only UI.
+      // A person operating a Pulumi stack is not a `go-tfe` client.
       const apiAction = action === 'confirm' ? 'apply' : action
-      const prefix = action === 'retry' ? '/api/terrapod/v1' : '/api/v2'
+      const prefix = '/api/v1'
       const res = await apiFetch(`${prefix}/runs/${runId}/actions/${apiAction}`, { method: 'POST' })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
@@ -1269,8 +1331,9 @@ function RunDetailPageInner() {
   function requestAction(action: 'confirm' | 'discard' | 'cancel' | 'retry') {
     if (isTouch) {
       const prompts: Record<string, string> = {
-        confirm: t('confirm.apply'),
-        discard: t('confirm.discard'),
+        // Apply and discard name a phase; cancel and retry name the run itself.
+        confirm: word('confirmApply'),
+        discard: word('confirmDiscard'),
         cancel: t('confirm.cancel'),
         retry: t('confirm.retry'),
       }
@@ -1313,10 +1376,10 @@ function RunDetailPageInner() {
   // Labels shorten below `md` so all six tabs need less horizontal scroll on a
   // phone ("Plan"/"Apply" vs "Plan Log"/"Apply Log"); desktop keeps the full
   // words. The " Log" suffix is CSS-hidden on mobile — one DRY label.
-  const planLabel = t.rich('tabs.planLabel', {
+  const planLabel = tPhase.rich(phaseKey(engine, 'words', 'tabPlanLabel'), {
     log: (chunks) => <span className="hidden md:inline"> {chunks}</span>,
   })
-  const applyLabel = t.rich('tabs.applyLabel', {
+  const applyLabel = tPhase.rich(phaseKey(engine, 'words', 'tabApplyLabel'), {
     log: (chunks) => <span className="hidden md:inline"> {chunks}</span>,
   })
   // Each tab carries a rich label (for the desktop bar) AND a plain-text label
@@ -1331,7 +1394,7 @@ function RunDetailPageInner() {
   // collapse out when their data is absent.
   const tabs: [RunView, React.ReactNode, string][] = [
     ['overview', t('tabs.overview'), t('tabs.overview')],
-    ['plan', planLabel, t('tabs.planFull')],
+    ['plan', planLabel, word('tabPlanFull')],
     ...((attrs['has-cost-estimate']
       ? [['cost', t('tabs.cost'), t('tabs.costFull')]]
       : []) as [RunView, React.ReactNode, string][]),
@@ -1349,7 +1412,7 @@ function RunDetailPageInner() {
       ? [['ai', t('tabs.ai'), t('tabs.aiFull')]]
       : []) as [RunView, React.ReactNode, string][]),
     ['details', t('tabs.details'), t('tabs.details')],
-    ...((attrs['plan-only'] ? [] : [['apply', applyLabel, t('tabs.applyFull')]]) as [RunView, React.ReactNode, string][]),
+    ...((attrs['plan-only'] ? [] : [['apply', applyLabel, word('tabApplyFull')]]) as [RunView, React.ReactNode, string][]),
   ]
   const availableViews = new Set(tabs.map((t) => t[0]))
   const view: RunView = availableViews.has(activeView) ? activeView : 'overview'
@@ -1402,7 +1465,7 @@ function RunDetailPageInner() {
         tone: 'neutral',
       }
     }
-    if (!gate && ['pending', 'queued', 'planning'].includes(attrs.status)) return { value: t('changes.planning'), tone: 'neutral' }
+    if (!gate && ['pending', 'queued', 'planning'].includes(attrs.status)) return { value: word('changesPlanning'), tone: 'neutral' }
     return { value: '—', tone: 'neutral' }
   })()
 
@@ -1496,7 +1559,18 @@ function RunDetailPageInner() {
       )}
       {attrs['plan-only'] && !attrs['is-destroy'] && (
         <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-cyan-900/50 text-cyan-300">
-          {t('badge.planOnly')}
+          {word('badgePlanOnly')}
+        </span>
+      )}
+      {/* Not exclusive with the two above: a saved plan can be a destroy, and
+          this is the badge that explains why the workspace is free while this
+          run sits at `planned`. */}
+      {attrs['save-plan'] && (
+        <span
+          className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-violet-900/50 text-violet-300"
+          title={t('badge.savedPlanHint')}
+        >
+          {t('badge.savedPlan')}
         </span>
       )}
       {gate ? (
@@ -1505,7 +1579,7 @@ function RunDetailPageInner() {
         </span>
       ) : (
         <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${statusColor(attrs.status)}`}>
-          {t.has(`status.${attrs.status}`) ? t(`status.${attrs.status}`) : attrs.status}
+          {statusLabel(attrs.status)}
         </span>
       )}
     </>
@@ -1519,10 +1593,10 @@ function RunDetailPageInner() {
     // Deliberately a NEW run rather than applying this one: a drift run is
     // plan-only and its plan is a detection artifact, so the right output is an
     // ordinary run against current config with default options.
-    if (isTouch && !window.confirm(t('drift.remediateConfirm'))) return
+    if (isTouch && !window.confirm(word('driftRemediateConfirm'))) return
     setActionLoading('remediate')
     try {
-      const res = await apiFetch('/api/v2/runs', {
+      const res = await apiFetch('/api/v1/runs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/vnd.api+json' },
         body: JSON.stringify({
@@ -1553,9 +1627,9 @@ function RunDetailPageInner() {
           onClick={remediateDrift}
           disabled={!!actionLoading}
           className="px-3 md:px-4 py-2 rounded-lg text-sm font-medium bg-amber-600 hover:bg-amber-500 disabled:bg-amber-900/40 disabled:text-amber-600/70 text-white transition-colors"
-          title={t('drift.remediateTitle')}
+          title={word('driftRemediateTitle')}
         >
-          {actionLoading === 'remediate' ? t('actions.queuing') : t('drift.remediate')}
+          {actionLoading === 'remediate' ? t('actions.queuing') : word('driftRemediate')}
         </button>
       )}
       {canRetry && (
@@ -1580,8 +1654,8 @@ function RunDetailPageInner() {
         >
           {actionLoading === 'confirm' ? t('actions.confirming') : (
             <>
-              <span className="md:hidden">{t('actions.confirmShort')}</span>
-              <span className="hidden md:inline">{t('actions.confirmFull')}</span>
+              <span className="md:hidden">{word('actionConfirmShort')}</span>
+              <span className="hidden md:inline">{word('actionConfirmFull')}</span>
             </>
           )}
         </button>
@@ -1661,6 +1735,27 @@ function RunDetailPageInner() {
           <div className="hidden md:flex flex-wrap gap-3 mb-6">{actionButtons}</div>
         )}
 
+        {/* Whether the update performs exactly the operations the preview
+            showed (#1553, #1560). It belongs HERE rather than in Details
+            because it is a property of the decision being taken, and the
+            moment of approval is the only moment it can change anyone's mind.
+            Pulumi-only: the attribute is null on every other engine, so the
+            null check is the engine check. Shown only while the run is
+            confirmable — after that it is history, and Details carries it. */}
+        {actions['is-confirmable'] && attrs['pulumi-bind-plan'] != null && (
+          <div
+            data-testid="run-bind-plan"
+            className={
+              'mb-6 px-3 py-2 rounded-lg border text-xs ' +
+              (attrs['pulumi-bind-plan']
+                ? 'bg-slate-800/50 border-slate-700/50 text-slate-300'
+                : 'bg-amber-900/20 border-amber-800/50 text-amber-200')
+            }
+          >
+            {attrs['pulumi-bind-plan'] ? t('bindPlan.bound') : t('bindPlan.unbound')}
+          </div>
+        )}
+
         {/* View tabs (#721) — Overview summarises the run; AI and OPA appear
             only when the run has them; each log gets its own full-height tab;
             Details holds metadata / timeline / resource usage / run options.
@@ -1727,7 +1822,7 @@ function RunDetailPageInner() {
                   ? () => switchView('ai')
                   : undefined
           }
-          engine={attrs.engine}
+          engine={engine}
           hasChanges={attrs['has-changes']}
           timestamps={timestamps}
           planOnly={attrs['plan-only']}
@@ -1747,7 +1842,9 @@ function RunDetailPageInner() {
         {attrs['plan-only'] && attrs.source === 'tfe-api' && attrs['workspace-has-vcs'] && run.relationships?.['configuration-version']?.data && (
           <div className="mb-6 p-4 bg-cyan-900/20 rounded-lg border border-cyan-800/50">
             <p className="text-sm text-cyan-300">
-              {t.rich('banner.planOnlyCli', { strong: (chunks) => <strong>{chunks}</strong> })}
+              {tPhase.rich(phaseKey(engine, 'words', 'bannerPlanOnlyCli'), {
+                strong: (chunks) => <strong>{chunks}</strong>,
+              })}
             </p>
           </div>
         )}
@@ -1777,7 +1874,7 @@ function RunDetailPageInner() {
         {/* Discard reason (#646/#647): why a discarded plan can no longer apply. */}
         {attrs.status === 'discarded' && attrs['discard-reason'] && (
           <div className="mb-6 p-4 bg-amber-900/20 rounded-lg border border-amber-800/50">
-            <h3 className="text-sm font-medium text-amber-400 mb-1">{t('discardedHeading')}</h3>
+            <h3 className="text-sm font-medium text-amber-400 mb-1">{word('discardedHeading')}</h3>
             <p className="text-sm text-amber-200">{attrs['discard-reason']}</p>
           </div>
         )}
@@ -1849,12 +1946,17 @@ function RunDetailPageInner() {
             <AIPolicyPanel
               runId={runId}
               runStatus={attrs.status}
+              engine={engine}
               onChanged={() => {
                 loadRun()
                 loadAiInfo()
               }}
             />
-            <PlanAiSummary runId={runId.replace(/^run-/, '')} refreshKey={aiSummaryRefresh} />
+            <PlanAiSummary
+              runId={runId.replace(/^run-/, '')}
+              refreshKey={aiSummaryRefresh}
+              engine={engine}
+            />
           </>
         )}
 
@@ -1864,6 +1966,7 @@ function RunDetailPageInner() {
           <PolicyPanel
             runId={runId}
             runStatus={attrs.status}
+            engine={engine}
             onChanged={() => {
               loadRun()
               loadPolicyInfo()
@@ -1895,7 +1998,7 @@ function RunDetailPageInner() {
             the AI panel self-hides when the feature is off. */}
         {view === 'cost' && (
           <div className="flex flex-col gap-6">
-            <CostPanel runId={runId.replace(/^run-/, '')} />
+            <CostPanel runId={runId.replace(/^run-/, '')} engine={engine} />
             <CostAiSummary runId={runId.replace(/^run-/, '')} refreshKey={costSummaryRefresh} />
           </div>
         )}
@@ -1964,7 +2067,7 @@ function RunDetailPageInner() {
               </dd>
             </div>
             <div>
-              <dt className="text-xs text-slate-500">{t('details.planOnly')}</dt>
+              <dt className="text-xs text-slate-500">{word('detailsPlanOnly')}</dt>
               <dd className="mt-1 text-sm text-slate-200">{attrs['plan-only'] ? t('common.yes') : t('common.no')}</dd>
             </div>
             {attrs['created-by'] && (
@@ -2048,11 +2151,11 @@ function RunDetailPageInner() {
           <div className="space-y-2">
             {[
               ['queued-at', t('timeline.queued')],
-              ['planning-at', t('timeline.planningStarted')],
-              ['planned-at', t('timeline.planComplete')],
+              ['planning-at', word('timelinePlanningStarted')],
+              ['planned-at', word('timelinePlanComplete')],
               ['confirmed-at', t('timeline.confirmed')],
-              ['applying-at', t('timeline.applyingStarted')],
-              ['applied-at', t('timeline.applied')],
+              ['applying-at', word('timelineApplyingStarted')],
+              ['applied-at', word('timelineApplied')],
               ['errored-at', t('timeline.errored')],
               ['canceled-at', t('timeline.canceled')],
               ['discarded-at', t('timeline.discarded')],
@@ -2076,8 +2179,9 @@ function RunDetailPageInner() {
             log={planLog}
             precomputedHtml={planHtml}
             loading={planLogLoading}
-            emptyMessage={t('log.planEmpty')}
+            emptyMessage={word('logPlanEmpty')}
             phase="plan"
+            engine={engine}
             runId={runId}
             isStreaming={attrs.status === 'planning' && !gate}
             logComplete={planLogComplete}
@@ -2095,10 +2199,11 @@ function RunDetailPageInner() {
               // A plan with no changes is marked applied without running an apply
               // at all, so there is no log to wait for.
               attrs.status === 'applied' && attrs['has-changes'] === false && !attrs['plan-only']
-                ? t('log.applySkippedNoChanges')
-                : t('log.applyEmpty')
+                ? word('logApplySkipped')
+                : word('logApplyEmpty')
             }
             phase="apply"
+            engine={engine}
             runId={runId}
             isStreaming={attrs.status === 'applying'}
             onRefresh={() => loadApplyLog(true)}
@@ -2147,12 +2252,16 @@ function PolicyPanel({
   runId,
   runStatus,
   onChanged,
+  engine,
 }: {
   runId: string
   runStatus: string
   onChanged: () => void
+  /** The run's engine, so "it will not apply" reads for the right one (#1911). */
+  engine?: string
 }) {
   const t = useTranslations('runDetail')
+  const tRoot = useTranslations()
   const [evals, setEvals] = useState<PolicyEval[]>([])
   const [summary, setSummary] = useState<PolicySummary | null>(null)
   const [loaded, setLoaded] = useState(false)
@@ -2233,7 +2342,9 @@ function PolicyPanel({
       {blocked && (
         <div className="mb-3 p-3 bg-red-900/20 rounded-lg border border-red-800/50">
           <p className="text-sm text-red-300">
-            {t.rich('policyPanel.blockedMessage', { strong: (chunks) => <strong>{chunks}</strong> })}
+            {tRoot.rich(phaseKey(engine, 'words', 'policyBlockedMessage'), {
+              strong: (chunks) => <strong>{chunks}</strong>,
+            })}
           </p>
           {isAdmin() && (
             <button

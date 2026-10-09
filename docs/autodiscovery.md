@@ -57,12 +57,14 @@ Rules are scoped to a single VCS connection + repo. A rule has:
 | `execution-mode` | enum | no | Must be `agent` (default). Autodiscovery is VCS-driven; `local` mode would create workspaces with queued runs and no executor. |
 | `agent-pool-id` | UUID | no | Inherited by created workspaces in `agent` mode. |
 | `execution-backend` | enum | no | `tofu` or `terraform`. Default `tofu`. |
-| `engine-version` | string | no | Default `1.12`. Also accepted as `terraform-version`. |
+| `engine-version` | string | no | Default `1.13`. Also accepted as `terraform-version`. |
 | `resource-cpu` / `resource-memory` | string | no | Defaults `1` / `2Gi`. |
 | `parallelism` | integer | no | Concurrent engine operations on workspaces this rule creates. Default `10`. |
+| `ansible-version` | string | no | ansible-core version for workspaces this rule creates. Default `2.21.5`; send an explicit empty string to have them inherit the deployment default instead, as with `engine-version`. |
 | `auto-apply` | bool | no | Default `false`. Superseded by `auto-apply-mode` when that is set. |
 | `auto-apply-mode` | string | no | Conditional auto-apply templated onto created workspaces: `never`, `always`, `create`, `create_update`. `create`/`create_update` never auto-apply a plan that destroys or replaces a resource. Set this **or** `auto-apply`, not both (422). |
 | `on-directory-delete` | enum | no | `flag` (default — mark `pending_deletion`, require explicit operator action) or `destroy` (opt-in — real destroy run then archive). See the Lifecycle section (#314). |
+| `oidc-audiences` | map | no | Templated onto created workspaces: the cloud-identity audience override for [per-workspace cloud identity](cloud-identity.md), keyed on the provider configuration (`aws`, `aws.west`). **A rule returns what it stores, where a workspace returns the map MERGED over the deployment catalogue** — the same attribute name with different read semantics, because a rule is a template and has nothing to merge against until a workspace exists. |
 | `labels` | map | no | Inherited by created workspaces — feeds Terrapod's label-based RBAC and filtering. Reserved keys (`status`, `owner`) are rejected with `422` at rule create/update — they are virtual filter terms and would otherwise produce workspaces that can't be saved. |
 | `owner-email` | string | no | Inherited by created workspaces; if unset, created workspaces have no owner and label-RBAC alone determines access. |
 | `var-files` | list | no | Var-file paths set on every created workspace. |
@@ -83,7 +85,8 @@ Rules are scoped to a single VCS connection + repo. A rule has:
 | `drift-ignore-rules` | list | no | Address/attribute-path patterns whose drift is ignored on created workspaces (#1763). |
 | `plan-expiry-seconds` | int | no | Auto-discard an unconfirmed plan after this many seconds. Unset means no expiry (#1763). |
 | `slack-channel` | string | no | Slack channel for run notifications on created workspaces; empty is silent (#1763). |
-| `debug-mode` | bool | no | Hold a **failed** runner pod open on created workspaces so an operator can `kubectl exec` into it. Defaults off — a held pod keeps the run's credentials and decrypted variables for the deployment's linger window, so it is worth enabling deliberately rather than across every discovered directory (#1764). See [runners.md → Debug mode](runners.md#debug-mode-inspecting-a-failed-runner-pod). |
+| `debug-mode` | bool | no | Hold a **failed** runner pod open on created workspaces so an operator can `kubectl exec` into it. Defaults **off** — a held pod keeps the run's credentials and decrypted variables for the deployment's linger window, so it is worth enabling deliberately rather than across every discovered directory (#1764). See [runners.md → Debug mode](runners.md#debug-mode-inspecting-a-failed-runner-pod). |
+| `allow-fork-pr-plans` | bool | no | Let a pull request opened **from a fork** get a speculative plan on created workspaces. Defaults OFF — such a plan runs the fork author's code with the workspace's credentials, and they have neither write access nor the ability to merge. Set it here so the choice survives the next directory autodiscovery picks up; pull requests from branches in the repository itself always plan either way. See [vcs-integration.md → Pull requests from forks](vcs-integration.md#pull-requests-from-forks). |
 
 ## Pattern syntax
 

@@ -28,7 +28,13 @@ from terrapod.db.models import (
     now_utc,
 )
 from terrapod.logging_config import get_logger
-from terrapod.services import github_service, gitlab_service, ha_role, pool_set
+from terrapod.services import (
+    cloud_identity_resolver,
+    github_service,
+    gitlab_service,
+    ha_role,
+    pool_set,
+)
 from terrapod.services.notification_service import STATUS_TO_TRIGGER
 
 logger = get_logger(__name__)
@@ -189,6 +195,59 @@ _PRE_PLAN_SCAN_LIMIT = 50
 # listener has not yet transitioned it to `applying` and launched
 # the Job (that's atomic in claim_next_run).
 PRE_EXECUTION_STATES = frozenset({"pending", "queued", "planning", "planned", "confirmed"})
+
+#: Sources whose runs Terrapod RECORDS but does not EXECUTE (#1563).
+#:
+#: A `pulumi up` from a laptop runs on that laptop. Terrapod sees it only
+#: because Pulumi's CLI drives its backend through a begin/checkpoint/complete
+#: lifecycle, which is enough to write the run down — but there is no
+#: configuration version, no agent pool, and above all **no Kubernetes Job**.
+#:
+#: That last point is why this set has to exist rather than being inferred.
+#: Everything that supervises a running run keys off the Job: the reconciler
+#: treats `job_name IS NULL` as "the Job failed to launch" and errors the run
+#: after `launch_timeout_seconds` (five minutes by default), which would kill
+#: any `pulumi up` slower than that, mid-apply, while it was going perfectly
+#: well. For these runs the liveness signal is the Pulumi **lease** instead:
+#: it is renewed while the CLI lives, and `sweep_abandoned_updates` ends the
+#: run when it lapses. One heartbeat per kind of run, and this names which is
+#: which.
+EXTERNALLY_EXECUTED_SOURCES = frozenset({"pulumi-cli"})
+
+
+def is_externally_executed(run: Run) -> bool:
+    """Whether this run is executing somewhere Terrapod cannot see (#1563)."""
+    return run.source in EXTERNALLY_EXECUTED_SOURCES
+
+
+async def start_external_apply(db: AsyncSession, run: Run) -> Run:
+    """Record that an externally executed run is already applying (#1563).
+
+    **Deliberately not a `transition_run` call, and `pending -> applying` is
+    deliberately not added to `VALID_TRANSITIONS`.** That table models a run
+    Terrapod drives, where each state is something Terrapod is waiting to do
+    next. An externally executed run has none of those states to be in: by the
+    time Terrapod hears of it at all, the CLI holds the stack's lock and is
+    changing infrastructure. There is nothing to queue, nothing to plan, and
+    nothing to confirm.
+
+    Walking it through the real states to reach the same place would be worse
+    than inaccurate. `queued` publishes `run_available` to every candidate
+    pool, and `claim_next_run` claims exactly `queued` and `confirmed` — so for
+    as long as that hop lasted, a listener could pick the run up and execute
+    someone's laptop apply a second time on a runner.
+
+    So the row is placed directly in the state it is genuinely in, and the two
+    things `transition_run` would have done for a real apply are done here: the
+    phase clock starts, and the UI is told.
+    """
+    run.status = "applying"
+    run.apply_started_at = now_utc()
+    await db.flush()
+    RUNS_TRANSITIONED.labels(from_status="pending", to_status="applying").inc()
+    await _publish_run_event(run, "pending", "applying")
+    await _enqueue_notification(run, "applying")
+    return run
 
 
 async def _enqueue_notification(run: Run, target_status: str) -> None:
@@ -382,6 +441,56 @@ async def _enqueue_drift_completed(run: Run) -> None:
         )
     except Exception as e:
         logger.warning("Failed to enqueue drift completion", error=str(e))
+
+
+async def _enqueue_pulumi_run_ended(db: AsyncSession, run: Run) -> None:
+    """Ask for this run's Pulumi update to be ended, now the run is over (#1882).
+
+    An agent-mode Pulumi run drives Terrapod's own Pulumi service surface, so it
+    holds an update lease and, once it is past preview, the stack. A run that
+    ends without its CLI completing the update leaves both held until the sweep
+    notices the lease has lapsed — up to a poll interval during which the
+    workspace lock holds the next apply back. Terrapod already knows the Job is
+    gone at this point, so it need not wait to be told again.
+
+    Two gates, cheapest first, so a Terraform-only deployment pays nothing:
+
+    - **not plan-only**, because a preview takes neither the stack mutex nor the
+      workspace lock, and `_runner_caps_on` grants a plan-only run no capability
+      to begin anything else;
+    - the **workspace's engine**, which is where a run's engine is recorded
+      (#1536). `db.get` is identity-mapped, so this shares the row with the
+      blocks below rather than costing a second read — which is why dropping the
+      engine gate that used to sit ahead of these (#1986) costs a Terraform
+      deployment nothing: the row it reads is already in the session.
+
+    Deliberately a triggered task rather than inline work: promoting a checkpoint
+    and releasing a lock both commit, and the not-ours path rolls back — on this
+    session that would commit the run transition early and, worse, could roll it
+    back mid-flight. The handler gets its own session, the same way every other
+    side effect enqueued from here does.
+
+    Best-effort by construction: a failed enqueue is logged and the run
+    transition carries on, with the sweep still the backstop.
+    """
+    from terrapod.services.scheduler import enqueue_trigger
+
+    try:
+        if run.plan_only:
+            return
+        ws = await db.get(Workspace, run.workspace_id)
+        if ws is None or ws.engine != "pulumi":
+            return
+        from terrapod.services.pulumi_update_locks import RUN_ENDED_TRIGGER
+
+        await enqueue_trigger(
+            RUN_ENDED_TRIGGER,
+            {"run_id": str(run.id), "workspace_id": str(run.workspace_id)},
+            dedup_key=f"pulumi-run-ended:{run.id}",
+            dedup_ttl=60,
+        )
+    except Exception as e:  # noqa: BLE001 — never break the transition; the sweep still runs
+        logger.warning("Failed to enqueue pulumi run-ended", run_id=str(run.id), error=str(e))
 
 
 async def _publish_run_available(run: Run) -> None:
@@ -595,6 +704,44 @@ async def blocked_by(
     return hold.gate if hold else None
 
 
+#: The statuses a run passes through before anyone has said "apply this".
+#: A saved-plan run is invisible to the workspace's apply slot throughout.
+_PRE_CONFIRM_STATES = frozenset({"pending", "queued", "planning", "planned"})
+
+
+def is_deferred_saved_plan(run: Run) -> bool:
+    """Whether this is a saved-plan run whose apply nobody has asked for yet.
+
+    `terraform plan -out=FILE` (#1903) is apply-capable but **deferred**: it
+    plans immediately and takes the workspace's single apply slot only when the
+    operator later confirms it. Holding a plan file is only meaningful if the
+    workspace is not held meanwhile — an operator who reaches for `-out`
+    precisely to avoid holding the workspace must not get the workspace held.
+
+    So a run answering True here is excluded from every contention decision:
+    it neither blocks another run from planning nor is discarded to make room
+    for one. The moment it is confirmed the answer flips and it contends like
+    any other apply.
+
+    **Not to be confused with `_is_supersedeable_kind`**, immediately below,
+    which answers a different question — "does this run represent the
+    workspace's desired state", used for *staleness*. A deferred saved plan
+    absolutely does go stale: a plan held across someone else's apply is
+    exactly what the state-serial guard exists to refuse. Folding this into
+    that predicate would have made saved plans the one run kind that never
+    expires and never notices the state moving under it.
+    """
+    return bool(run.save_plan) and run.status in _PRE_CONFIRM_STATES
+
+
+def _not_deferred_saved_plan(model) -> object:
+    """`is_deferred_saved_plan` as a SQL predicate over `model` (Run or an alias)."""
+    return or_(
+        model.save_plan.is_(False),
+        model.status.notin_(list(_PRE_CONFIRM_STATES)),
+    )
+
+
 def _is_supersedeable_kind(run: Run) -> bool:
     """True for apply-capable runs that represent the workspace's desired state.
 
@@ -620,6 +767,9 @@ async def _has_newer_live_run(db: AsyncSession, run: Run) -> bool:
             Run.plan_only.is_(False),
             Run.is_drift_detection.is_(False),
             Run.vcs_pull_request_number.is_(None),
+            # A saved plan nobody has confirmed is not the desired state yet,
+            # so it cannot be what supersedes an older run (#1903).
+            _not_deferred_saved_plan(Run),
             Run.created_at > run.created_at,
             Run.status.notin_(list(TERMINAL_STATES)),
         )
@@ -639,7 +789,7 @@ async def supersede_stale_runs(db: AsyncSession, newer: Run) -> int:
     Returns the number of runs superseded. No-op for ineligible ``newer``
     (drift / speculative PR runs).
     """
-    if not _is_supersedeable_kind(newer):
+    if not _is_supersedeable_kind(newer) or is_deferred_saved_plan(newer):
         return 0
 
     result = await db.execute(
@@ -650,6 +800,13 @@ async def supersede_stale_runs(db: AsyncSession, newer: Run) -> int:
             Run.plan_only.is_(False),
             Run.is_drift_detection.is_(False),
             Run.vcs_pull_request_number.is_(None),
+            # A held plan file is not collateral (#1903). Every state in
+            # `_SUPERSEDEABLE_STATES` is pre-confirm, so for a saved-plan run
+            # this is the whole of its deferred life: queueing an ordinary run
+            # must not silently invalidate a plan someone is holding. What DOES
+            # invalidate it is the state moving, and `_staleness_reason`
+            # refuses it at confirm for that reason instead.
+            Run.save_plan.is_(False),
             Run.created_at < newer.created_at,
         )
     )
@@ -730,16 +887,56 @@ def _plan_expired(run: Run, workspace: Workspace | None) -> bool:
     return (now_utc() - run.plan_finished_at).total_seconds() > ttl
 
 
+def _cloud_identity_moved_since_plan(run: Run, workspace: Workspace | None) -> str | None:
+    """The cloud identities this run's plan presented, if any have changed (#1901).
+
+    The apply would otherwise run against real infrastructure under a different
+    identity from the one its plan was reviewed under. The runner's mint path
+    refuses this too, per target — but that happens inside a Job, after it has
+    been scheduled and after `init`, so catching it here fails before anything
+    exists and names what moved.
+
+    **Scoped to what the run actually MINTED for, not what it was configured
+    for.** The configured snapshot is the merged map, so it carries
+    deployment-wide catalogue entries a workspace may never use; checking
+    against that set would mean one edit to the catalogue refusing every pending
+    apply in the fleet, including runs whose own identity had not moved at all.
+
+    A target the catalogue has gained since the plan is deliberately NOT a
+    staleness cause: the mint reads the run's snapshot, so a new target yields
+    no token at apply exactly as it yielded none at plan, and the identity the
+    apply presents is unchanged.
+    """
+    if workspace is None:
+        return None
+    minted = [str(t) for t in (run.oidc_minted_targets or [])]
+    if not minted:
+        return None
+
+    from terrapod.config import settings
+    from terrapod.services import cloud_identity_resolver
+
+    live = cloud_identity_resolver.resolve_for_workspace(workspace, settings=settings)
+    changed = cloud_identity_resolver.changed_targets(run.oidc_audiences or {}, live, minted)
+    if not changed:
+        return None
+    return "cloud identity configuration changed since plan (" + ", ".join(changed) + ")"
+
+
 async def _staleness_reason(db: AsyncSession, run: Run, workspace: Workspace | None) -> str | None:
     """The reason an apply-capable planned run may no longer be applied, or None
     if it is still fresh. State drift (#647) is a correctness guard checked first;
-    time-based expiry (#646) second. Plan-only / drift / speculative runs never
-    go stale (they never apply)."""
+    cloud identity drift (#1901) second, because both are "the world moved" and a
+    named cause beats a generic timeout; time-based expiry (#646) last. Plan-only
+    / drift / speculative runs never go stale (they never apply)."""
     if not _is_supersedeable_kind(run):
         return None
     moved_to = await _state_moved_since_plan(db, run)
     if moved_to is not None:
         return f"state changed since plan (serial {run.plan_state_serial} -> {moved_to})"
+    identity_moved = _cloud_identity_moved_since_plan(run, workspace)
+    if identity_moved is not None:
+        return identity_moved
     if _plan_expired(run, workspace):
         return f"plan expired after {workspace.plan_expiry_seconds}s"
     return None
@@ -847,12 +1044,17 @@ async def create_run(
     refresh_only: bool = False,
     refresh: bool = True,
     allow_empty_apply: bool = False,
+    save_plan: bool = False,
 ) -> Run:
     """Create a new run for a workspace.
 
     The run starts in 'pending' status and transitions to 'queued'
     when a configuration version is uploaded (or immediately if none needed).
     """
+    # Imported here rather than at module scope, matching this module's own
+    # convention for `settings` (see the other local import above).
+    from terrapod.config import settings
+
     await ha_role.ensure_leader("create runs")
 
     # A run against a SPECULATIVE configuration version is always plan-only.
@@ -945,6 +1147,18 @@ async def create_run(
         resource_cpu=workspace.resource_cpu,
         parallelism=workspace.parallelism,
         resource_memory=workspace.resource_memory,
+        # The RESOLVED mapping — the workspace's override already merged over
+        # the deployment catalogue — snapshotted for the same reason as the
+        # resources above (#1901). Resolved here rather than at mint time so
+        # both phases of a run agree, and so this is a record of what the plan
+        # was reviewed under.
+        #
+        # It is NOT a licence to mint from a stale value: the mint path
+        # re-resolves the requested target and refuses when it no longer matches
+        # this, because minting from the snapshot alone would hand the apply a
+        # token the cloud has since stopped accepting and the failure would land
+        # inside the engine, possibly after a partial apply.
+        oidc_audiences=cloud_identity_resolver.resolve_for_workspace(workspace, settings=settings),
         pool_id=pool_id,
         pool_extra_ids=pool_extra_ids,
         created_by=created_by,
@@ -954,6 +1168,7 @@ async def create_run(
         refresh_only=refresh_only,
         refresh=refresh,
         allow_empty_apply=allow_empty_apply,
+        save_plan=save_plan,
     )
     db.add(run)
     await db.flush()
@@ -1180,6 +1395,24 @@ async def transition_run(
             ws.lifecycle_state = "archived"
             kind = "autodiscovery" if run.source == "autodiscovery-lifecycle" else "catalog"
             ws.lifecycle_reason = f"{kind} destroy completed — archived"
+
+    # An agent Pulumi run that ended without its CLI completing the update leaves
+    # the stack held (#1882). Every terminal state, `applied` included: a CLI that
+    # died just after its last checkpoint leaves the same residue as one that was
+    # killed, and the handler is a no-op when the update was completed properly.
+    if target_status in TERMINAL_STATES:
+        await _enqueue_pulumi_run_ended(db, run)
+
+    # The run's own runner tokens stop working here (GHSA-xmrf-hxq9-m59m). A
+    # runner token is a stateless HMAC good for its whole TTL — up to two hours —
+    # so without this a token from a finished run, or one sitting in a lingering
+    # debug pod, kept authenticating long after there was anything legitimate
+    # left for it to do. Best-effort: the auth path also checks the run's status,
+    # so this makes the revocation PROMPT rather than making it correct.
+    if target_status in TERMINAL_STATES:
+        from terrapod.auth.runner_token_state import revoke_run_tokens
+
+        await revoke_run_tokens(run.id)
 
     # Enqueue notification for this status change
     await _enqueue_notification(run, target_status)
@@ -1573,6 +1806,7 @@ async def _complete_plan(
     if (
         run.status == "planned"
         and _is_supersedeable_kind(run)
+        and not is_deferred_saved_plan(run)
         and await _has_newer_live_run(db, run)
     ):
         run = await discard_run(db, run)
@@ -1899,6 +2133,33 @@ async def _check_mergeability_or_block(db: AsyncSession, run: Run) -> None:
     run.vcs_apply_blocked_reason = None
 
 
+async def _apply_slot_holder(db: AsyncSession, run: Run) -> Run | None:
+    """The other run currently holding this workspace's single apply slot, if any.
+
+    Only a saved-plan run needs to ask (#1903). Every other apply-capable run
+    was already refused the slot at dispatch, by the gate in `claim_next_run`;
+    a saved-plan run skipped that gate deliberately so it could plan straight
+    away, so this is where it pays for it — at the moment its apply begins.
+
+    The status set is the dispatcher's, so the two agree on what "in flight"
+    means: a run that has planned and is awaiting confirmation holds the slot
+    just as firmly as one mid-apply, because confirming it is one click away.
+    """
+    other = aliased(Run)
+    return await db.scalar(
+        select(other)
+        .where(
+            other.workspace_id == run.workspace_id,
+            other.id != run.id,
+            other.plan_only.is_(False),
+            other.is_drift_detection.is_(False),
+            _not_deferred_saved_plan(other),
+            other.status.in_(["planning", "planned", "confirmed", "applying", "canceling"]),
+        )
+        .limit(1)
+    )
+
+
 async def confirm_run(db: AsyncSession, run: Run) -> Run:
     """Confirm a planned run for apply.
 
@@ -1917,6 +2178,25 @@ async def confirm_run(db: AsyncSession, run: Run) -> Run:
         raise ValueError(
             f'workspace is locked (lock ID: "{workspace.lock_id}") — unlock before applying'
         )
+    # A saved-plan run deferred this question at dispatch so it could plan
+    # without holding the workspace (#1903). Confirming it is the moment the
+    # apply starts, so the serialization it skipped applies now: one mutating
+    # run per workspace, as for every other apply.
+    #
+    # Refused rather than queued or superseded, deliberately. Queueing would
+    # make `terraform apply FILE` block on somebody else's run with no way to
+    # say so; superseding would discard their planned run to make room for a
+    # plan made before theirs. Refusing says what is true and leaves both
+    # decisions with the operator — and if the other run applies, the
+    # state-serial guard below will correctly refuse this plan anyway.
+    if run.save_plan:
+        holder = await _apply_slot_holder(db, run)
+        if holder is not None:
+            raise ValueError(
+                f"another run ({str(holder.id)[:8]}, {holder.status}) is already "
+                "applying or awaiting confirmation on this workspace — a saved plan "
+                "can only be applied when the workspace is free"
+            )
     # Staleness guards (#646 expiry, #647 state drift): a plan that no longer
     # reflects the current state, or has aged past the workspace TTL, must not be
     # applied. Auto-discard it and surface a 409 so the
@@ -2386,6 +2666,11 @@ async def claim_next_run(
                     other.id != Run.id,
                     other.plan_only.is_(False),
                     other.is_drift_detection.is_(False),
+                    # A saved-plan run holds nothing until it is confirmed
+                    # (#1903), so it must not be what blocks somebody else.
+                    # Once confirmed its status leaves the pre-confirm set and
+                    # it counts here like any other apply.
+                    _not_deferred_saved_plan(other),
                     other.status.in_(["planning", "planned", "confirmed", "applying", "canceling"]),
                 )
                 .exists()
@@ -2398,6 +2683,12 @@ async def claim_next_run(
             conditions.append(
                 or_(
                     Run.plan_only.is_(True),
+                    # The other half of the same rule: a saved-plan run plans
+                    # immediately rather than queueing behind the workspace,
+                    # which is what `-out` is for. It is apply-capable, so it
+                    # meets this gate — at confirm, in `confirm_run`, where the
+                    # apply it was deferring actually begins.
+                    Run.save_plan.is_(True),
                     and_(not_(ws_locked), not_(in_flight)),
                 )
             )

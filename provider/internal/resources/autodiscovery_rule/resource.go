@@ -25,6 +25,7 @@
 //	"agent-pool-id"      -> agent_pool_id       (string, optional)
 //	"engine-version"     -> engine_version      (string, optional+computed; `terraform_version` is its deprecated alias)
 //	"terraform-version"  -> terraform_version   (string, optional+computed, deprecated)
+//	"ansible-version"    -> ansible_version     (string, optional; empty inherits the deployment default)
 //	"parallelism"        -> parallelism
 //	"resource-cpu"       -> resource_cpu        (string, optional, default "1")
 //	"resource-memory"    -> resource_memory     (string, optional, default "2Gi")
@@ -101,6 +102,7 @@ type autodiscoveryRuleModel struct {
 	AgentPoolID       types.String `tfsdk:"agent_pool_id"`
 	EngineVersion     types.String `tfsdk:"engine_version"`
 	TerraformVersion  types.String `tfsdk:"terraform_version"`
+	AnsibleVersion    types.String `tfsdk:"ansible_version"`
 	ResourceCPU       types.String `tfsdk:"resource_cpu"`
 	Parallelism       types.Int64  `tfsdk:"parallelism"`
 	ResourceMemory    types.String `tfsdk:"resource_memory"`
@@ -115,10 +117,12 @@ type autodiscoveryRuleModel struct {
 	SecurityScanEngine            types.String `tfsdk:"security_scan_engine"`
 	SecurityScanSeverityThreshold types.String `tfsdk:"security_scan_severity_threshold"`
 	SecurityScanSkipRules         types.List   `tfsdk:"security_scan_skip_rules"`
+	OIDCAudiences                 types.Map    `tfsdk:"oidc_audiences"`
 	AISummaryMode                 types.String `tfsdk:"ai_summary_mode"`
 	AIPolicyMode                  types.String `tfsdk:"ai_policy_mode"`
 	AISummaryContext              types.String `tfsdk:"ai_summary_context"`
 	DebugMode                     types.Bool   `tfsdk:"debug_mode"`
+	AllowForkPRPlans              types.Bool   `tfsdk:"allow_fork_pr_plans"`
 	TerragruntEnabled             types.Bool   `tfsdk:"terragrunt_enabled"`
 	TerragruntVersion             types.String `tfsdk:"terragrunt_version"`
 	VCSWorkflow                   types.String `tfsdk:"vcs_workflow"`
@@ -316,9 +320,27 @@ func (r *autodiscoveryRuleResource) Schema(_ context.Context, _ resource.SchemaR
 				// Neither attribute carries a client-side Default: the two are one
 				// version, so a default on either would fill it in while the operator
 				// set the other, and the value read back after apply would not match
-				// the plan. The server's column default ("1.12") supplies it instead
+				// the plan. The server's column default ("1.13") supplies it instead
 				// — which also fixes this attribute having defaulted to "1.11",
 				// contradicting the server, since the rule resource shipped (#1559).
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+				},
+			},
+			"ansible_version": schema.StringAttribute{
+				Description: "The ansible-core version this workspace's configure " +
+					"operations use. An exact version such as `2.21.5`, optionally with a " +
+					"pre-release suffix (`2.21.5rc1`); no HCL constraint operators and not " +
+					"`latest`. Left unset the server supplies the deployment default " +
+					"(`api.config.default_ansible_version`) at creation, which is then the " +
+					"workspace's own value — raising that default moves only workspaces " +
+					"created afterwards, exactly as `engine_version` behaves.",
+				// Optional+Computed with UseStateForUnknown, following
+				// `engine_version` above. The server always returns a concrete
+				// version, so Optional alone would put the server's value into
+				// state against a null config and diff for ever.
+				Optional: true,
+				Computed: true,
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.UseStateForUnknown(),
 				},
@@ -433,6 +455,15 @@ func (r *autodiscoveryRuleResource) Schema(_ context.Context, _ resource.SchemaR
 				Optional:    true,
 				ElementType: types.StringType,
 			},
+			"oidc_audiences": schema.MapAttribute{
+				Description: "Per-provider-configuration audiences templated onto workspaces this rule creates (#1901), and their cloud identity override. A key is the provider configuration the token is for, exactly as written in a `provider` block — `aws`, `vault`, or `aws.west` for one aliased configuration; the alias is part of the key, not a nested structure. The value is always a list, even for a single audience, because several mean \"these are interchangeable for this target\" and some targets refuse a multi-valued `aud`. Each audience is an opaque string the federation target itself names; nothing here is specific to any one cloud. Unset (the default) means those workspaces take the deployment's audience catalogue alone. Changing it affects workspaces the rule creates from now on, not ones it has already created.",
+				Optional:    true,
+				Computed:    true,
+				ElementType: audienceElemType,
+				PlanModifiers: []planmodifier.Map{
+					mapplanmodifier.UseStateForUnknown(),
+				},
+			},
 			"ai_summary_mode": schema.StringAttribute{
 				Description: "AI plan-summary opt-in for workspaces this rule creates: `default` (follow the deployment setting), `enabled`, or `disabled`.",
 				Optional:    true,
@@ -462,6 +493,14 @@ func (r *autodiscoveryRuleResource) Schema(_ context.Context, _ resource.SchemaR
 			// default instead of planning a change on every run (#684).
 			"debug_mode": schema.BoolAttribute{
 				Description: "Hold failed runner pods open for inspection on workspaces this rule creates.",
+				Optional:    true,
+				Computed:    true,
+				PlanModifiers: []planmodifier.Bool{
+					boolplanmodifier.UseStateForUnknown(),
+				},
+			},
+			"allow_fork_pr_plans": schema.BoolAttribute{
+				Description: "Give fork pull requests a speculative plan on workspaces this rule creates. Defaults to false: such a plan runs the pull request author's code with the workspace's full credential set, and a fork author cannot merge, so it is the only path by which their code reaches those credentials (GHSA-gp5w-76rw-c452). Pull requests opened from branches within the repository itself are unaffected and always plan.",
 				Optional:    true,
 				Computed:    true,
 				PlanModifiers: []planmodifier.Bool{
@@ -765,6 +804,44 @@ func (r *autodiscoveryRuleResource) ImportState(ctx context.Context, req resourc
 	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }
 
+// audienceElemType is the element type of oidc_audiences (#1901): a LIST of
+// audiences per provider configuration. One audience is still a one-element
+// list; several mean "interchangeable for this target", which some federation
+// targets refuse — so the shape never collapses to a scalar.
+var audienceElemType = types.ListType{ElemType: types.StringType}
+
+// audienceMapForAttrs converts a planned oidc_audiences map into the wire
+// shape, returning nil when the attribute must be omitted from the request
+// (#1901).
+//
+// nil and an empty map are different instructions: nil means "the configuration
+// does not mention this, leave the rule's value alone", while an explicit `{}`
+// drops every templated override so new workspaces take the deployment's
+// audience catalogue alone. The caller sends on `!= nil`, so collapsing them
+// would make the opt-out a silent no-op.
+func audienceMapForAttrs(m types.Map) map[string][]string {
+	if m.IsNull() || m.IsUnknown() {
+		return nil
+	}
+	out := make(map[string][]string, len(m.Elements()))
+	for k, v := range m.Elements() {
+		l, ok := v.(types.List)
+		if !ok || l.IsNull() || l.IsUnknown() {
+			// Send the key with no audiences rather than dropping it: the
+			// server refuses an empty list (422) and names the key, which is
+			// more use than silently omitting what the config wrote.
+			out[k] = []string{}
+			continue
+		}
+		auds := make([]string, 0, len(l.Elements()))
+		for _, e := range l.Elements() {
+			auds = append(auds, e.(types.String).ValueString())
+		}
+		out[k] = auds
+	}
+	return out
+}
+
 // buildAutodiscoveryRuleAttrs converts the Terraform model into JSON:API
 // attributes for create/update. Computed-only attributes are omitted.
 func buildAutodiscoveryRuleAttrs(m *autodiscoveryRuleModel) map[string]any {
@@ -815,6 +892,9 @@ func buildAutodiscoveryRuleAttrs(m *autodiscoveryRuleModel) map[string]any {
 		attrs["engine-version"] = m.EngineVersion.ValueString()
 	} else if !m.TerraformVersion.IsNull() && !m.TerraformVersion.IsUnknown() {
 		attrs["engine-version"] = m.TerraformVersion.ValueString()
+	}
+	if !m.AnsibleVersion.IsNull() && !m.AnsibleVersion.IsUnknown() {
+		attrs["ansible-version"] = m.AnsibleVersion.ValueString()
 	}
 	if !m.Parallelism.IsNull() && !m.Parallelism.IsUnknown() {
 		attrs["parallelism"] = m.Parallelism.ValueInt64()
@@ -888,11 +968,15 @@ func buildAutodiscoveryRuleAttrs(m *autodiscoveryRuleModel) map[string]any {
 		}
 		attrs["security-scan-skip-rules"] = rules
 	}
+	if auds := audienceMapForAttrs(m.OIDCAudiences); auds != nil {
+		attrs["oidc-audiences"] = auds
+	}
 	for _, f := range []struct {
 		key string
 		val types.Bool
 	}{
 		{"debug-mode", m.DebugMode},
+		{"allow-fork-pr-plans", m.AllowForkPRPlans},
 		{"terragrunt-enabled", m.TerragruntEnabled},
 		{"auto-merge", m.AutoMerge},
 		{"drift-detection-enabled", m.DriftDetectionEnabled},
@@ -1052,6 +1136,14 @@ func readAutodiscoveryRuleIntoModel(ctx context.Context, res *terrapod.Resource,
 	}
 	m.EngineVersion = types.StringValue(engineVersion)
 	m.TerraformVersion = types.StringValue(engineVersion)
+	// Optional-only (#2010): empty means a created workspace pins no version
+	// and inherits the deployment default, so an unset rule stays null and
+	// produces no spurious diff.
+	if v := terrapod.GetStringAttr(res, "ansible-version"); v != "" {
+		m.AnsibleVersion = types.StringValue(v)
+	} else {
+		m.AnsibleVersion = types.StringNull()
+	}
 	m.Parallelism = types.Int64Value(terrapod.GetIntAttr(res, "parallelism"))
 	m.ResourceCPU = types.StringValue(terrapod.GetStringAttr(res, "resource-cpu"))
 	m.ResourceMemory = types.StringValue(terrapod.GetStringAttr(res, "resource-memory"))
@@ -1098,6 +1190,7 @@ func readAutodiscoveryRuleIntoModel(ctx context.Context, res *terrapod.Resource,
 	m.AutoMergeStrategy = types.StringValue(terrapod.GetStringAttr(res, "auto-merge-strategy"))
 	m.SlackChannel = types.StringValue(terrapod.GetStringAttr(res, "slack-channel"))
 	m.DebugMode = types.BoolValue(terrapod.GetBoolAttr(res, "debug-mode"))
+	m.AllowForkPRPlans = types.BoolValue(terrapod.GetBoolAttr(res, "allow-fork-pr-plans"))
 	m.TerragruntEnabled = types.BoolValue(terrapod.GetBoolAttr(res, "terragrunt-enabled"))
 	m.AutoMerge = types.BoolValue(terrapod.GetBoolAttr(res, "auto-merge"))
 	m.DriftDetectionEnabled = types.BoolValue(terrapod.GetBoolAttr(res, "drift-detection-enabled"))
@@ -1122,6 +1215,18 @@ func readAutodiscoveryRuleIntoModel(ctx context.Context, res *terrapod.Resource,
 		m.SecurityScanSkipRules = v
 	} else {
 		m.SecurityScanSkipRules = types.ListNull(types.StringType)
+	}
+	// A FULL read, unlike the workspace resource's selective one (#1901). A rule
+	// is a template, not a workspace: the server stores and returns the rule's
+	// own map with nothing merged into it, so every key that comes back is one
+	// this configuration wrote. The deployment catalogue is merged per workspace
+	// at mint time, which is downstream of here.
+	if auds := terrapod.GetAudienceMapAttr(res, "oidc-audiences"); len(auds) > 0 {
+		v, d := types.MapValueFrom(ctx, audienceElemType, auds)
+		diags.Append(d...)
+		m.OIDCAudiences = v
+	} else {
+		m.OIDCAudiences = types.MapNull(audienceElemType)
 	}
 
 	// Optional templating fields (#318). Tolerate missing/empty: an

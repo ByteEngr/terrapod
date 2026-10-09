@@ -4,6 +4,7 @@ import re
 
 from terrapod.config import RunnerConfig
 from terrapod.logging_config import get_logger
+from terrapod.runner.phases.cloud_identity import TOKEN_DIR as OIDC_TOKEN_DIR
 from terrapod.runner.reserved_env import is_reserved_env_key
 
 logger = get_logger(__name__)
@@ -207,8 +208,13 @@ def build_job_spec(
             variable value is plaintext in the Job spec.
         env_vars: Workspace env vars [{key, value}] — keys referenced via
             secretKeyRef into vars_secret_name.
-        terraform_vars: Terraform vars [{key, value, structured}] — presence triggers
-            the mounted tfvars volume; the entrypoint renders the file.
+        terraform_vars: The engine's own parameter channel (#1898),
+            [{key, value, structured, sensitive}] — presence triggers the
+            mounted tfvars volume. One list for every engine, because they are
+            one role with three deliveries; the entrypoint dispatches on the
+            run's engine (a tfvars file for Terraform, `pulumi config set` for
+            Pulumi). The name keeps its Terraform spelling because a runner up
+            to N-2 minors behind reads this exact key.
         resource_cpu: CPU request (e.g. "1", "500m").
         parallelism: How many operations the engine runs at once (#1431).
         resource_memory: Memory request (e.g. "2Gi", "256Mi").
@@ -469,6 +475,20 @@ def build_job_spec(
                         # and equally affects anything else consulting it: helm's
                         # repository cache, kubectl's, the AWS CLI's config.
                         {"name": "home", "emptyDir": {}},
+                        # The cloud identity tokens the credential phase writes
+                        # (#1901). Needed for exactly the #1442 reason three
+                        # lines above: `readOnlyRootFilesystem` below makes
+                        # /var/run/terrapod read-only, and the sibling paths
+                        # there (vars, files) are read-only Secret mounts, so
+                        # without this the phase's first `mkdir` fails EROFS —
+                        # which it reports as CloudIdentityUnavailable, failing
+                        # every federated run.
+                        #
+                        # `medium: Memory` because these are bearer credentials
+                        # for the workspace's cloud identity: a tmpfs keeps them
+                        # off the node's disk, and they live only as long as the
+                        # Job.
+                        {"name": "oidc", "emptyDir": {"medium": "Memory"}},
                     ],
                     "containers": [
                         {
@@ -499,6 +519,7 @@ def build_job_spec(
                                 {"name": "workspace", "mountPath": "/workspace"},
                                 {"name": "tmp", "mountPath": "/tmp"},
                                 {"name": "home", "mountPath": "/home/runner"},
+                                {"name": "oidc", "mountPath": str(OIDC_TOKEN_DIR)},
                             ],
                         }
                     ],
